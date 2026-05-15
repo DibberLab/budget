@@ -1,0 +1,19 @@
+# Secrets — never commit
+.env
+
+# Database
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Python
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+instance/
+
+# Backups / uploads
+*.gz
+uploads/

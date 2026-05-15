@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Users{% endblock %}
+{% block content %}
+<h3>Household Users</h3>
+<p class="text-muted">This budget is shared across up to {{ max_users }} users. You're using {{ users|length }} of {{ max_users }}.</p>
+
+<div class="row g-3">
+  <div class="col-md-5">
+    <div class="card-soft p-3">
+      <h5>Invite second user</h5>
+      {% if can_add %}
+      <form method="post">
+        {{ csrf() }}
+        <div class="mb-2"><label class="form-label small">Display name</label>
+          <input class="form-control" name="display_name"></div>
+        <div class="mb-2"><label class="form-label small">Email</label>
+          <input class="form-control" type="email" name="email" required></div>
+        <div class="mb-2"><label class="form-label small">Initial password</label>
+          <input class="form-control" type="password" name="password" minlength="10" required>
+          <div class="form-text">Share this password securely (1Password, Signal, etc.). They can change it after first sign-in.</div>
+        </div>
+        <button class="btn btn-primary">Create user</button>
+      </form>
+      {% else %}
+      <p class="text-muted mb-0">User limit reached.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-md-7">
+    <div class="card-soft p-3">
+      <h5>Existing users</h5>
+      <table class="table align-middle">
+        <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Last sign-in</th><th></th></tr></thead>
+        <tbody>
+        {% for u in users %}
+          <tr>
+            <td>{{ u.display_name }}</td>
+            <td>{{ u.email }}</td>
+            <td>{% if u.is_admin %}<span class="badge bg-warning text-dark">admin</span>{% else %}member{% endif %}</td>
+            <td>{{ u.last_login_at.strftime('%Y-%m-%d %H:%M') if u.last_login_at else '—' }}</td>
+            <td class="text-end">
+              <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#pw-{{ u.id }}">Reset password</button>
+              {% if not u.is_admin %}
+              <form method="post" action="{{ url_for('auth.user_delete', uid=u.id) }}" class="d-inline" onsubmit="return confirm('Remove this user?');">
+                {{ csrf() }}
+                <button class="btn btn-sm btn-outline-danger">Remove</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          <tr id="pw-{{ u.id }}" class="collapse">
+            <td colspan="5">
+              <form method="post" action="{{ url_for('auth.user_change_password', uid=u.id) }}" class="d-flex gap-2">
+                {{ csrf() }}
+                <input class="form-control form-control-sm" type="password" name="password" placeholder="New password (10+ chars)" minlength="10" required>
+                <button class="btn btn-sm btn-primary">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

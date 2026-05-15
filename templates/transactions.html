@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Transactions{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Transactions</h3>
+  <div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import CSV</a>
+    <a class="btn btn-primary" href="{{ url_for('transaction_new') }}">+ New</a>
+  </div>
+</div>
+
+<form class="card-soft p-3 mb-3 d-flex gap-2 align-items-end flex-wrap" method="get">
+  <div>
+    <label class="form-label small mb-1">Account</label>
+    <select class="form-select form-select-sm" name="account_id">
+      <option value="">All accounts</option>
+      {% for a in accounts %}
+        <option value="{{ a.id }}" {% if filter_account == a.id %}selected{% endif %}>{{ a.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div>
+    <label class="form-label small mb-1">Category</label>
+    <select class="form-select form-select-sm" name="category_id">
+      <option value="">All categories</option>
+      {% for c in categories %}
+        <option value="{{ c.id }}" {% if filter_category == c.id %}selected{% endif %}>{{ c.group_name }} / {{ c.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <button class="btn btn-sm btn-outline-primary">Filter</button>
+  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transactions_list') }}">Clear</a>
+</form>
+
+<div class="card-soft p-3">
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th>Date</th><th>Account</th><th>Payee</th><th>Category</th>
+        <th>Memo</th><th class="text-end">Amount</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for t in txns %}
+      <tr>
+        <td>{{ t.date }}</td>
+        <td>{{ t.account.name }}</td>
+        <td>{{ t.payee or '—' }}</td>
+        <td>
+          <select class="form-select form-select-sm js-cat" data-tid="{{ t.id }}" style="max-width:220px;">
+            <option value="">— uncategorized —</option>
+            {% for c in categories %}
+              <option value="{{ c.id }}" {% if t.category_id == c.id %}selected{% endif %}>{{ c.group_name }} / {{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
+        <td><span class="text-muted small">{{ t.memo }}</span>{% if t.source != 'manual' %} <span class="badge bg-light text-dark">{{ t.source }}</span>{% endif %}</td>
+        <td class="text-end {% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}">{{ t.amount | money }}</td>
+        <td class="text-end">
+          <form method="post" action="{{ url_for('transaction_delete', tid=t.id) }}" onsubmit="return confirm('Delete this transaction?');">
+            {{ csrf() }}
+            <button class="btn btn-sm btn-outline-danger">×</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" class="text-center text-muted py-4">No transactions match.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.js-cat').forEach(sel => {
+    sel.addEventListener('change', async () => {
+      const tid = sel.dataset.tid;
+      const fd = new FormData();
+      fd.append('category_id', sel.value);
+      await fetch(`/transactions/${tid}/categorize`, { method: 'POST', body: fd });
+    });
+  });
+</script>
+{% endblock %}

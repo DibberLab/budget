@@ -1,0 +1,73 @@
+# nginx site config for budget.dibberlab.me
+#
+# This server sits BEHIND Cloudflare. Cloudflare terminates TLS at its edge
+# and forwards plain HTTP to nginx on port 80. (If you later switch
+# Cloudflare to "Full" mode, you'll also want to add a `listen 443 ssl`
+# block — see deploy/DEPLOY_NGINX.md.)
+#
+# Install:
+#   sudo cp /var/www/budget/deploy/budget.nginx /etc/nginx/sites-available/budget
+#   sudo ln -sf /etc/nginx/sites-available/budget /etc/nginx/sites-enabled/budget
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# Don't forget to also include the Cloudflare real-IP snippet from
+# deploy/cloudflare-real-ip.conf in your nginx http {} block, otherwise
+# rate limiting will treat every request as coming from a Cloudflare IP.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name budget.dibberlab.me;
+
+    # Drop oversized requests at nginx (CSV imports max out at 16 MB).
+    client_max_body_size 16M;
+
+    # Security headers. HSTS is set at the Cloudflare edge already, but
+    # the rest are defense-in-depth in case anything ever bypasses CF.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-Frame-Options "DENY" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
+
+    # Cache static assets aggressively — they're versioned by content and
+    # don't change between deploys.
+    location /static/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header Host $host;
+        expires 30d;
+        add_header Cache-Control "public, max-age=2592000, immutable";
+    }
+
+    # Health endpoint stays unauthenticated; useful for uptime checks.
+    location = /healthz {
+        proxy_pass http://127.0.0.1:8000;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+
+        # HTTP/1.1 is required for keepalive to the upstream.
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # Standard forwarded-* headers.
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+
+        # *** Important: hardcode 'https' here, not $scheme. ***
+        # Cloudflare always serves HTTPS to users; the hop between CF and
+        # this nginx is HTTP, so $scheme would lie to Flask and break
+        # secure-cookie sessions.
+        proxy_set_header X-Forwarded-Proto https;
+
+        proxy_set_header X-Forwarded-Host  $host;
+
+        # Reasonable timeouts. The 60s read timeout is plenty for any normal
+        # page; bump it if you ever do heavy synchronous Plaid syncs.
+        proxy_connect_timeout 5s;
+        proxy_send_timeout    30s;
+        proxy_read_timeout    60s;
+    }
+}

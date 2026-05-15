@@ -1,0 +1,54 @@
+# Production deployment for budget.dibberlab.me
+#
+# Two services:
+#   app   - Flask + gunicorn, exposes :8000 on the internal Docker network
+#   caddy - Reverse proxy that terminates TLS using automatic Let's Encrypt
+#
+# The SQLite database is persisted in a named volume (budget-data) mounted at
+# /data inside the app container, and at ./backups/data on the host for the
+# nightly backup script to read.
+
+services:
+  app:
+    build: .
+    image: budget-app:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      # Defaults; .env can override.
+      FLASK_ENV: production
+      DATABASE_URL: sqlite:////data/budget.db
+    volumes:
+      - budget-data:/data
+    expose:
+      - "8000"
+    networks:
+      - internal
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"   # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      - internal
+    depends_on:
+      - app
+
+volumes:
+  # The SQLite DB lives here. Back this up.
+  budget-data:
+  # Caddy's certificate store; backed up so renewals survive recreates.
+  caddy-data:
+  caddy-config:
+
+networks:
+  internal:
+    driver: bridge

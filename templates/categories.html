@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Categories{% endblock %}
+{% block content %}
+<h3>Categories</h3>
+<div class="row g-3">
+  <div class="col-md-4">
+    <form method="post" class="card-soft p-3">
+      {{ csrf() }}
+      <h5>Add Category</h5>
+      <div class="mb-2"><label class="form-label small">Group</label>
+        <input class="form-control" name="group_name" placeholder="e.g. Bills"></div>
+      <div class="mb-2"><label class="form-label small">Name</label>
+        <input class="form-control" name="name" required></div>
+      <div class="form-check mb-2">
+        <input class="form-check-input" type="checkbox" name="is_income" id="ii">
+        <label class="form-check-label" for="ii">Income category</label>
+      </div>
+      <button class="btn btn-primary">Add</button>
+    </form>
+  </div>
+  <div class="col-md-8">
+    <div class="card-soft p-3">
+    {% for group, cats in groups.items() %}
+      <h6 class="text-uppercase small text-muted mt-3">{{ group }}</h6>
+      <ul class="list-unstyled">
+      {% for c in cats %}
+        <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
+          <span>{{ c.name }} {% if c.is_income %}<span class="badge bg-success">income</span>{% endif %}</span>
+          <form method="post" action="{{ url_for('category_delete', cid=c.id) }}" onsubmit="return confirm('Delete this category? Transactions become uncategorized.');">
+            {{ csrf() }}
+            <button class="btn btn-sm btn-link text-danger">Delete</button>
+          </form>
+        </li>
+      {% endfor %}
+      </ul>
+    {% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

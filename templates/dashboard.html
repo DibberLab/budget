@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – Local Budget{% endblock %}
+{% block content %}
+
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="kpi {% if net_worth >= 0 %}positive{% else %}negative{% endif %}">
+      <div class="label">Net Worth</div>
+      <div class="value">{{ net_worth | money }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi">
+      <div class="label">On-Budget Cash</div>
+      <div class="value">{{ on_budget_total | money }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi positive">
+      <div class="label">Income this month</div>
+      <div class="value">{{ income_this_month | money }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="kpi negative">
+      <div class="label">Spent this month</div>
+      <div class="value">{{ (spent * -1) | money }}</div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card-soft p-3 mb-3">
+      <h5 class="mb-3">Income vs. Expense (last 6 months)</h5>
+      <div class="chart-wrap"><canvas id="ieChart"></canvas></div>
+    </div>
+    <div class="card-soft p-3">
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h5 class="mb-0">Recent Transactions</h5>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transactions_list') }}">View all</a>
+      </div>
+      <table class="table table-sm mb-0">
+        <thead><tr><th>Date</th><th>Payee</th><th>Account</th><th>Category</th><th class="text-end">Amount</th></tr></thead>
+        <tbody>
+        {% for t in recent %}
+          <tr>
+            <td>{{ t.date }}</td>
+            <td>{{ t.payee or '–' }}</td>
+            <td>{{ t.account.name }}</td>
+            <td>{{ t.category.name if t.category else '—' }}</td>
+            <td class="text-end {% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}">{{ t.amount | money }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="5" class="text-muted text-center py-4">No transactions yet. <a href="{{ url_for('transaction_new') }}">Add one</a>.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="col-lg-5">
+    <div class="card-soft p-3 mb-3">
+      <h5 class="mb-3">Accounts</h5>
+      {% if accounts %}
+      <ul class="list-unstyled mb-0">
+      {% for a in accounts %}
+        <li class="d-flex justify-content-between align-items-center py-2 border-bottom">
+          <div>
+            <span class="account-pill {{ a.type }}">{{ a.type }}</span>
+            <a class="ms-2" href="{{ url_for('transactions_list', account_id=a.id) }}">{{ a.name }}</a>
+          </div>
+          <div class="{% if a.balance >= 0 %}money-pos{% else %}money-neg{% endif %}">{{ a.balance | money }}</div>
+        </li>
+      {% endfor %}
+      </ul>
+      {% else %}
+        <p class="text-muted">No accounts yet. <a href="{{ url_for('account_new') }}">Add one</a> to get started.</p>
+      {% endif %}
+    </div>
+
+    <div class="card-soft p-3">
+      <h5 class="mb-3">This Month's Budget</h5>
+      <div class="row g-2 text-center">
+        <div class="col"><div class="text-muted small">Assigned</div><div class="fw-bold">{{ assigned | money }}</div></div>
+        <div class="col"><div class="text-muted small">Spent</div><div class="fw-bold">{{ (spent * -1) | money }}</div></div>
+        <div class="col"><div class="text-muted small">Remaining</div><div class="fw-bold">{{ (assigned + spent) | money }}</div></div>
+      </div>
+      <a class="btn btn-primary w-100 mt-3" href="{{ url_for('budget_view') }}">Open envelope budget</a>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script>
+  const ctx = document.getElementById('ieChart');
+  new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: {{ chart_labels | tojson }},
+      datasets: [
+        { label: 'Income',  data: {{ chart_income | tojson }},  backgroundColor: '#198754' },
+        { label: 'Expense', data: {{ chart_expense | tojson }}, backgroundColor: '#dc3545' },
+      ]
+    },
+    options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+  });
+</script>
+{% endblock %}

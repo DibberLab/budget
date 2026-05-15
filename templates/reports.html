@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Reports{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Reports</h3>
+  <form method="get" class="d-flex gap-2 align-items-center">
+    <label class="form-label small mb-0">Range:</label>
+    <select class="form-select form-select-sm" name="months" onchange="this.form.submit()">
+      {% for n in [3, 6, 12, 24] %}
+        <option value="{{ n }}" {% if months == n %}selected{% endif %}>Last {{ n }} months</option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="card-soft p-3 mb-3">
+      <h5>Income vs. Expense</h5>
+      <div class="chart-wrap"><canvas id="ie"></canvas></div>
+    </div>
+    <div class="card-soft p-3">
+      <h5>Net Worth Trend</h5>
+      <div class="chart-wrap"><canvas id="nw"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card-soft p-3">
+      <h5>Spending by Category</h5>
+      <div class="chart-wrap tall"><canvas id="cat"></canvas></div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  new Chart(document.getElementById('ie'), {
+    type: 'bar',
+    data: {
+      labels: {{ chart_labels | tojson }},
+      datasets: [
+        { label: 'Income',  data: {{ chart_income | tojson }},  backgroundColor: '#198754' },
+        { label: 'Expense', data: {{ chart_expense | tojson }}, backgroundColor: '#dc3545' }
+      ]
+    },
+    options: { maintainAspectRatio: false }
+  });
+
+  new Chart(document.getElementById('nw'), {
+    type: 'line',
+    data: {
+      labels: {{ nw_labels | tojson }},
+      datasets: [{ label: 'Net Worth', data: {{ nw_values | tojson }},
+                   borderColor: '#4338ca', backgroundColor: 'rgba(67,56,202,.1)', fill: true, tension: .25 }]
+    },
+    options: { maintainAspectRatio: false }
+  });
+
+  new Chart(document.getElementById('cat'), {
+    type: 'doughnut',
+    data: {
+      labels: {{ cat_labels | tojson }},
+      datasets: [{ data: {{ cat_values | tojson }} }]
+    },
+    options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+  });
+</script>
+{% endblock %}

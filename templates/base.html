@@ -1,0 +1,91 @@
+{% from "_macros.html" import csrf %}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}Household Budget{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
+</head>
+<body>
+<nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+  <div class="container-fluid">
+    <a class="navbar-brand" href="{{ url_for('dashboard') }}">
+      <span class="brand-dot"></span> Household Budget
+    </a>
+    {% if current_user.is_authenticated %}
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
+      <span class="navbar-toggler-icon"></span>
+    </button>
+    <div class="collapse navbar-collapse" id="nav">
+      <ul class="navbar-nav me-auto">
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}">Dashboard</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('budget_view') }}">Budget</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('transactions_list') }}">Transactions</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('accounts_list') }}">Accounts</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('categories_list') }}">Categories</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('recurring_list') }}">Recurring</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('goals_list') }}">Goals</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('reports') }}">Reports</a></li>
+      </ul>
+      <ul class="navbar-nav">
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('import_csv') }}">Import CSV</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('plaid_status') }}">Plaid</a></li>
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle" href="#" data-bs-toggle="dropdown">
+            {{ current_user.display_name or current_user.email }}{% if current_user.is_admin %} <span class="badge bg-warning text-dark">admin</span>{% endif %}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end">
+            {% if current_user.is_admin %}
+            <li><a class="dropdown-item" href="{{ url_for('auth.users_list') }}">Manage users</a></li>
+            <li><hr class="dropdown-divider"></li>
+            {% endif %}
+            <li>
+              <form method="post" action="{{ url_for('auth.logout') }}" class="d-inline">
+                {{ csrf() }}
+                <button class="dropdown-item">Sign out</button>
+              </form>
+            </li>
+          </ul>
+        </li>
+        <li class="nav-item"><a class="btn btn-primary btn-sm ms-2" href="{{ url_for('transaction_new') }}">+ Transaction</a></li>
+      </ul>
+    </div>
+    {% endif %}
+  </div>
+</nav>
+
+<main class="container-fluid py-4">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for cat, msg in messages %}
+        <div class="alert alert-{{ cat }} alert-dismissible fade show" role="alert">
+          {{ msg }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+  // Read CSRF token from the meta tag for use in fetch() calls.
+  window.CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+  // Patch fetch so all same-origin POSTs get the X-CSRFToken header automatically.
+  const _origFetch = window.fetch;
+  window.fetch = function(url, opts={}) {
+    const m = (opts.method || 'GET').toUpperCase();
+    if (['POST','PUT','PATCH','DELETE'].includes(m)) {
+      opts.headers = Object.assign({}, opts.headers || {}, { 'X-CSRFToken': window.CSRF_TOKEN });
+    }
+    return _origFetch(url, opts);
+  };
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

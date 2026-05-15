@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block content %}
+<h3>{{ "Edit" if account else "New" }} Account</h3>
+<form method="post" class="card-soft p-4" style="max-width:520px;">
+  {{ csrf() }}
+  <div class="mb-3">
+    <label class="form-label">Name</label>
+    <input class="form-control" name="name" required value="{{ account.name if account else '' }}">
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Type</label>
+    <select class="form-select" name="type">
+      {% set t = account.type if account else 'checking' %}
+      {% for opt in ['checking','savings','credit','cash','investment','loan'] %}
+        <option value="{{ opt }}" {% if opt == t %}selected{% endif %}>{{ opt }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="mb-3 form-check">
+    <input type="checkbox" class="form-check-input" id="ob" name="on_budget" {% if not account or account.on_budget %}checked{% endif %}>
+    <label class="form-check-label" for="ob">On Budget (counts in envelope budgeting)</label>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Starting balance ($)</label>
+    <input class="form-control" name="starting_balance" type="number" step="0.01"
+           value="{{ (account.starting_balance | dollars) if account else '0.00' }}">
+  </div>
+  {% if account %}
+  <div class="mb-3 form-check">
+    <input type="checkbox" class="form-check-input" id="cl" name="closed" {% if account.closed %}checked{% endif %}>
+    <label class="form-check-label" for="cl">Closed</label>
+  </div>
+  {% endif %}
+  <button class="btn btn-primary">Save</button>
+  <a class="btn btn-link" href="{{ url_for('accounts_list') }}">Cancel</a>
+</form>
+{% endblock %}

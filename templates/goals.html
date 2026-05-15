@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Goals{% endblock %}
+{% block content %}
+<h3>Savings Goals</h3>
+<div class="row g-3">
+  <div class="col-md-4">
+    <form method="post" class="card-soft p-3">
+      {{ csrf() }}
+      <h5>New Goal</h5>
+      <div class="mb-2"><label class="form-label small">Name</label>
+        <input class="form-control" name="name" required></div>
+      <div class="mb-2"><label class="form-label small">Target amount ($)</label>
+        <input class="form-control" type="number" step="0.01" name="target_amount" required></div>
+      <div class="mb-2"><label class="form-label small">Target date (optional)</label>
+        <input class="form-control" type="date" name="target_date"></div>
+      <div class="mb-2"><label class="form-label small">Linked category (optional)</label>
+        <select class="form-select" name="category_id">
+          <option value="">—</option>
+          {% for c in categories %}<option value="{{ c.id }}">{{ c.group_name }} / {{ c.name }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="mb-2"><label class="form-label small">Note</label>
+        <input class="form-control" name="note"></div>
+      <button class="btn btn-primary">Create goal</button>
+    </form>
+  </div>
+  <div class="col-md-8">
+    {% for g in goals %}
+      <div class="card-soft p-3 mb-2 {% if g.completed %}opacity-75{% endif %}">
+        <div class="d-flex justify-content-between align-items-start">
+          <div>
+            <h5 class="mb-1">{{ g.name }} {% if g.completed %}<span class="badge bg-success">complete</span>{% endif %}</h5>
+            <div class="text-muted small">
+              {{ g.saved_amount | money }} of {{ g.target_amount | money }}
+              {% if g.target_date %} — due {{ g.target_date }}{% endif %}
+              {% if g.category %} — {{ g.category.group_name }} / {{ g.category.name }}{% endif %}
+            </div>
+            {% if g.note %}<div class="small mt-1">{{ g.note }}</div>{% endif %}
+          </div>
+          <form method="post" action="{{ url_for('goal_delete', gid=g.id) }}" onsubmit="return confirm('Delete this goal?');">
+            {{ csrf() }}
+            <button class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </div>
+        <div class="progress my-2"><div class="progress-bar bg-primary" style="width: {{ g.percent_complete }}%;">{{ '%.0f' % g.percent_complete }}%</div></div>
+        <form method="post" action="{{ url_for('goal_contribute', gid=g.id) }}" class="d-flex gap-2">
+          {{ csrf() }}
+          <input class="form-control form-control-sm" type="number" step="0.01" name="amount" placeholder="Log a contribution ($)" required>
+          <button class="btn btn-sm btn-success">Add</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="card-soft p-4 text-muted text-center">No goals yet. Set one on the left to get started.</div>
+    {% endfor %}
+  </div>
+</div>
+{% endblock %}

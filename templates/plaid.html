@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% from "_macros.html" import csrf %}
+{% block title %}Plaid Sync{% endblock %}
+{% block content %}
+<h3>Plaid (Automatic Bank Sync)</h3>
+
+{% if not configured %}
+  <div class="alert alert-info">
+    <h5>Plaid is not configured</h5>
+    <p>Plaid is optional. The app works perfectly without it — you can use manual entry and CSV import.</p>
+    <p class="mb-1">If you want automatic syncing, sign up at <a href="https://dashboard.plaid.com/signup" target="_blank">dashboard.plaid.com</a> (the Development tier is free for personal use), then set these environment variables before launching the app:</p>
+    <pre class="bg-light p-2 small mb-0">export PLAID_CLIENT_ID=your_client_id
+export PLAID_SECRET=your_secret
+export PLAID_ENV=sandbox   # or development / production
+python run.py</pre>
+  </div>
+{% else %}
+  <div class="card-soft p-3 mb-3">
+    <p>Plaid environment: <strong>{{ env }}</strong></p>
+    <button id="link-btn" class="btn btn-primary">Link a bank account</button>
+    <p class="small text-muted mt-2 mb-0">Opens Plaid Link in a popup. Choose your bank, sign in, and the app will create matching accounts and pull recent transactions.</p>
+  </div>
+
+  <div class="card-soft p-3">
+    <h5>Linked Institutions</h5>
+    {% if items %}
+      <table class="table table-sm align-middle">
+        <thead><tr><th>Institution</th><th>Item ID</th><th>Last cursor</th><th></th></tr></thead>
+        <tbody>
+        {% for i in items %}
+          <tr>
+            <td>{{ i.institution_name or '—' }}</td>
+            <td><code class="small">{{ i.item_id[:14] }}…</code></td>
+            <td><code class="small">{{ (i.cursor or '')[:20] }}{% if i.cursor and i.cursor|length > 20 %}…{% endif %}</code></td>
+            <td>
+              <form method="post" action="{{ url_for('plaid_sync', item_id=i.id) }}">
+                {{ csrf() }}
+                <button class="btn btn-sm btn-outline-primary">Sync now</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="text-muted mb-0">No institutions linked yet.</p>
+    {% endif %}
+  </div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+{% if configured %}
+<script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
+<script>
+  document.getElementById('link-btn').addEventListener('click', async () => {
+    const r = await fetch('/plaid/link_token', { method: 'POST' });
+    const j = await r.json();
+    if (j.error) { alert('Error: ' + j.error); return; }
+    const handler = Plaid.create({
+      token: j.link_token,
+      onSuccess: async (public_token, metadata) => {
+        await fetch('/plaid/exchange', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            public_token,
+            institution_name: metadata.institution?.name || ''
+          })
+        });
+        location.reload();
+      }
+    });
+    handler.open();
+  });
+</script>
+{% endif %}
+{% endblock %}

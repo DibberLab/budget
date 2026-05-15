@@ -1,0 +1,46 @@
+# Caddy automatically provisions and renews a Let's Encrypt certificate for
+# budget.dibberlab.me as long as port 80 + 443 are reachable from the public
+# internet and the domain's A/AAAA records point at this server.
+
+budget.dibberlab.me {
+    encode zstd gzip
+
+    # Tight security headers. HSTS is set to 1 year; comment it out if you
+    # want to verify TLS works first.
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        X-Frame-Options "DENY"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        Permissions-Policy "geolocation=(), microphone=(), camera=()"
+        # Caddy adds its own Server header; remove it to leak less info.
+        -Server
+    }
+
+    # Health endpoint stays unauthenticated and uncached.
+    @health path /healthz
+    handle @health {
+        reverse_proxy app:8000
+    }
+
+    # Static assets get aggressive caching.
+    @static path /static/*
+    handle @static {
+        header Cache-Control "public, max-age=2592000, immutable"
+        reverse_proxy app:8000
+    }
+
+    # Everything else proxies to the Flask app on the internal Docker network.
+    reverse_proxy app:8000 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    log {
+        output file /data/access.log {
+            roll_size 10MiB
+            roll_keep 7
+        }
+        format json
+    }
+}

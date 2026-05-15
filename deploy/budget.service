@@ -1,0 +1,66 @@
+# systemd unit for the household budget app.
+#
+# Install:
+#   sudo cp /var/www/budget/deploy/budget.service /etc/systemd/system/budget.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now budget.service
+#
+# Inspect logs:
+#   sudo journalctl -u budget.service -f
+#
+# This runs gunicorn under www-data, reads secrets from /var/www/budget/.env,
+# and binds to 127.0.0.1:8000 (loopback only — nginx is the only thing that
+# should talk to it).
+
+[Unit]
+Description=Household Budget (Flask + gunicorn)
+After=network.target
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/budget
+
+# Read SECRET_KEY (and optional PLAID_* keys) from the .env file.
+EnvironmentFile=/var/www/budget/.env
+Environment=FLASK_ENV=production
+Environment=FLASK_APP=app.py
+Environment=PYTHONUNBUFFERED=1
+Environment=DATABASE_URL=sqlite:////var/lib/budget/budget.db
+
+ExecStart=/var/www/budget/.venv/bin/gunicorn \
+    --bind 127.0.0.1:8000 \
+    --workers 2 \
+    --threads 4 \
+    --access-logfile - \
+    --error-logfile - \
+    --forwarded-allow-ips 127.0.0.1 \
+    app:app
+
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=20
+
+# --- Sandboxing -----------------------------------------------------------
+# Lock the process down — it doesn't need most of the system. Each of these
+# is independently useful; if you have to debug, comment one out at a time.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+# The only places the process is allowed to write.
+ReadWritePaths=/var/lib/budget /var/log/budget /var/www/budget/instance
+
+[Install]
+WantedBy=multi-user.target

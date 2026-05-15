@@ -1,0 +1,9 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+SQLAlchemy==2.0.34
+Flask-Login==0.6.3
+Flask-WTF==1.2.1
+Flask-Limiter==3.8.0
+python-dateutil==2.9.0
+plaid-python==24.0.0
+gunicorn==23.0.0
