@@ -34,7 +34,7 @@
 </form>
 
 <div class="card-soft p-3">
-  <table class="table table-sm align-middle">
+  <table class="table table-sm align-middle" id="txn-table">
     <thead>
       <tr>
         <th>Date</th><th>Account</th><th>Payee</th><th>Category</th>
@@ -43,10 +43,31 @@
     </thead>
     <tbody>
     {% for t in txns %}
-      <tr>
-        <td>{{ t.date }}</td>
-        <td>{{ t.account.name }}</td>
-        <td>{{ t.payee or '—' }}</td>
+      <tr data-tid="{{ t.id }}">
+
+        {# Date #}
+        <td>
+          <input type="date" class="form-control form-control-sm js-edit"
+                 data-field="date" value="{{ t.date }}" style="min-width:130px;">
+        </td>
+
+        {# Account #}
+        <td>
+          <select class="form-select form-select-sm js-edit" data-field="account_id" style="min-width:120px;">
+            {% for a in accounts %}
+              <option value="{{ a.id }}" {% if t.account_id == a.id %}selected{% endif %}>{{ a.name }}</option>
+            {% endfor %}
+          </select>
+        </td>
+
+        {# Payee #}
+        <td>
+          <span class="js-editable" data-field="payee" data-tid="{{ t.id }}"
+                contenteditable="true" spellcheck="false"
+                style="display:inline-block;min-width:80px;">{{ t.payee or '' }}</span>
+        </td>
+
+        {# Category #}
         <td>
           <select class="form-select form-select-sm js-cat" data-tid="{{ t.id }}" style="max-width:220px;">
             <option value="">— uncategorized —</option>
@@ -55,8 +76,23 @@
             {% endfor %}
           </select>
         </td>
-        <td><span class="text-muted small">{{ t.memo }}</span>{% if t.source != 'manual' %} <span class="badge bg-light text-dark">{{ t.source }}</span>{% endif %}</td>
-        <td class="text-end {% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}">{{ t.amount | money }}</td>
+
+        {# Memo #}
+        <td>
+          <span class="js-editable text-muted small" data-field="memo" data-tid="{{ t.id }}"
+                contenteditable="true" spellcheck="false"
+                style="display:inline-block;min-width:60px;">{{ t.memo or '' }}</span>
+          {% if t.source != 'manual' %} <span class="badge bg-light text-dark">{{ t.source }}</span>{% endif %}
+        </td>
+
+        {# Amount #}
+        <td class="text-end">
+          <span class="js-editable {% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}"
+                data-field="amount" data-tid="{{ t.id }}"
+                contenteditable="true" spellcheck="false"
+                style="display:inline-block;min-width:60px;text-align:right;">{{ t.amount | money }}</span>
+        </td>
+
         <td class="text-end">
           <form method="post" action="{{ url_for('transaction_delete', tid=t.id) }}" onsubmit="return confirm('Delete this transaction?');">
             {{ csrf() }}
@@ -74,12 +110,53 @@
 
 {% block scripts %}
 <script>
+  async function saveField(tid, field, value) {
+    const fd = new FormData();
+    fd.append('field', field);
+    fd.append('value', value);
+    const r = await fetch(`/transactions/${tid}/edit`, { method: 'POST', body: fd });
+    return r.ok;
+  }
+
+  // Category selects (existing endpoint)
   document.querySelectorAll('.js-cat').forEach(sel => {
     sel.addEventListener('change', async () => {
-      const tid = sel.dataset.tid;
       const fd = new FormData();
       fd.append('category_id', sel.value);
-      await fetch(`/transactions/${tid}/categorize`, { method: 'POST', body: fd });
+      await fetch(`/transactions/${sel.dataset.tid}/categorize`, { method: 'POST', body: fd });
+    });
+  });
+
+  // Date + Account selects (new endpoint)
+  document.querySelectorAll('.js-edit').forEach(el => {
+    const row = el.closest('tr');
+    el.addEventListener('change', () => {
+      saveField(row.dataset.tid, el.dataset.field, el.value);
+    });
+  });
+
+  // Contenteditable fields (payee, memo, amount)
+  document.querySelectorAll('.js-editable').forEach(el => {
+    // Save original value on focus so we can revert on error
+    let original;
+    el.addEventListener('focus', () => { original = el.textContent.trim(); });
+    el.addEventListener('blur', async () => {
+      const val = el.textContent.trim();
+      if (val === original) return;  // nothing changed
+      const ok = await saveField(el.dataset.tid, el.dataset.field, val);
+      if (!ok) {
+        el.textContent = original;  // revert on failure
+      } else if (el.dataset.field === 'amount') {
+        // Re-colour after an amount edit
+        const cents = parseFloat(val.replace(/[^0-9.\-]/g, '')) * 100;
+        el.classList.toggle('money-pos', cents >= 0);
+        el.classList.toggle('money-neg', cents < 0);
+      }
+    });
+    // Commit on Enter, cancel on Escape
+    el.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+      if (e.key === 'Escape') { el.textContent = original; el.blur(); }
     });
   });
 </script>

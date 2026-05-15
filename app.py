@@ -390,6 +390,31 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
+    @app.route("/transactions/<int:tid>/edit", methods=["POST"])
+    @login_required
+    def transaction_edit(tid):
+        t = db.session.get(Transaction, tid) or abort(404)
+        field = request.form.get("field")
+        value = request.form.get("value", "").strip()
+        if field == "date":
+            from datetime import date as _date
+            try:
+                t.date = _date.fromisoformat(value)
+            except ValueError:
+                return jsonify({"ok": False, "error": "Invalid date"}), 400
+        elif field == "account_id":
+            t.account_id = int(value)
+        elif field == "payee":
+            t.payee = value
+        elif field == "memo":
+            t.memo = value
+        elif field == "amount":
+            t.amount = to_cents(value)
+        else:
+            return jsonify({"ok": False, "error": "Unknown field"}), 400
+        db.session.commit()
+        return jsonify({"ok": True})
+
     # ---- import CSV ----
     @app.route("/import", methods=["GET", "POST"])
     @login_required
