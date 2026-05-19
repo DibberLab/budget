@@ -39,31 +39,60 @@
         <th class="text-end">Assigned</th>
         <th class="text-end">Spent</th>
         <th class="text-end">Available</th>
-        <th></th>
+        <th style="min-width:180px;">Progress</th>
       </tr>
     </thead>
     <tbody>
     {% for group, rows in rows_by_group.items() %}
-      <tr class="group-row"><td colspan="6">{{ group }}</td></tr>
+
+      {# Compute group-level totals #}
+      {% set g = namespace(assigned=0, spent=0, available=0, carryover=0) %}
       {% for r in rows %}
-        <tr>
-          <td>{{ r.cat.name }}</td>
+        {% set g.assigned   = g.assigned   + r.assigned %}
+        {% set g.spent      = g.spent      + r.spent %}
+        {% set g.available  = g.available  + r.available %}
+        {% set g.carryover  = g.carryover  + r.carryover %}
+      {% endfor %}
+
+      <tr class="group-row">
+        <td>{{ group }}</td>
+        <td class="text-end money-zero">{{ g.carryover | money }}</td>
+        <td class="text-end">{{ g.assigned | money }}</td>
+        <td class="text-end money-neg">{{ g.spent | money }}</td>
+        <td class="text-end {% if g.available > 0 %}money-pos{% elif g.available < 0 %}money-neg{% else %}money-zero{% endif %}">
+          {{ g.available | money }}
+        </td>
+        <td></td>
+      </tr>
+
+      {% for r in rows %}
+        {% set pct = ((r.spent | abs) / r.assigned * 100) if r.assigned > 0 else 0 %}
+        <tr data-carryover="{{ r.carryover }}" data-spent="{{ r.spent }}">
+          <td class="ps-3">{{ r.cat.name }}</td>
           <td class="text-end money-zero">{{ r.carryover | money }}</td>
           <td class="text-end">
-            <input class="form-control form-control-sm assign-input js-assign"
-                   data-cat="{{ r.cat.id }}"
-                   data-year="{{ year }}" data-month="{{ month }}"
-                   type="number" step="0.01"
-                   value="{{ '%.2f' % (r.assigned / 100.0) }}">
+            <div class="d-flex align-items-center justify-content-end gap-1">
+              <input class="form-control form-control-sm assign-input js-assign"
+                     data-cat="{{ r.cat.id }}"
+                     data-year="{{ year }}" data-month="{{ month }}"
+                     data-original="{{ '%.2f' % (r.assigned / 100.0) }}"
+                     type="number" step="0.01"
+                     value="{{ '%.2f' % (r.assigned / 100.0) }}">
+              <button class="btn btn-sm btn-success js-save" style="display:none;" title="Save">✓</button>
+            </div>
           </td>
           <td class="text-end money-neg">{{ r.spent | money }}</td>
-          <td class="text-end {% if r.available > 0 %}money-pos{% elif r.available < 0 %}money-neg{% else %}money-zero{% endif %}">{{ r.available | money }}</td>
+          <td class="text-end js-available {% if r.available > 0 %}money-pos{% elif r.available < 0 %}money-neg{% else %}money-zero{% endif %}">
+            {{ r.available | money }}
+          </td>
           <td>
-            <div class="progress progress-thin">
-              {% set pct = ((r.spent | abs) / r.assigned * 100) if r.assigned > 0 else 0 %}
+            <div class="progress budget-progress">
               <div class="progress-bar {% if pct > 100 %}bg-danger{% elif pct > 75 %}bg-warning{% else %}bg-success{% endif %}"
-                   style="width: {{ pct if pct <= 100 else 100 }}%;"></div>
+                   style="width:{{ pct if pct <= 100 else 100 }}%;">
+                {% if pct >= 15 %}{{ "%.0f" % pct }}%{% endif %}
+              </div>
             </div>
+            {% if pct < 15 and pct > 0 %}<span class="text-muted small ms-1">{{ "%.0f" % pct }}%</span>{% endif %}
           </td>
         </tr>
       {% endfor %}
@@ -72,28 +101,76 @@
   </table>
 </div>
 
-<p class="text-muted small mt-2 mb-0">
-  Tip: tweak the <em>Assigned</em> field for any row — it auto-saves. Available rolls over from prior months;
-  negative balances ("overspent") subtract from the next month's To Be Budgeted.
-</p>
-
 {% endblock %}
 {% block scripts %}
 <script>
+  // Money formatter matching the server-side fmt_money
+  function fmtMoney(cents) {
+    const neg = cents < 0;
+    const abs = Math.abs(cents);
+    const dollars = Math.floor(abs / 100).toLocaleString();
+    const pence = String(abs % 100).padStart(2, '0');
+    return (neg ? '-' : '') + '$' + dollars + '.' + pence;
+  }
+
   document.querySelectorAll('.js-assign').forEach(inp => {
-    let t;
+    const saveBtn = inp.closest('td').querySelector('.js-save');
+    const row = inp.closest('tr');
+    const availCell = row.querySelector('.js-available');
+
+    // Show save button when value changes
     inp.addEventListener('input', () => {
-      clearTimeout(t);
-      t = setTimeout(async () => {
-        const fd = new FormData();
-        fd.append('year', inp.dataset.year);
-        fd.append('month', inp.dataset.month);
-        fd.append('category_id', inp.dataset.cat);
-        fd.append('amount', inp.value || '0');
-        await fetch('/budget/assign', { method: 'POST', body: fd });
-        // Reload to recompute available + carryover everywhere
-        setTimeout(() => location.reload(), 400);
-      }, 700);
+      const dirty = inp.value !== inp.dataset.original;
+      saveBtn.style.display = dirty ? '' : 'none';
+    });
+
+    // Save on button click
+    saveBtn.addEventListener('click', async () => {
+      saveBtn.disabled = true;
+      saveBtn.textContent = '…';
+
+      const fd = new FormData();
+      fd.append('year', inp.dataset.year);
+      fd.append('month', inp.dataset.month);
+      fd.append('category_id', inp.dataset.cat);
+      fd.append('amount', inp.value || '0');
+
+      const r = await fetch('/budget/assign', { method: 'POST', body: fd });
+      if (r.ok) {
+        // Update Available cell inline
+        const assignedCents = Math.round(parseFloat(inp.value || 0) * 100);
+        const carryover = parseInt(row.dataset.carryover, 10);
+        const spent = parseInt(row.dataset.spent, 10);
+        const available = carryover + assignedCents + spent;
+
+        availCell.textContent = fmtMoney(available);
+        availCell.className = 'text-end js-available ' +
+          (available > 0 ? 'money-pos' : available < 0 ? 'money-neg' : 'money-zero');
+
+        inp.dataset.original = inp.value;
+        saveBtn.textContent = '✓';
+        saveBtn.classList.replace('btn-success', 'btn-outline-success');
+        setTimeout(() => {
+          saveBtn.style.display = 'none';
+          saveBtn.disabled = false;
+          saveBtn.textContent = '✓';
+          saveBtn.classList.replace('btn-outline-success', 'btn-success');
+        }, 1200);
+      } else {
+        saveBtn.textContent = '✕';
+        saveBtn.classList.replace('btn-success', 'btn-danger');
+        setTimeout(() => {
+          saveBtn.style.display = 'none';
+          saveBtn.disabled = false;
+          saveBtn.textContent = '✓';
+          saveBtn.classList.replace('btn-danger', 'btn-success');
+        }, 2000);
+      }
+    });
+
+    // Also save on Enter key
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); }
     });
   });
 </script>
