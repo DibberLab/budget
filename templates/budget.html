@@ -54,6 +54,9 @@
         {% set g.carryover  = g.carryover  + r.carryover %}
       {% endfor %}
 
+      {% set g_pct = ((g.spent | abs) / g.assigned * 100) if g.assigned > 0 else 0 %}
+      {% set g_clamped = g_pct if g_pct <= 100 else 100 %}
+      {% set g_color = 'over' if g_pct > 100 else ('warn' if g_pct > 75 else 'ok') %}
       <tr class="group-row">
         <td>{{ group }}</td>
         <td class="text-end money-zero">{{ g.carryover | money }}</td>
@@ -62,12 +65,23 @@
         <td class="text-end {% if g.available > 0 %}money-pos{% elif g.available < 0 %}money-neg{% else %}money-zero{% endif %}">
           {{ g.available | money }}
         </td>
-        <td></td>
+        <td>
+          <div class="spend-bar">
+            <div class="spend-fill spend-fill--{{ g_color }}" data-pct="{{ g_clamped | int }}"></div>
+            <span class="spend-label">
+              {%- if g_pct > 100 %}Overspent
+              {%- elif g_pct > 0 %}{{ g_pct | int }}%
+              {%- endif -%}
+            </span>
+          </div>
+        </td>
       </tr>
 
       {% for r in rows %}
         {% set pct = ((r.spent | abs) / r.assigned * 100) if r.assigned > 0 else 0 %}
-        <tr data-carryover="{{ r.carryover }}" data-spent="{{ r.spent }}">
+        {% set clamped = pct if pct <= 100 else 100 %}
+        {% set color = 'over' if pct > 100 else ('warn' if pct > 75 else 'ok') %}
+        <tr>
           <td class="ps-3">{{ r.cat.name }}</td>
           <td class="text-end money-zero">{{ r.carryover | money }}</td>
           <td class="text-end">
@@ -82,17 +96,18 @@
             </div>
           </td>
           <td class="text-end money-neg">{{ r.spent | money }}</td>
-          <td class="text-end js-available {% if r.available > 0 %}money-pos{% elif r.available < 0 %}money-neg{% else %}money-zero{% endif %}">
+          <td class="text-end {% if r.available > 0 %}money-pos{% elif r.available < 0 %}money-neg{% else %}money-zero{% endif %}">
             {{ r.available | money }}
           </td>
           <td>
-            <div class="progress budget-progress">
-              <div class="progress-bar {% if pct > 100 %}bg-danger{% elif pct > 75 %}bg-warning{% else %}bg-success{% endif %}"
-                   style="width:{{ pct if pct <= 100 else 100 }}%;">
-                {% if pct >= 15 %}{{ "%.0f" % pct }}%{% endif %}
-              </div>
+            <div class="spend-bar">
+              <div class="spend-fill spend-fill--{{ color }}" data-pct="{{ clamped | int }}"></div>
+              <span class="spend-label">
+                {%- if pct > 100 %}Overspent
+                {%- elif pct > 0 %}{{ pct | int }}%
+                {%- endif -%}
+              </span>
             </div>
-            {% if pct < 15 and pct > 0 %}<span class="text-muted small ms-1">{{ "%.0f" % pct }}%</span>{% endif %}
           </td>
         </tr>
       {% endfor %}
@@ -104,19 +119,12 @@
 {% endblock %}
 {% block scripts %}
 <script>
-  // Money formatter matching the server-side fmt_money
-  function fmtMoney(cents) {
-    const neg = cents < 0;
-    const abs = Math.abs(cents);
-    const dollars = Math.floor(abs / 100).toLocaleString();
-    const pence = String(abs % 100).padStart(2, '0');
-    return (neg ? '-' : '') + '$' + dollars + '.' + pence;
-  }
-
+  document.querySelectorAll('.spend-fill[data-pct]').forEach(el => {
+    el.style.setProperty('--w', el.dataset.pct);
+  });
   document.querySelectorAll('.js-assign').forEach(inp => {
     const saveBtn = inp.closest('td').querySelector('.js-save');
     const row = inp.closest('tr');
-    const availCell = row.querySelector('.js-available');
 
     // Show save button when value changes
     inp.addEventListener('input', () => {
@@ -135,36 +143,17 @@
       fd.append('category_id', inp.dataset.cat);
       fd.append('amount', inp.value || '0');
 
-      const r = await fetch('/budget/assign', { method: 'POST', body: fd });
-      if (r.ok) {
-        // Update Available cell inline
-        const assignedCents = Math.round(parseFloat(inp.value || 0) * 100);
-        const carryover = parseInt(row.dataset.carryover, 10);
-        const spent = parseInt(row.dataset.spent, 10);
-        const available = carryover + assignedCents + spent;
+      let ok = false;
+      try {
+        const r = await fetch('/budget/assign', { method: 'POST', body: fd });
+        ok = r.ok;
+      } catch (_) { ok = false; }
 
-        availCell.textContent = fmtMoney(available);
-        availCell.className = 'text-end js-available ' +
-          (available > 0 ? 'money-pos' : available < 0 ? 'money-neg' : 'money-zero');
-
-        inp.dataset.original = inp.value;
+      if (ok) {
         saveBtn.textContent = '✓';
-        saveBtn.classList.replace('btn-success', 'btn-outline-success');
-        setTimeout(() => {
-          saveBtn.style.display = 'none';
-          saveBtn.disabled = false;
-          saveBtn.textContent = '✓';
-          saveBtn.classList.replace('btn-outline-success', 'btn-success');
-        }, 1200);
+        setTimeout(() => location.reload(), 600);
       } else {
-        saveBtn.textContent = '✕';
-        saveBtn.classList.replace('btn-success', 'btn-danger');
-        setTimeout(() => {
-          saveBtn.style.display = 'none';
-          saveBtn.disabled = false;
-          saveBtn.textContent = '✓';
-          saveBtn.classList.replace('btn-danger', 'btn-success');
-        }, 2000);
+        location.reload();
       }
     });
 

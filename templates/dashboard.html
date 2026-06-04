@@ -91,6 +91,20 @@
   </div>
 </div>
 
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card-soft p-3">
+      <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+        <h5 class="mb-0">Calendar</h5>
+        <span class="badge rounded-pill" style="background:#6f42c1">&#9632; Google Calendar</span>
+        <span class="badge rounded-pill bg-success">&#9632; Income</span>
+        <span class="badge rounded-pill bg-danger">&#9632; Expense</span>
+      </div>
+      <div id="dashCalendar"></div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
 <script>
@@ -105,6 +119,40 @@
       ]
     },
     options: { maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+  });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fullcalendar/icalendar@6.1.15/index.global.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const cal = new FullCalendar.Calendar(document.getElementById('dashCalendar'), {
+      initialView: 'dayGridMonth',
+      height: 650,
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,listMonth'
+      },
+      eventSources: [
+        {
+          url: '{{ url_for("api_calendar_transactions") }}',
+          color: '#dc3545',
+        },
+        {
+          url: '{{ url_for("api_calendar_google_proxy") }}',
+          format: 'ics',
+          color: '#6f42c1',
+        }
+      ],
+      eventClick: function(info) {
+        if (info.event.url) {
+          info.jsEvent.preventDefault();
+          window.location.href = info.event.url;
+        }
+      }
+    });
+    cal.render();
   });
 </script>
 {% endblock %}

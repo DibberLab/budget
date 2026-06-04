@@ -556,30 +556,64 @@ def register_routes(app: Flask):
     @app.route("/reports")
     @login_required
     def reports():
-        months = request.args.get("months", default=6, type=int)
-        labels, income_series, expense_series = _income_expense_series(months=months)
+        start_date, end_date, preset = _parse_report_range(request)
+        labels, income_series, expense_series = _income_expense_series(
+            start_date=start_date, end_date=end_date)
 
-        cutoff = _months_ago(months)
-        cat_totals = (db.session.query(Category.name, func.sum(Transaction.amount))
+        cat_totals = (db.session.query(Category.id, Category.name, func.sum(Transaction.amount))
                       .join(Transaction, Transaction.category_id == Category.id)
-                      .filter(Transaction.date >= cutoff,
+                      .filter(Transaction.date >= start_date,
+                              Transaction.date <= end_date,
                               Transaction.amount < 0,
                               Category.is_income.is_(False))
                       .group_by(Category.id).all())
-        cat_labels = [r[0] for r in cat_totals]
-        cat_values = [abs(int(r[1] or 0)) for r in cat_totals]
+        cat_ids    = [r[0] for r in cat_totals]
+        cat_labels = [r[1] for r in cat_totals]
+        cat_values = [abs(int(r[2] or 0)) for r in cat_totals]
 
-        nw_labels, nw_values = _net_worth_series(months=max(months, 12))
+        # Net worth always shows at least 12 months for meaningful context
+        nw_from = min(start_date, _months_ago(12))
+        nw_labels, nw_values = _net_worth_series(
+            start_date=nw_from, end_date=date.today())
 
         return render_template("reports.html",
-                               months=months,
+                               preset=preset,
+                               start_date=start_date.isoformat(),
+                               end_date=end_date.isoformat(),
                                chart_labels=labels,
                                chart_income=income_series,
                                chart_expense=expense_series,
+                               cat_ids=cat_ids,
                                cat_labels=cat_labels,
                                cat_values=cat_values,
                                nw_labels=nw_labels,
                                nw_values=nw_values)
+
+    @app.route("/reports/category-transactions")
+    @login_required
+    def reports_category_transactions():
+        try:
+            cat_id = int(request.args["category_id"])
+            start_date = datetime.strptime(request.args["start_date"], "%Y-%m-%d").date()
+            end_date   = datetime.strptime(request.args["end_date"],   "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            return jsonify({"error": "invalid params"}), 400
+
+        cat = Category.query.get_or_404(cat_id)
+        txns = (Transaction.query
+                .filter(Transaction.category_id == cat_id,
+                        Transaction.date >= start_date,
+                        Transaction.date <= end_date)
+                .order_by(Transaction.date.desc(), Transaction.id.desc())
+                .all())
+        rows = [{"id": t.id,
+                 "date": t.date.isoformat(),
+                 "payee": t.payee or "",
+                 "memo": t.memo or "",
+                 "amount": t.amount,
+                 "account": t.account.name if t.account else ""} for t in txns]
+        total = sum(t.amount for t in txns)
+        return jsonify({"name": cat.name, "transactions": rows, "total": total})
 
     # ---- goals ----
     @app.route("/goals", methods=["GET", "POST"])
@@ -762,6 +796,93 @@ def register_routes(app: Flask):
             flash(f"Plaid sync error: {e}", "danger")
         return redirect(url_for("plaid_status"))
 
+    # ---- calendar API ----
+
+    _GOOGLE_CALENDAR_ICS = (
+        "https://calendar.google.com/calendar/ical/"
+        "4433a33a77cb975dbac414b0b520b4972a1afc4de45dcd62a4e57c8dae93d548"
+        "%40group.calendar.google.com/public/basic.ics"
+    )
+
+    # Same palette Chart.js uses for its doughnut chart by default.
+    _CHART_PALETTE = [
+        "#ff6384", "#ff9f40", "#ffcd56", "#4bc0c0",
+        "#36a2eb", "#9966ff", "#c9cbcf",
+    ]
+
+    @app.route("/api/calendar/transactions")
+    @login_required
+    def api_calendar_transactions():
+        """Return budget transactions as FullCalendar-compatible JSON events.
+
+        color_by=type (default): green for income, red for expense.
+        color_by=category: each category gets a stable color from the Chart.js palette.
+        """
+        start = request.args.get("start")
+        end = request.args.get("end")
+        color_by = request.args.get("color_by", "type")
+
+        q = Transaction.query
+        if start:
+            q = q.filter(Transaction.date >= start[:10])
+        if end:
+            q = q.filter(Transaction.date <= end[:10])
+
+        events = []
+        for t in q.order_by(Transaction.date).all():
+            label = t.payee or (t.category.name if t.category else "Transaction")
+
+            if color_by == "category":
+                if t.category and t.category.is_income:
+                    color = "#198754"
+                elif t.category:
+                    color = _CHART_PALETTE[t.category_id % len(_CHART_PALETTE)]
+                else:
+                    color = "#6c757d"
+            else:
+                color = "#198754" if t.amount >= 0 else "#dc3545"
+
+            events.append({
+                "id": f"txn-{t.id}",
+                "title": f"{label} {fmt_money(t.amount)}",
+                "start": t.date.isoformat(),
+                "allDay": True,
+                "color": color,
+                "extendedProps": {
+                    "category": t.category.name if t.category else "Uncategorized",
+                    "amount": t.amount,
+                },
+                "url": url_for("transactions_list"),
+            })
+        return jsonify(events)
+
+    @app.route("/calendar")
+    @login_required
+    def calendar_view():
+        """Dedicated calendar page with per-category color coding."""
+        categories = (Category.query
+                      .filter_by(is_income=False, hidden=False)
+                      .order_by(Category.group_name, Category.sort_order, Category.name)
+                      .all())
+        legend = [
+            {"name": c.name, "color": _CHART_PALETTE[c.id % len(_CHART_PALETTE)]}
+            for c in categories
+        ]
+        return render_template("calendar.html", legend=legend)
+
+    @app.route("/api/calendar/google-proxy")
+    @login_required
+    def api_calendar_google_proxy():
+        """Proxy the public Google Calendar ICS feed to avoid browser CORS issues."""
+        import urllib.request as _ur
+        try:
+            with _ur.urlopen(_GOOGLE_CALENDAR_ICS, timeout=10) as resp:
+                data = resp.read()
+            return data, 200, {"Content-Type": "text/calendar; charset=utf-8",
+                               "Cache-Control": "no-cache"}
+        except Exception:
+            return "", 502
+
     # ---- health & error pages ----
     @app.route("/healthz")
     def healthz():
@@ -863,17 +984,26 @@ def _months_ago(n: int) -> date:
     return date(y, m, 1)
 
 
-def _income_expense_series(months: int = 6):
+def _income_expense_series(months: int = 6, start_date: date = None, end_date: date = None):
     labels = []
     income = []
     expense = []
     today = date.today()
-    y, m = today.year, today.month
-    sequence = []
-    for _ in range(months):
-        sequence.append((y, m))
-        y, m = _prev_month(y, m)
-    for (yy, mm) in reversed(sequence):
+    if start_date is None or end_date is None:
+        y, m = today.year, today.month
+        sequence = []
+        for _ in range(months):
+            sequence.append((y, m))
+            y, m = _prev_month(y, m)
+        sequence = list(reversed(sequence))
+    else:
+        y, m = start_date.year, start_date.month
+        ey, em = end_date.year, end_date.month
+        sequence = []
+        while (y, m) <= (ey, em):
+            sequence.append((y, m))
+            y, m = _next_month(y, m)
+    for (yy, mm) in sequence:
         labels.append(f"{yy}-{mm:02d}")
         inc = (db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
                .filter(extract("year", Transaction.date) == yy,
@@ -888,14 +1018,60 @@ def _income_expense_series(months: int = 6):
     return labels, income, expense
 
 
-def _net_worth_series(months: int = 12):
+def _parse_report_range(req):
+    """Return (start_date, end_date, preset) from request args."""
+    preset = req.args.get("preset", "last_6")
     today = date.today()
-    y, m = today.year, today.month
-    points = []
-    for _ in range(months):
-        points.append((y, m))
-        y, m = _prev_month(y, m)
-    points.reverse()
+    if preset == "this_month":
+        start = date(today.year, today.month, 1)
+        end = today
+    elif preset == "last_month":
+        y, m = _prev_month(today.year, today.month)
+        start = date(y, m, 1)
+        end = date(y, m, monthrange(y, m)[1])
+    elif preset == "this_year":
+        start = date(today.year, 1, 1)
+        end = today
+    elif preset == "last_year":
+        start = date(today.year - 1, 1, 1)
+        end = date(today.year - 1, 12, 31)
+    elif preset == "custom":
+        try:
+            start = datetime.strptime(req.args["start_date"], "%Y-%m-%d").date()
+            end = datetime.strptime(req.args["end_date"], "%Y-%m-%d").date()
+            if start > end:
+                start, end = end, start
+        except (KeyError, ValueError):
+            start = _months_ago(6)
+            end = today
+            preset = "last_6"
+    else:
+        try:
+            n = int(preset.replace("last_", ""))
+        except ValueError:
+            n = 6
+            preset = "last_6"
+        start = _months_ago(n)
+        end = today
+    return start, end, preset
+
+
+def _net_worth_series(months: int = 12, start_date: date = None, end_date: date = None):
+    today = date.today()
+    if start_date is not None and end_date is not None:
+        y, m = start_date.year, start_date.month
+        ey, em = end_date.year, end_date.month
+        points = []
+        while (y, m) <= (ey, em):
+            points.append((y, m))
+            y, m = _next_month(y, m)
+    else:
+        y, m = today.year, today.month
+        points = []
+        for _ in range(months):
+            points.append((y, m))
+            y, m = _prev_month(y, m)
+        points.reverse()
 
     accounts = Account.query.all()
     starting_sum = sum(a.starting_balance for a in accounts)

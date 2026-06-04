@@ -1,15 +1,29 @@
 {% extends "base.html" %}
 {% block title %}Reports{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h3 class="mb-0">Reports</h3>
-  <form method="get" class="d-flex gap-2 align-items-center">
+  <form method="get" id="range-form" class="d-flex gap-2 align-items-center flex-wrap">
     <label class="form-label small mb-0">Range:</label>
-    <select class="form-select form-select-sm" name="months" onchange="this.form.submit()">
-      {% for n in [3, 6, 12, 24] %}
-        <option value="{{ n }}" {% if months == n %}selected{% endif %}>Last {{ n }} months</option>
-      {% endfor %}
+    <select class="form-select form-select-sm" name="preset" id="preset-select" style="width:auto" onchange="onPresetChange(this)">
+      <option value="this_month"  {% if preset == 'this_month'  %}selected{% endif %}>This Month</option>
+      <option value="last_month"  {% if preset == 'last_month'  %}selected{% endif %}>Last Month</option>
+      <option value="last_3"      {% if preset == 'last_3'      %}selected{% endif %}>Last 3 Months</option>
+      <option value="last_6"      {% if preset == 'last_6'      %}selected{% endif %}>Last 6 Months</option>
+      <option value="last_12"     {% if preset == 'last_12'     %}selected{% endif %}>Last 12 Months</option>
+      <option value="last_24"     {% if preset == 'last_24'     %}selected{% endif %}>Last 24 Months</option>
+      <option value="this_year"   {% if preset == 'this_year'   %}selected{% endif %}>This Year</option>
+      <option value="last_year"   {% if preset == 'last_year'   %}selected{% endif %}>Last Year</option>
+      <option value="custom"      {% if preset == 'custom'      %}selected{% endif %}>Custom Range</option>
     </select>
+    <div id="custom-range" class="{% if preset != 'custom' %}d-none {% endif %}d-flex gap-2 align-items-center flex-wrap">
+      <input type="date" class="form-control form-control-sm" name="start_date" id="start_date"
+             value="{{ start_date }}" style="width:auto">
+      <span class="small text-muted">to</span>
+      <input type="date" class="form-control form-control-sm" name="end_date" id="end_date"
+             value="{{ end_date }}" style="width:auto">
+      <button type="submit" class="btn btn-sm btn-primary">Go</button>
+    </div>
   </form>
 </div>
 
@@ -27,14 +41,35 @@
   <div class="col-lg-5">
     <div class="card-soft p-3">
       <h5>Spending by Category</h5>
+      <p class="small text-muted mb-2">Click a segment to see transactions</p>
       <div class="chart-wrap tall"><canvas id="cat"></canvas></div>
     </div>
+  </div>
+</div>
+
+<div id="cat-transactions" class="mt-3" style="display:none">
+  <div class="card-soft p-3">
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <h5 class="mb-0" id="cat-txn-title"></h5>
+      <button class="btn btn-sm btn-outline-secondary" onclick="closeCatTransactions()">Close</button>
+    </div>
+    <div id="cat-txn-body"></div>
   </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+  function onPresetChange(sel) {
+    const customDiv = document.getElementById('custom-range');
+    if (sel.value === 'custom') {
+      customDiv.classList.remove('d-none');
+    } else {
+      customDiv.classList.add('d-none');
+      document.getElementById('range-form').submit();
+    }
+  }
+
   new Chart(document.getElementById('ie'), {
     type: 'bar',
     data: {
@@ -57,13 +92,98 @@
     options: { maintainAspectRatio: false }
   });
 
-  new Chart(document.getElementById('cat'), {
+  const catIds = {{ cat_ids | tojson }};
+  const catChart = new Chart(document.getElementById('cat'), {
     type: 'doughnut',
     data: {
       labels: {{ cat_labels | tojson }},
       datasets: [{ data: {{ cat_values | tojson }} }]
     },
-    options: { maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label(ctx) {
+              return ' ' + fmtMoney(ctx.parsed);
+            }
+          }
+        }
+      },
+      onClick(evt, elements) {
+        if (!elements.length) return;
+        const idx = elements[0].index;
+        const catId = catIds[idx];
+        const catName = catChart.data.labels[idx];
+        loadCatTransactions(catId, catName);
+      }
+    }
   });
+
+  function fmtMoney(cents) {
+    const neg = cents < 0;
+    const abs = Math.abs(cents);
+    const dollars = Math.floor(abs / 100);
+    const pennies = String(abs % 100).padStart(2, '0');
+    return (neg ? '-' : '') + '$' + dollars.toLocaleString() + '.' + pennies;
+  }
+
+  function closeCatTransactions() {
+    document.getElementById('cat-transactions').style.display = 'none';
+  }
+
+  function loadCatTransactions(catId, catName) {
+    const startDate = {{ start_date | tojson }};
+    const endDate   = {{ end_date   | tojson }};
+    const url = `/reports/category-transactions?category_id=${catId}&start_date=${startDate}&end_date=${endDate}`;
+
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(r => r.json())
+      .then(data => {
+        const section = document.getElementById('cat-transactions');
+        document.getElementById('cat-txn-title').textContent =
+          `${data.name} — ${fmtMoney(data.total)} (${data.transactions.length} transactions)`;
+
+        if (!data.transactions.length) {
+          document.getElementById('cat-txn-body').innerHTML =
+            '<p class="text-muted mb-0">No transactions in this range.</p>';
+        } else {
+          let rows = data.transactions.map(t =>
+            `<tr>
+              <td>${t.date}</td>
+              <td>${escHtml(t.payee)}</td>
+              <td class="text-muted small">${escHtml(t.memo)}</td>
+              <td>${escHtml(t.account)}</td>
+              <td class="text-end ${t.amount < 0 ? 'text-danger' : 'text-success'}">${fmtMoney(t.amount)}</td>
+            </tr>`
+          ).join('');
+          document.getElementById('cat-txn-body').innerHTML =
+            `<div class="table-responsive">
+              <table class="table table-sm table-hover mb-0">
+                <thead><tr>
+                  <th>Date</th><th>Payee</th><th>Memo</th><th>Account</th><th class="text-end">Amount</th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>`;
+        }
+        section.style.display = '';
+        section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      })
+      .catch(() => {
+        document.getElementById('cat-txn-body').innerHTML =
+          '<p class="text-danger">Failed to load transactions.</p>';
+        document.getElementById('cat-transactions').style.display = '';
+      });
+  }
+
+  function escHtml(s) {
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
 </script>
 {% endblock %}

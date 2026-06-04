@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Calendar – Local Budget{% endblock %}
+{% block content %}
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="mb-0">Calendar</h3>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-9">
+    <div class="card-soft p-3">
+      <div id="mainCalendar"></div>
+    </div>
+  </div>
+
+  <div class="col-lg-3">
+    <div class="card-soft p-3 mb-3">
+      <h6 class="mb-2">Legend</h6>
+      <ul class="list-unstyled mb-0 small">
+        <li class="d-flex align-items-center gap-2 py-1">
+          <span style="width:12px;height:12px;border-radius:3px;background:#198754;flex-shrink:0"></span>
+          <span>Income</span>
+        </li>
+        <li class="d-flex align-items-center gap-2 py-1">
+          <span style="width:12px;height:12px;border-radius:3px;background:#6f42c1;flex-shrink:0"></span>
+          <span>Google Calendar</span>
+        </li>
+        <li class="d-flex align-items-center gap-2 py-1">
+          <span style="width:12px;height:12px;border-radius:3px;background:#6c757d;flex-shrink:0"></span>
+          <span>Uncategorized</span>
+        </li>
+        {% for item in legend %}
+        <li class="d-flex align-items-center gap-2 py-1">
+          <span style="width:12px;height:12px;border-radius:3px;background:{{ item.color }};flex-shrink:0"></span>
+          <span>{{ item.name }}</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fullcalendar/icalendar@6.1.15/index.global.min.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    const cal = new FullCalendar.Calendar(document.getElementById('mainCalendar'), {
+      initialView: 'dayGridMonth',
+      height: 'auto',
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,listMonth'
+      },
+      eventSources: [
+        {
+          url: '{{ url_for("api_calendar_transactions") }}?color_by=category',
+        },
+        {
+          url: '{{ url_for("api_calendar_google_proxy") }}',
+          format: 'ics',
+          color: '#6f42c1',
+        }
+      ],
+      eventClick: function(info) {
+        if (info.event.url) {
+          info.jsEvent.preventDefault();
+          window.location.href = info.event.url;
+        }
+      },
+      eventDidMount: function(info) {
+        if (info.event.extendedProps.category) {
+          info.el.title = info.event.extendedProps.category;
+        }
+      },
+      eventsSet: function(allEvents) {
+        // Remove stale totals before re-rendering
+        document.querySelectorAll('.fc-day-total').forEach(function(el) { el.remove(); });
+
+        // Sum amounts by date (budget transactions only — they carry extendedProps.amount)
+        var totals = {};
+        allEvents.forEach(function(e) {
+          if (e.extendedProps.amount === undefined) return;
+          var d = e.startStr.slice(0, 10);
+          totals[d] = (totals[d] || 0) + e.extendedProps.amount;
+        });
+
+        // Inject a small total into each day header
+        Object.keys(totals).forEach(function(date) {
+          var cents = totals[date];
+          var top = document.querySelector('.fc-day[data-date="' + date + '"] .fc-daygrid-day-top');
+          if (!top) return;
+          var neg = cents < 0;
+          var abs = Math.abs(cents);
+          var text = (neg ? '-' : '+') + '$' + Math.floor(abs / 100).toLocaleString() + '.' + String(abs % 100).padStart(2, '0');
+          var span = document.createElement('span');
+          span.className = 'fc-day-total';
+          span.textContent = text;
+          span.style.cssText = 'font-size:0.7em;font-weight:600;margin-left:6px;color:' + (neg ? '#dc3545' : '#198754') + ';white-space:nowrap;';
+          top.appendChild(span);
+        });
+      }
+    });
+    cal.render();
+  });
+</script>
+{% endblock %}
