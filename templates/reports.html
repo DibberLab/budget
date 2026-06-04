@@ -2,10 +2,21 @@
 {% block title %}Reports{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
-  <h3 class="mb-0">Reports</h3>
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <h3 class="mb-0">Reports</h3>
+    <span id="cat-filter-badge" class="badge rounded-pill text-bg-secondary d-none">
+      <span id="cat-filter-label"></span>
+      <a href="#" id="cat-filter-clear" class="text-white ms-1 text-decoration-none" title="Show all categories">×</a>
+    </span>
+  </div>
   <form method="get" id="range-form" class="d-flex gap-2 align-items-center flex-wrap">
     <label class="form-label small mb-0">Range:</label>
     <select class="form-select form-select-sm" name="preset" id="preset-select" style="width:auto" onchange="onPresetChange(this)">
+      <option value="last_30d"    {% if preset == 'last_30d'    %}selected{% endif %}>Last 30 Days</option>
+      <option value="last_90d"    {% if preset == 'last_90d'    %}selected{% endif %}>Last 90 Days</option>
+      <option value="last_180d"   {% if preset == 'last_180d'   %}selected{% endif %}>Last 180 Days</option>
+      <option value="last_365d"   {% if preset == 'last_365d'   %}selected{% endif %}>Last 365 Days</option>
+      <option disabled>──────────</option>
       <option value="this_month"  {% if preset == 'this_month'  %}selected{% endif %}>This Month</option>
       <option value="last_month"  {% if preset == 'last_month'  %}selected{% endif %}>Last Month</option>
       <option value="last_3"      {% if preset == 'last_3'      %}selected{% endif %}>Last 3 Months</option>
@@ -28,21 +39,27 @@
 </div>
 
 <div class="row g-3">
-  <div class="col-lg-7">
-    <div class="card-soft p-3 mb-3">
-      <h5>Income vs. Expense</h5>
-      <div class="chart-wrap"><canvas id="ie"></canvas></div>
-    </div>
-    <div class="card-soft p-3">
-      <h5>Net Worth Trend</h5>
-      <div class="chart-wrap"><canvas id="nw"></canvas></div>
-    </div>
-  </div>
-  <div class="col-lg-5">
+  <div class="col-lg-6">
     <div class="card-soft p-3">
       <h5>Spending by Category</h5>
       <p class="small text-muted mb-2">Click a segment to see transactions</p>
       <div class="chart-wrap tall"><canvas id="cat"></canvas></div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card-soft p-3">
+      <h5>Spending by Payee</h5>
+      <p class="small text-muted mb-2">Click a segment to see transactions</p>
+      <div class="chart-wrap tall"><canvas id="payee"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card-soft p-3">
+      <h5>Monthly Spend by Category</h5>
+      <div class="chart-wrap" style="height:340px"><canvas id="trend"></canvas></div>
     </div>
   </div>
 </div>
@@ -60,38 +77,17 @@
 
 {% block scripts %}
 <script>
+  // ---- range selector ----
   function onPresetChange(sel) {
-    const customDiv = document.getElementById('custom-range');
     if (sel.value === 'custom') {
-      customDiv.classList.remove('d-none');
+      document.getElementById('custom-range').classList.remove('d-none');
     } else {
-      customDiv.classList.add('d-none');
+      document.getElementById('custom-range').classList.add('d-none');
       document.getElementById('range-form').submit();
     }
   }
 
-  new Chart(document.getElementById('ie'), {
-    type: 'bar',
-    data: {
-      labels: {{ chart_labels | tojson }},
-      datasets: [
-        { label: 'Income',  data: {{ chart_income | tojson }},  backgroundColor: '#198754' },
-        { label: 'Expense', data: {{ chart_expense | tojson }}, backgroundColor: '#dc3545' }
-      ]
-    },
-    options: { maintainAspectRatio: false }
-  });
-
-  new Chart(document.getElementById('nw'), {
-    type: 'line',
-    data: {
-      labels: {{ nw_labels | tojson }},
-      datasets: [{ label: 'Net Worth', data: {{ nw_values | tojson }},
-                   borderColor: '#4338ca', backgroundColor: 'rgba(67,56,202,.1)', fill: true, tension: .25 }]
-    },
-    options: { maintainAspectRatio: false }
-  });
-
+  // ---- charts ----
   const catIds = {{ cat_ids | tojson }};
   const catChart = new Chart(document.getElementById('cat'), {
     type: 'doughnut',
@@ -103,37 +99,253 @@
       maintainAspectRatio: false,
       plugins: {
         legend: { position: 'bottom' },
-        tooltip: {
-          callbacks: {
-            label(ctx) {
-              return ' ' + fmtMoney(ctx.parsed);
-            }
-          }
-        }
+        tooltip: { callbacks: { label(ctx) { return ' ' + fmtMoney(ctx.parsed); } } }
       },
       onClick(evt, elements) {
         if (!elements.length) return;
         const idx = elements[0].index;
-        const catId = catIds[idx];
-        const catName = catChart.data.labels[idx];
-        loadCatTransactions(catId, catName);
+        loadCatTransactions(catIds[idx], catChart.data.labels[idx]);
       }
     }
   });
 
+  new Chart(document.getElementById('payee'), {
+    type: 'doughnut',
+    data: {
+      labels: {{ payee_labels | tojson }},
+      datasets: [{ data: {{ payee_values | tojson }} }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: { callbacks: { label(ctx) { return ' ' + fmtMoney(ctx.parsed); } } }
+      },
+      onClick(evt, elements) {
+        if (!elements.length) return;
+        const payeeName = {{ payee_labels | tojson }}[elements[0].index];
+        loadPayeeTransactions(payeeName);
+      }
+    }
+  });
+
+  new Chart(document.getElementById('trend'), {
+    type: 'bar',
+    data: {
+      labels: {{ trend_labels | tojson }},
+      datasets: {{ trend_datasets | tojson }}
+    },
+    options: {
+      maintainAspectRatio: false,
+      scales: {
+        x: { stacked: true },
+        y: { stacked: true, beginAtZero: true,
+             ticks: { callback: v => '$' + v.toLocaleString('en-US', {minimumFractionDigits:2}) } }
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            label:  ctx => ` ${ctx.dataset.label}: $${(ctx.parsed.y).toLocaleString('en-US', {minimumFractionDigits:2})}`,
+            footer: items => {
+              const total = items.reduce((s, i) => s + i.parsed.y, 0);
+              return `Total: $${total.toLocaleString('en-US', {minimumFractionDigits:2})}`;
+            }
+          }
+        }
+      }
+    }
+  });
+
+  // ---- helpers ----
   function fmtMoney(cents) {
     const neg = cents < 0;
     const abs = Math.abs(cents);
-    const dollars = Math.floor(abs / 100);
-    const pennies = String(abs % 100).padStart(2, '0');
-    return (neg ? '-' : '') + '$' + dollars.toLocaleString() + '.' + pennies;
+    return (neg ? '-' : '') + '$' + Math.floor(abs / 100).toLocaleString() + '.' + String(abs % 100).padStart(2, '0');
   }
 
-  function closeCatTransactions() {
+  function buildCatOptions(categories, selectedId) {
+    const groups = {};
+    categories.forEach(c => { (groups[c.group] = groups[c.group] || []).push(c); });
+    let html = `<option value="">— uncategorized —</option>`;
+    Object.entries(groups).forEach(([g, cats]) => {
+      html += `<optgroup label="${escHtml(g)}">`;
+      cats.forEach(c => {
+        html += `<option value="${c.id}"${c.id == selectedId ? ' selected' : ''}>${escHtml(c.name)}</option>`;
+      });
+      html += `</optgroup>`;
+    });
+    return html;
+  }
+
+  function attachTxnEditHandlers() {
+    document.querySelectorAll('#cat-txn-body tr[data-tid]').forEach(row => {
+      const tid     = row.dataset.tid;
+      const inputs  = row.querySelectorAll('.txn-edit-input');
+      const saveBtn = row.querySelector('.txn-save-btn');
+
+      const checkDirty = () => {
+        const dirty = [...inputs].some(i => i.value !== i.dataset.original);
+        saveBtn.style.display = dirty ? '' : 'none';
+      };
+
+      inputs.forEach(inp => {
+        inp.dataset.original = inp.value;
+        inp.addEventListener('input',  checkDirty);
+        inp.addEventListener('change', checkDirty);   // catches <select>
+        inp.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); } });
+      });
+
+      saveBtn.addEventListener('click', async () => {
+        saveBtn.disabled = true;
+        saveBtn.textContent = '…';
+
+        const changes = [...inputs]
+          .filter(i => i.value !== i.dataset.original)
+          .map(i => ({ field: i.dataset.field, value: i.value }));
+
+        try {
+          for (const { field, value } of changes) {
+            const fd = new FormData();
+            fd.append('field', field);
+            fd.append('value', value);
+            const r = await fetch(`/transactions/${tid}/edit`, { method: 'POST', body: fd });
+            if (!r.ok) throw new Error();
+          }
+          inputs.forEach(i => { i.dataset.original = i.value; });
+          const amtInp = row.querySelector('[data-field="amount"]');
+          const cents  = Math.round(parseFloat(amtInp.value) * 100);
+          amtInp.closest('td').className = 'text-end ' + (cents < 0 ? 'text-danger' : 'text-success');
+          saveBtn.textContent = '✓';
+          setTimeout(() => { saveBtn.style.display = 'none'; saveBtn.disabled = false; saveBtn.textContent = '✓'; }, 800);
+        } catch (_) {
+          saveBtn.textContent = '✗';
+          saveBtn.disabled = false;
+          setTimeout(() => { saveBtn.style.display = ''; saveBtn.textContent = '✓'; }, 1200);
+        }
+      });
+    });
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function loadPayeeTransactions(payeeName) {
+    // Payee clicks don't use the URL-filter system — just open the panel directly
+    const startDate = {{ start_date | tojson }};
+    const endDate   = {{ end_date   | tojson }};
+    const url = `/reports/payee-transactions?payee=${encodeURIComponent(payeeName)}&start_date=${startDate}&end_date=${endDate}`;
+
+    document.getElementById('cat-txn-title').textContent = `${payeeName} — loading…`;
+    const section = document.getElementById('cat-transactions');
+    section.style.display = '';
+    section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+    fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+      .then(r => r.json())
+      .then(data => {
+        document.getElementById('cat-txn-title').textContent =
+          `${data.payee} — ${fmtMoney(data.expenses)} (${data.transactions.length} transactions)`;
+
+        if (!data.transactions.length) {
+          document.getElementById('cat-txn-body').innerHTML =
+            '<p class="text-muted mb-0">No transactions in this range.</p>';
+        } else {
+          const categories = data.categories || [];
+          const rows = data.transactions.map(t =>
+            `<tr data-tid="${t.id}">
+              <td class="text-nowrap">${t.date}</td>
+              <td><input class="form-control form-control-sm txn-edit-input" data-field="payee"
+                         value="${escHtml(t.payee)}" style="min-width:130px"></td>
+              <td><input class="form-control form-control-sm txn-edit-input" data-field="memo"
+                         value="${escHtml(t.memo)}" style="min-width:130px"></td>
+              <td><select class="form-select form-select-sm txn-edit-input" data-field="category_id"
+                          style="min-width:140px">${buildCatOptions(categories, t.category_id)}</select></td>
+              <td class="text-nowrap">${escHtml(t.account)}</td>
+              <td class="text-end ${t.amount < 0 ? 'text-danger' : 'text-success'}">
+                <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount"
+                       value="${(t.amount / 100).toFixed(2)}" style="width:90px">
+              </td>
+              <td><button class="btn btn-sm btn-success txn-save-btn" style="display:none" title="Save">✓</button></td>
+            </tr>`
+          ).join('');
+          document.getElementById('cat-txn-body').innerHTML =
+            `<div class="table-responsive">
+              <table class="table table-sm table-hover align-middle mb-0">
+                <thead><tr>
+                  <th>Date</th><th>Payee</th><th>Memo</th><th>Category</th>
+                  <th>Account</th><th class="text-end">Amount</th><th></th>
+                </tr></thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>`;
+          attachTxnEditHandlers();
+        }
+      })
+      .catch(() => {
+        document.getElementById('cat-txn-body').innerHTML =
+          '<p class="text-danger">Failed to load transactions.</p>';
+      });
+  }
+
+  // ---- category filter state ----
+  // Centralised so it works whether the user clicks the chart or arrives via a URL link.
+
+  function setActiveCategoryFilter(catId, catName) {
+    // 1. Update the URL in-place (no reload)
+    const u = new URLSearchParams(location.search);
+    u.set('open_cat', catId);
+    u.set('open_cat_name', catName);
+    history.replaceState(null, '', location.pathname + '?' + u.toString());
+
+    // 2. Keep the filter alive through the next range-form submission
+    const form = document.getElementById('range-form');
+    ['open_cat', 'open_cat_name'].forEach(key => {
+      let inp = form.querySelector(`input[name="${key}"]`);
+      if (!inp) {
+        inp = document.createElement('input');
+        inp.type = 'hidden';
+        inp.name = key;
+        form.appendChild(inp);
+      }
+      inp.value = key === 'open_cat' ? catId : catName;
+    });
+
+    // 3. Show badge
+    document.getElementById('cat-filter-label').textContent = catName;
+    document.getElementById('cat-filter-badge').classList.remove('d-none');
+  }
+
+  function clearActiveCategoryFilter() {
+    const u = new URLSearchParams(location.search);
+    u.delete('open_cat');
+    u.delete('open_cat_name');
+    history.replaceState(null, '', location.pathname + '?' + u.toString());
+
+    const form = document.getElementById('range-form');
+    ['open_cat', 'open_cat_name'].forEach(key => {
+      const inp = form.querySelector(`input[name="${key}"]`);
+      if (inp) inp.remove();
+    });
+
+    document.getElementById('cat-filter-badge').classList.add('d-none');
     document.getElementById('cat-transactions').style.display = 'none';
   }
 
+  document.getElementById('cat-filter-clear').addEventListener('click', function(e) {
+    e.preventDefault();
+    clearActiveCategoryFilter();
+  });
+
+  // ---- transactions panel ----
+  function closeCatTransactions() {
+    clearActiveCategoryFilter();
+  }
+
   function loadCatTransactions(catId, catName) {
+    setActiveCategoryFilter(catId, catName);
+
     const startDate = {{ start_date | tojson }};
     const endDate   = {{ end_date   | tojson }};
     const url = `/reports/category-transactions?category_id=${catId}&start_date=${startDate}&end_date=${endDate}`;
@@ -141,33 +353,46 @@
     fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(r => r.json())
       .then(data => {
-        const section = document.getElementById('cat-transactions');
+        // Use expenses (abs of negatives only) to match the chart tooltip value
+        const displayTotal = data.expenses !== undefined ? data.expenses : Math.abs(data.total);
         document.getElementById('cat-txn-title').textContent =
-          `${data.name} — ${fmtMoney(data.total)} (${data.transactions.length} transactions)`;
+          `${data.name} — ${fmtMoney(displayTotal)} (${data.transactions.length} transactions)`;
 
         if (!data.transactions.length) {
           document.getElementById('cat-txn-body').innerHTML =
             '<p class="text-muted mb-0">No transactions in this range.</p>';
         } else {
-          let rows = data.transactions.map(t =>
-            `<tr>
-              <td>${t.date}</td>
-              <td>${escHtml(t.payee)}</td>
-              <td class="text-muted small">${escHtml(t.memo)}</td>
-              <td>${escHtml(t.account)}</td>
-              <td class="text-end ${t.amount < 0 ? 'text-danger' : 'text-success'}">${fmtMoney(t.amount)}</td>
+          const categories = data.categories || [];
+          const rows = data.transactions.map(t =>
+            `<tr data-tid="${t.id}">
+              <td class="text-nowrap">${t.date}</td>
+              <td><input class="form-control form-control-sm txn-edit-input" data-field="payee"
+                         value="${escHtml(t.payee)}" style="min-width:130px"></td>
+              <td><input class="form-control form-control-sm txn-edit-input" data-field="memo"
+                         value="${escHtml(t.memo)}" style="min-width:130px"></td>
+              <td><select class="form-select form-select-sm txn-edit-input" data-field="category_id"
+                          style="min-width:140px">${buildCatOptions(categories, t.category_id)}</select></td>
+              <td class="text-nowrap">${escHtml(t.account)}</td>
+              <td class="text-end ${t.amount < 0 ? 'text-danger' : 'text-success'}">
+                <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount"
+                       value="${(t.amount / 100).toFixed(2)}" style="width:90px">
+              </td>
+              <td><button class="btn btn-sm btn-success txn-save-btn" style="display:none" title="Save">✓</button></td>
             </tr>`
           ).join('');
           document.getElementById('cat-txn-body').innerHTML =
             `<div class="table-responsive">
-              <table class="table table-sm table-hover mb-0">
+              <table class="table table-sm table-hover align-middle mb-0">
                 <thead><tr>
-                  <th>Date</th><th>Payee</th><th>Memo</th><th>Account</th><th class="text-end">Amount</th>
+                  <th>Date</th><th>Payee</th><th>Memo</th><th>Category</th>
+                  <th>Account</th><th class="text-end">Amount</th><th></th>
                 </tr></thead>
                 <tbody>${rows}</tbody>
               </table>
             </div>`;
+          attachTxnEditHandlers();
         }
+        const section = document.getElementById('cat-transactions');
         section.style.display = '';
         section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       })
@@ -178,12 +403,14 @@
       });
   }
 
-  function escHtml(s) {
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
-  }
+  // Re-open panel if arriving with open_cat or open_payee in URL
+  (function() {
+    const params = new URLSearchParams(location.search);
+    const catId    = params.get('open_cat');
+    const catName  = params.get('open_cat_name') || '';
+    const payeeVal = params.get('open_payee') || '';
+    if (catId)    loadCatTransactions(parseInt(catId, 10), catName);
+    else if (payeeVal) loadPayeeTransactions(payeeVal);
+  })();
 </script>
 {% endblock %}

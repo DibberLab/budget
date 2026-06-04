@@ -29,6 +29,16 @@
       {% endfor %}
     </select>
   </div>
+  <div>
+    <label class="form-label small mb-1">Payee</label>
+    <input class="form-control form-control-sm" name="payee" list="payee-list"
+           value="{{ filter_payee }}" placeholder="Any payee" style="min-width:160px">
+    <datalist id="payee-list">
+      {% for p in distinct_payees %}
+        <option value="{{ p }}">
+      {% endfor %}
+    </datalist>
+  </div>
   <button class="btn btn-sm btn-outline-primary">Filter</button>
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transactions_list') }}">Clear</a>
 </form>

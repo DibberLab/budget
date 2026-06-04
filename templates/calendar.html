@@ -7,35 +7,132 @@
 </div>
 
 <div class="row g-3">
-  <div class="col-lg-9">
+  <div class="col-12">
     <div class="card-soft p-3">
+      <div class="d-flex gap-3 mb-3 flex-wrap" style="font-size:.82rem">
+        <span class="d-flex align-items-center gap-1">
+          <span style="width:10px;height:10px;border-radius:2px;background:#198754;flex-shrink:0"></span> Income
+        </span>
+        <span class="d-flex align-items-center gap-1">
+          <span style="width:10px;height:10px;border-radius:2px;background:#6f42c1;flex-shrink:0"></span> Google Calendar
+        </span>
+        <span class="d-flex align-items-center gap-1">
+          <span style="width:10px;height:10px;border-radius:2px;background:#6c757d;flex-shrink:0"></span> Uncategorized
+        </span>
+      </div>
       <div id="mainCalendar"></div>
     </div>
   </div>
+</div>
 
-  <div class="col-lg-3">
-    <div class="card-soft p-3 mb-3">
-      <h6 class="mb-2">Legend</h6>
-      <ul class="list-unstyled mb-0 small">
-        <li class="d-flex align-items-center gap-2 py-1">
-          <span style="width:12px;height:12px;border-radius:3px;background:#198754;flex-shrink:0"></span>
-          <span>Income</span>
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="card-soft p-3">
+      <ul class="nav nav-tabs mb-3" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-categories" type="button">
+            Categories <span class="text-muted fw-normal small">— This Month</span>
+          </button>
         </li>
-        <li class="d-flex align-items-center gap-2 py-1">
-          <span style="width:12px;height:12px;border-radius:3px;background:#6f42c1;flex-shrink:0"></span>
-          <span>Google Calendar</span>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-payees" type="button">
+            Payees <span class="text-muted fw-normal small">— This Month</span>
+          </button>
         </li>
-        <li class="d-flex align-items-center gap-2 py-1">
-          <span style="width:12px;height:12px;border-radius:3px;background:#6c757d;flex-shrink:0"></span>
-          <span>Uncategorized</span>
-        </li>
-        {% for item in legend %}
-        <li class="d-flex align-items-center gap-2 py-1">
-          <span style="width:12px;height:12px;border-radius:3px;background:{{ item.color }};flex-shrink:0"></span>
-          <span>{{ item.name }}</span>
-        </li>
-        {% endfor %}
       </ul>
+
+      <div class="tab-content">
+
+        {# ---- Categories tab ---- #}
+        <div class="tab-pane fade show active" id="tab-categories">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Category</th>
+                <th class="text-end">Avg/mo</th>
+                <th class="text-end">Last mo</th>
+                <th class="text-end">Budget</th>
+                <th class="text-end">Spent</th>
+                <th style="min-width:160px">Progress</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for group in legend_groups %}
+              {% set g_pct   = group.group_spent_pct or 0 %}
+              {% set g_clamp = [g_pct, 100] | min %}
+              {% set g_color = 'over' if g_pct > 100 else ('warn' if g_pct > 75 else 'ok') %}
+              <tr class="group-row">
+                <td>{{ group.name }}</td>
+                <td class="text-end">{{ group.group_avg | money if group.group_avg else '—' }}</td>
+                <td class="text-end">{{ group.group_last_month | money if group.group_last_month else '—' }}</td>
+                <td class="text-end">{{ group.group_budgeted | money if group.group_budgeted else '—' }}</td>
+                <td class="text-end">{{ group.group_spent_month | money if group.group_spent_month else '—' }}</td>
+                <td>
+                  <div class="spend-bar">
+                    <div class="spend-fill spend-fill--{{ g_color }}" data-pct="{{ g_clamp | int }}"></div>
+                    <span class="spend-label">{%- if g_pct > 100 %}Overspent{%- elif g_pct > 0 %}{{ g_pct | int }}%{%- endif -%}</span>
+                  </div>
+                </td>
+              </tr>
+              {% for item in group.categories %}
+                {% set pct   = item.spent_pct or 0 %}
+                {% set clamp = [pct, 100] | min %}
+                {% set color = 'over' if pct > 100 else ('warn' if pct > 75 else 'ok') %}
+                <tr data-tip-url="/api/category/recent-transactions?category_id={{ item.id }}"
+                    data-tip-label="{{ item.name }}">
+                  <td class="ps-3">
+                    <a href="{{ url_for('reports', preset='last_30d', open_cat=item.id, open_cat_name=item.name) }}"
+                       class="d-flex align-items-center gap-2 text-decoration-none text-body">
+                      <span style="width:10px;height:10px;border-radius:2px;background:{{ item.color }};flex-shrink:0"></span>
+                      {{ item.name }}
+                    </a>
+                  </td>
+                  <td class="text-end text-muted">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
+                  <td class="text-end text-muted">{{ item.last_month | money if item.last_month else '—' }}</td>
+                  <td class="text-end">{{ item.budgeted | money if item.budgeted else '—' }}</td>
+                  <td class="text-end {% if pct > 100 %}money-neg{% endif %}">{{ item.spent_month | money if item.spent_month else '—' }}</td>
+                  <td>
+                    <div class="spend-bar">
+                      <div class="spend-fill spend-fill--{{ color }}" data-pct="{{ clamp | int }}"></div>
+                      <span class="spend-label">{%- if pct > 100 %}Overspent{%- elif pct > 0 %}{{ pct | int }}%{%- endif -%}</span>
+                    </div>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        {# ---- Payees tab ---- #}
+        <div class="tab-pane fade" id="tab-payees">
+          <table class="table align-middle mb-0">
+            <thead>
+              <tr>
+                <th>Payee</th>
+                <th class="text-end">Avg/mo</th>
+                <th class="text-end">Last mo</th>
+                <th class="text-end">This mo</th>
+              </tr>
+            </thead>
+            <tbody>
+            {% for item in payee_rows %}
+              <tr data-tip-url="/api/payee/recent-transactions?payee={{ item.name | urlencode }}"
+                  data-tip-label="{{ item.name }}">
+                <td>
+                  <a href="{{ url_for('reports', preset='last_30d', open_payee=item.name) }}"
+                     class="text-decoration-none text-body">{{ item.name }}</a>
+                </td>
+                <td class="text-end text-muted">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
+                <td class="text-end text-muted">{{ item.last_month | money if item.last_month else '—' }}</td>
+                <td class="text-end">{{ item.spent_month | money if item.spent_month else '—' }}</td>
+              </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+      </div>{# /tab-content #}
     </div>
   </div>
 </div>
@@ -46,6 +143,77 @@
 <script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/icalendar@6.1.15/index.global.min.js"></script>
 <script>
+  document.querySelectorAll('.spend-fill[data-pct]').forEach(el => {
+    el.style.setProperty('--w', el.dataset.pct);
+  });
+
+  // ---- hover tooltip (generic — driven by data-tip-url / data-tip-label) ----
+  const _tip = document.createElement('div');
+  _tip.style.cssText = [
+    'position:fixed', 'z-index:9999', 'display:none', 'pointer-events:none',
+    'background:#fff', 'border:1px solid #dee2e6', 'border-radius:8px',
+    'box-shadow:0 4px 20px rgba(0,0,0,.13)', 'padding:10px 14px',
+    'min-width:320px', 'max-width:520px', 'font-size:.8rem', 'line-height:1.5'
+  ].join(';');
+  document.body.appendChild(_tip);
+
+  let _mx = 0, _my = 0;
+  document.addEventListener('mousemove', e => { _mx = e.clientX; _my = e.clientY; });
+
+  const _cache = {};
+
+  function _placeTip() {
+    const margin = 14, w = 520;
+    let x = _mx + margin;
+    if (x + w > window.innerWidth - margin) x = _mx - w - margin;
+    _tip.style.left = x + 'px';
+    _tip.style.top  = (_my + margin) + 'px';
+  }
+
+  function _escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  function _fmtAmt(cents) {
+    const neg = cents < 0, abs = Math.abs(cents);
+    return (neg ? '-' : '') + '$' + Math.floor(abs/100).toLocaleString() + '.' + String(abs%100).padStart(2,'0');
+  }
+
+  function _renderTip(label, txns) {
+    if (!txns.length) {
+      _tip.innerHTML = `<div class="fw-semibold mb-1">${_escHtml(label)}</div><div class="text-muted small">No transactions found</div>`;
+      return;
+    }
+    const rows = txns.map(t => `
+      <tr>
+        <td style="padding:3px 10px 3px 0;white-space:nowrap;color:#6c757d">${t.date}</td>
+        <td style="padding:3px 10px 3px 0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(t.payee || '—')}</td>
+        <td style="padding:3px 10px 3px 0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6c757d;font-style:italic">${_escHtml(t.memo || '')}</td>
+        <td style="padding:3px 0;white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums;color:${t.amount < 0 ? '#dc3545' : '#198754'}">${_fmtAmt(t.amount)}</td>
+      </tr>`).join('');
+    _tip.innerHTML = `
+      <div class="fw-semibold mb-2">${_escHtml(label)} <span class="fw-normal text-muted">— recent transactions</span></div>
+      <table style="width:100%;border-collapse:collapse">${rows}</table>`;
+    _placeTip();
+  }
+
+  function _showTip(url, label) {
+    _tip.innerHTML = `<div class="fw-semibold mb-1">${_escHtml(label)}</div><div class="text-muted small">Loading…</div>`;
+    _placeTip();
+    _tip.style.display = '';
+    if (_cache[url] !== undefined) { _renderTip(label, _cache[url]); return; }
+    fetch(url)
+      .then(r => r.json())
+      .then(data => { _cache[url] = data.transactions || []; _renderTip(label, _cache[url]); })
+      .catch(() => { _tip.innerHTML = `<div class="fw-semibold mb-1">${_escHtml(label)}</div><div class="text-danger small">Failed to load</div>`; });
+  }
+
+  document.querySelectorAll('tr[data-tip-url]').forEach(row => {
+    row.addEventListener('mouseenter', () => _showTip(row.dataset.tipUrl, row.dataset.tipLabel));
+    row.addEventListener('mousemove',  _placeTip);
+    row.addEventListener('mouseleave', () => { _tip.style.display = 'none'; });
+  });
+
   document.addEventListener('DOMContentLoaded', function () {
     const cal = new FullCalendar.Calendar(document.getElementById('mainCalendar'), {
       initialView: 'dayGridMonth',
