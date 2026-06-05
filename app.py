@@ -989,11 +989,7 @@ def register_routes(app: Flask):
 
     # ---- calendar API ----
 
-    _GOOGLE_CALENDAR_ICS = (
-        "https://calendar.google.com/calendar/ical/"
-        "4433a33a77cb975dbac414b0b520b4972a1afc4de45dcd62a4e57c8dae93d548"
-        "%40group.calendar.google.com/public/basic.ics"
-    )
+    _GOOGLE_CALENDAR_ICS = os.environ.get("GOOGLE_CALENDAR_ICS", "")
 
     # Same palette Chart.js uses for its doughnut chart by default.
     _CHART_PALETTE = [
