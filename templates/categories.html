@@ -1,41 +1,303 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf %}
 {% block title %}Categories{% endblock %}
+
+{% block head %}
+<style>
+  .cat-editable {
+    border-bottom: 1px dashed transparent;
+    cursor: text;
+    outline: none;
+    transition: border-color .15s;
+  }
+  .cat-editable:hover  { border-bottom-color: #adb5bd; }
+  .cat-editable:focus  { border-bottom-color: #0d6efd; }
+
+  .group-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-top: 1.25rem; margin-bottom: .25rem;
+  }
+  .group-name-edit {
+    font-size: .75rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .06em; color: #6c757d;
+  }
+  .group-rename-hint {
+    font-size: .7rem; color: #adb5bd; cursor: pointer;
+  }
+  .group-rename-hint:hover { color: #0d6efd; }
+
+  .cat-row { display: flex; align-items: center; gap: 8px;
+             padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+  .cat-row:last-child { border-bottom: none; }
+  .cat-name-wrap { flex: 1; min-width: 0; }
+  .cat-group-select { font-size: .8rem; max-width: 160px; }
+  .income-check { accent-color: #198754; }
+
+  .saving-flash { animation: flashGreen .6s ease; }
+  @keyframes flashGreen {
+    0%   { background: #d1fae5; }
+    100% { background: transparent; }
+  }
+</style>
+{% endblock %}
+
 {% block content %}
-<h3>Categories</h3>
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h3 class="mb-0">Categories</h3>
+</div>
+
 <div class="row g-3">
+  {# ---- Add form ---- #}
   <div class="col-md-4">
-    <form method="post" class="card-soft p-3">
-      {{ csrf() }}
+    <div class="card-soft p-3 sticky-top" style="top:70px;">
       <h5>Add Category</h5>
-      <div class="mb-2"><label class="form-label small">Group</label>
-        <input class="form-control" name="group_name" placeholder="e.g. Bills"></div>
-      <div class="mb-2"><label class="form-label small">Name</label>
-        <input class="form-control" name="name" required></div>
-      <div class="form-check mb-2">
-        <input class="form-check-input" type="checkbox" name="is_income" id="ii">
-        <label class="form-check-label" for="ii">Income category</label>
-      </div>
-      <button class="btn btn-primary">Add</button>
-    </form>
+      <form method="post">
+        {{ csrf() }}
+        <div class="mb-2">
+          <label class="form-label small mb-1">Group</label>
+          <input class="form-control form-control-sm" name="group_name"
+                 list="group-list" placeholder="e.g. Bills" autocomplete="off">
+          <datalist id="group-list">
+            {% for g in groups %}
+              <option value="{{ g }}">
+            {% endfor %}
+          </datalist>
+        </div>
+        <div class="mb-2">
+          <label class="form-label small mb-1">Name</label>
+          <input class="form-control form-control-sm" name="name" required>
+        </div>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="checkbox" name="is_income" id="ii">
+          <label class="form-check-label small" for="ii">Income category</label>
+        </div>
+        <button class="btn btn-primary btn-sm">Add</button>
+      </form>
+    </div>
   </div>
+
+  {# ---- Category list ---- #}
   <div class="col-md-8">
-    <div class="card-soft p-3">
-    {% for group, cats in groups.items() %}
-      <h6 class="text-uppercase small text-muted mt-3">{{ group }}</h6>
-      <ul class="list-unstyled">
-      {% for c in cats %}
-        <li class="d-flex justify-content-between align-items-center py-1 border-bottom">
-          <span>{{ c.name }} {% if c.is_income %}<span class="badge bg-success">income</span>{% endif %}</span>
-          <form method="post" action="{{ url_for('category_delete', cid=c.id) }}" onsubmit="return confirm('Delete this category? Transactions become uncategorized.');">
-            {{ csrf() }}
-            <button class="btn btn-sm btn-link text-danger">Delete</button>
-          </form>
-        </li>
+    <div class="card-soft p-3" id="cat-list">
+      {% for group, cats in groups.items() %}
+        <div class="group-block" data-group="{{ group }}">
+          <div class="group-header">
+            <span class="group-name-edit cat-editable"
+                  contenteditable="true" spellcheck="false"
+                  data-original="{{ group }}">{{ group }}</span>
+            <span class="group-rename-hint" title="Click name to rename group">✎ rename all</span>
+          </div>
+
+          <div class="cat-rows">
+          {% for c in cats %}
+            <div class="cat-row" data-cid="{{ c.id }}">
+              {# Name #}
+              <div class="cat-name-wrap">
+                <span class="cat-editable cat-field"
+                      data-cid="{{ c.id }}" data-field="name"
+                      contenteditable="true" spellcheck="false">{{ c.name }}</span>
+                {% if c.is_income %}
+                  <span class="badge bg-success ms-1" style="font-size:.65rem;">income</span>
+                {% endif %}
+              </div>
+
+              {# Group selector #}
+              <select class="form-select form-select-sm cat-group-select"
+                      data-cid="{{ c.id }}" title="Move to group">
+                {% for g in groups %}
+                  <option value="{{ g }}" {% if g == group %}selected{% endif %}>{{ g }}</option>
+                {% endfor %}
+                <option value="__new__">+ New group…</option>
+              </select>
+
+              {# Income toggle #}
+              <div title="Income category">
+                <input type="checkbox" class="income-check cat-income"
+                       data-cid="{{ c.id }}" {% if c.is_income %}checked{% endif %}>
+              </div>
+
+              {# Delete #}
+              <form method="post" action="{{ url_for('category_delete', cid=c.id) }}"
+                    onsubmit="return confirm('Delete {{ c.name }}? Transactions become uncategorized.');"
+                    style="margin:0;">
+                {{ csrf() }}
+                <button class="btn btn-sm btn-link text-danger p-0" title="Delete">×</button>
+              </form>
+            </div>
+          {% endfor %}
+          </div>
+        </div>
       {% endfor %}
-      </ul>
-    {% endfor %}
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const ALL_GROUPS = {{ groups.keys() | list | tojson }};
+
+// ---- generic save helper ----
+async function saveCatField(cid, field, value) {
+  const fd = new FormData();
+  fd.append('field', field);
+  fd.append('value', value);
+  const r = await fetch(`/categories/${cid}/edit`, { method: 'POST', body: fd });
+  return r.ok;
+}
+
+function flashRow(el) {
+  const row = el.closest('.cat-row') || el.closest('.group-block');
+  if (row) { row.classList.remove('saving-flash'); void row.offsetWidth; row.classList.add('saving-flash'); }
+}
+
+// ---- category name inline edit ----
+document.querySelectorAll('.cat-field[data-field="name"]').forEach(el => {
+  let original;
+  el.addEventListener('focus', () => { original = el.textContent.trim(); });
+  el.addEventListener('blur', async () => {
+    const val = el.textContent.trim();
+    if (!val || val === original) { el.textContent = original; return; }
+    const ok = await saveCatField(el.dataset.cid, 'name', val);
+    if (!ok) { el.textContent = original; }
+    else flashRow(el);
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+  });
+});
+
+// ---- group rename (renames ALL cats in group) ----
+document.querySelectorAll('.group-name-edit').forEach(el => {
+  let original;
+  el.addEventListener('focus', () => { original = el.textContent.trim(); });
+  el.addEventListener('blur', async () => {
+    const newName = el.textContent.trim();
+    if (!newName || newName === original) { el.textContent = original; return; }
+
+    const fd = new FormData();
+    fd.append('old_name', original);
+    fd.append('new_name', newName);
+    const r = await fetch('/categories/group/rename', { method: 'POST', body: fd });
+    if (!r.ok) { el.textContent = original; return; }
+
+    // Update all group selects on the page to reflect the rename
+    document.querySelectorAll('.cat-group-select').forEach(sel => {
+      Array.from(sel.options).forEach(opt => {
+        if (opt.value === original) { opt.value = newName; opt.textContent = newName; }
+      });
+    });
+    // Update data-group on the block and data-original on this element
+    el.closest('.group-block').dataset.group = newName;
+    el.dataset.original = newName;
+    flashRow(el);
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+  });
+});
+
+// ---- group selector (move category to different group) ----
+document.querySelectorAll('.cat-group-select').forEach(sel => {
+  sel.addEventListener('change', async () => {
+    let targetGroup = sel.value;
+
+    if (targetGroup === '__new__') {
+      targetGroup = prompt('New group name:');
+      if (!targetGroup || !targetGroup.trim()) { sel.value = sel.dataset.prev || sel.options[0].value; return; }
+      targetGroup = targetGroup.trim();
+      // Add option to all group selects
+      document.querySelectorAll('.cat-group-select').forEach(s => {
+        const exists = Array.from(s.options).some(o => o.value === targetGroup);
+        if (!exists) {
+          const newOpt = new Option(targetGroup, targetGroup);
+          s.insertBefore(newOpt, s.querySelector('option[value="__new__"]'));
+        }
+      });
+      // Add to Add-form datalist
+      const dl = document.getElementById('group-list');
+      if (dl && !Array.from(dl.options).some(o => o.value === targetGroup)) {
+        dl.appendChild(new Option(targetGroup, targetGroup));
+      }
+      sel.value = targetGroup;
+    }
+
+    const cid = sel.dataset.cid;
+    const ok  = await saveCatField(cid, 'group_name', targetGroup);
+    if (!ok) { sel.value = sel.dataset.prev; return; }
+
+    sel.dataset.prev = targetGroup;
+
+    // Move the row DOM to the correct group block (or create one)
+    const row       = sel.closest('.cat-row');
+    const curBlock  = row.closest('.group-block');
+    let targetBlock = document.querySelector(`.group-block[data-group="${CSS.escape(targetGroup)}"]`);
+
+    if (!targetBlock) {
+      // Create a new group section
+      targetBlock = document.createElement('div');
+      targetBlock.className = 'group-block';
+      targetBlock.dataset.group = targetGroup;
+      targetBlock.innerHTML = `
+        <div class="group-header">
+          <span class="group-name-edit cat-editable" contenteditable="true" spellcheck="false"
+                data-original="${targetGroup}">${targetGroup}</span>
+          <span class="group-rename-hint" title="Click name to rename group">✎ rename all</span>
+        </div>
+        <div class="cat-rows"></div>`;
+      document.getElementById('cat-list').appendChild(targetBlock);
+      // Wire up rename on the new header
+      wireGroupEdit(targetBlock.querySelector('.group-name-edit'));
+    }
+
+    targetBlock.querySelector('.cat-rows').appendChild(row);
+
+    // Remove old block if now empty
+    if (!curBlock.querySelector('.cat-row')) curBlock.remove();
+
+    // Update the group select in the moved row to show new group as selected
+    sel.value = targetGroup;
+    flashRow(sel);
+  });
+  sel.dataset.prev = sel.value;
+});
+
+// ---- income checkbox ----
+document.querySelectorAll('.cat-income').forEach(cb => {
+  cb.addEventListener('change', async () => {
+    const ok = await saveCatField(cb.dataset.cid, 'is_income', cb.checked ? '1' : '0');
+    if (!ok) cb.checked = !cb.checked;
+    else flashRow(cb);
+  });
+});
+
+// ---- reusable group-rename wiring (for dynamically created blocks) ----
+function wireGroupEdit(el) {
+  let original;
+  el.addEventListener('focus', () => { original = el.textContent.trim(); });
+  el.addEventListener('blur', async () => {
+    const newName = el.textContent.trim();
+    if (!newName || newName === original) { el.textContent = original; return; }
+    const fd = new FormData();
+    fd.append('old_name', original);
+    fd.append('new_name', newName);
+    const r = await fetch('/categories/group/rename', { method: 'POST', body: fd });
+    if (!r.ok) { el.textContent = original; return; }
+    document.querySelectorAll('.cat-group-select').forEach(sel => {
+      Array.from(sel.options).forEach(opt => {
+        if (opt.value === original) { opt.value = newName; opt.textContent = newName; }
+      });
+    });
+    el.closest('.group-block').dataset.group = newName;
+    el.dataset.original = newName;
+    flashRow(el);
+  });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+  });
+}
+</script>
 {% endblock %}

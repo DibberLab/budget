@@ -1,6 +1,63 @@
 {% extends "base.html" %}
 {% from "_macros.html" import csrf %}
 {% block title %}Transactions{% endblock %}
+
+{% block head %}
+<style>
+  /* ---- tag cloud ---- */
+  .tag-cloud { display:flex; flex-wrap:wrap; gap:6px; }
+  .tag-pill {
+    display:inline-flex; align-items:center; gap:5px;
+    padding:3px 10px; border-radius:20px; font-size:.8rem;
+    cursor:pointer; user-select:none; border:2px solid transparent;
+    background:#f0f0f0; color:#333; transition:all .15s;
+  }
+  .tag-pill:hover { opacity:.85; }
+  .tag-pill.active {
+    border-color: var(--tag-color, #0d6efd);
+    background: color-mix(in srgb, var(--tag-color, #0d6efd) 15%, white);
+    color: color-mix(in srgb, var(--tag-color, #0d6efd) 80%, black);
+    font-weight:600;
+  }
+  .tag-pill .tag-count {
+    background:rgba(0,0,0,.12); border-radius:10px;
+    padding:0 5px; font-size:.72rem; line-height:1.6;
+  }
+  .tag-pill.active .tag-count {
+    background: color-mix(in srgb, var(--tag-color, #0d6efd) 30%, white);
+  }
+
+  /* ---- summary bar ---- */
+  #txn-summary {
+    display:flex; flex-wrap:wrap; gap:16px; align-items:center;
+    padding:8px 14px; background:#f8f9fa; border-radius:8px;
+    font-size:.85rem; border:1px solid #dee2e6; margin-bottom:10px;
+  }
+  #txn-summary .sum-item { display:flex; gap:5px; align-items:center; }
+  #txn-summary .sum-label { color:#666; }
+  #txn-summary .sum-val { font-weight:600; }
+  .sum-expenses { color:#dc3545; }
+  .sum-income   { color:#198754; }
+  .sum-net-pos  { color:#198754; }
+  .sum-net-neg  { color:#dc3545; }
+
+  /* ---- filter section ---- */
+  .filter-section { background:#fff; border:1px solid #dee2e6; border-radius:8px; padding:12px 14px; margin-bottom:12px; }
+  .filter-section h6 { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:#888; margin-bottom:8px; }
+  .filter-divider { border-top:1px solid #e9ecef; margin:10px 0; }
+
+  /* ---- row highlight on filter match ---- */
+  tr.filter-match td { background: rgba(13,110,253,.04); }
+
+  /* ---- payee / category cell click-to-filter ---- */
+  .js-tag-trigger {
+    cursor:pointer;
+    border-bottom:1px dashed #bbb;
+  }
+  .js-tag-trigger:hover { border-bottom-color:#0d6efd; color:#0d6efd; }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">Transactions</h3>
@@ -10,7 +67,8 @@
   </div>
 </div>
 
-<form class="card-soft p-3 mb-3 d-flex gap-2 align-items-end flex-wrap" method="get">
+{# ---- Account (server-side) filter ---- #}
+<form class="d-flex gap-2 align-items-end flex-wrap mb-3" method="get">
   <div>
     <label class="form-label small mb-1">Account</label>
     <select class="form-select form-select-sm" name="account_id">
@@ -20,29 +78,76 @@
       {% endfor %}
     </select>
   </div>
-  <div>
-    <label class="form-label small mb-1">Category</label>
-    <select class="form-select form-select-sm" name="category_id">
-      <option value="">All categories</option>
-      {% for c in categories %}
-        <option value="{{ c.id }}" {% if filter_category == c.id %}selected{% endif %}>{{ c.group_name }} / {{ c.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <div>
-    <label class="form-label small mb-1">Payee</label>
-    <input class="form-control form-control-sm" name="payee" list="payee-list"
-           value="{{ filter_payee }}" placeholder="Any payee" style="min-width:160px">
-    <datalist id="payee-list">
-      {% for p in distinct_payees %}
-        <option value="{{ p }}">
-      {% endfor %}
-    </datalist>
-  </div>
-  <button class="btn btn-sm btn-outline-primary">Filter</button>
+  <button class="btn btn-sm btn-outline-primary">Apply</button>
   <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transactions_list') }}">Clear</a>
 </form>
 
+{# ---- Combined filter panel ---- #}
+<div class="filter-section">
+  <div class="d-flex justify-content-between align-items-start mb-2">
+    <span class="fw-semibold" style="font-size:.875rem;">Filter</span>
+    <button class="btn btn-sm btn-link p-0 text-secondary" id="clear-all-tags">Clear all</button>
+  </div>
+
+  {# Date range #}
+  <h6>Date Range</h6>
+  <div class="d-flex gap-2 align-items-center flex-wrap mb-1">
+    <select class="form-select form-select-sm" id="date-preset" style="width:auto;" onchange="onDatePreset(this.value)">
+      <option value="all">All time</option>
+      <option value="last_30d">Last 30 Days</option>
+      <option value="last_90d">Last 90 Days</option>
+      <option value="last_180d">Last 180 Days</option>
+      <option value="last_365d">Last 365 Days</option>
+      <option value="this_month">This Month</option>
+      <option value="last_month">Last Month</option>
+      <option value="last_3">Last 3 Months</option>
+      <option value="last_6">Last 6 Months</option>
+      <option value="last_12">Last 12 Months</option>
+      <option value="last_24">Last 24 Months</option>
+      <option value="this_year">This Year</option>
+      <option value="last_year">Last Year</option>
+      <option value="custom">Custom Range</option>
+    </select>
+    <div id="custom-dates" class="d-none d-flex gap-2 align-items-center">
+      <input type="date" class="form-control form-control-sm" id="custom-start" style="width:150px;">
+      <span class="text-muted small">to</span>
+      <input type="date" class="form-control form-control-sm" id="custom-end" style="width:150px;">
+    </div>
+  </div>
+
+  <div class="filter-divider"></div>
+
+  <h6>Categories</h6>
+  <div class="tag-cloud mb-3" id="cat-tags"></div>
+
+  <div class="filter-divider"></div>
+
+  <h6>Payees</h6>
+  <div class="tag-cloud" id="payee-tags"></div>
+</div>
+
+{# ---- Summary bar ---- #}
+<div id="txn-summary">
+  <div class="sum-item">
+    <span class="sum-label">Showing</span>
+    <span class="sum-val" id="sum-count">—</span>
+    <span class="sum-label">transactions</span>
+  </div>
+  <div class="sum-item">
+    <span class="sum-label">Expenses</span>
+    <span class="sum-val sum-expenses" id="sum-expenses">—</span>
+  </div>
+  <div class="sum-item">
+    <span class="sum-label">Income</span>
+    <span class="sum-val sum-income" id="sum-income">—</span>
+  </div>
+  <div class="sum-item">
+    <span class="sum-label">Net</span>
+    <span class="sum-val" id="sum-net">—</span>
+  </div>
+</div>
+
+{# ---- Transactions table ---- #}
 <div class="card-soft p-3">
   <table class="table table-sm align-middle" id="txn-table">
     <thead>
@@ -51,9 +156,14 @@
         <th>Memo</th><th class="text-end">Amount</th><th></th>
       </tr>
     </thead>
-    <tbody>
+    <tbody id="txn-body">
     {% for t in txns %}
-      <tr data-tid="{{ t.id }}">
+      <tr data-tid="{{ t.id }}"
+          data-date="{{ t.date }}"
+          data-payee="{{ t.payee or '' }}"
+          data-cat-id="{{ t.category_id or '' }}"
+          data-cat-name="{{ cat_by_id.get(t.category_id, '') }}"
+          data-amount="{{ t.amount }}">
 
         {# Date #}
         <td>
@@ -70,21 +180,33 @@
           </select>
         </td>
 
-        {# Payee #}
-        <td>
+        {# Payee — contenteditable for editing, small trigger icon for filtering #}
+        <td style="white-space:nowrap;">
           <span class="js-editable" data-field="payee" data-tid="{{ t.id }}"
                 contenteditable="true" spellcheck="false"
                 style="display:inline-block;min-width:80px;">{{ t.payee or '' }}</span>
+          {% if t.payee %}
+          <span class="js-tag-trigger ms-1 text-muted" style="font-size:.7rem;"
+                data-type="payee" data-value="{{ t.payee }}">⊕</span>
+          {% endif %}
         </td>
 
         {# Category #}
         <td>
-          <select class="form-select form-select-sm js-cat" data-tid="{{ t.id }}" style="max-width:220px;">
-            <option value="">— uncategorized —</option>
-            {% for c in categories %}
-              <option value="{{ c.id }}" {% if t.category_id == c.id %}selected{% endif %}>{{ c.group_name }} / {{ c.name }}</option>
-            {% endfor %}
-          </select>
+          <div class="d-flex align-items-center gap-1">
+            {% if t.category_id %}
+            <span class="js-tag-trigger" data-type="cat" data-value="{{ t.category_id }}"
+                  style="width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block;
+                         background:{{ cat_colors.get(t.category_id, '#ccc') }};cursor:pointer;"
+                  title="Filter by this category"></span>
+            {% endif %}
+            <select class="form-select form-select-sm js-cat" data-tid="{{ t.id }}" style="max-width:200px;">
+              <option value="">— uncategorized —</option>
+              {% for c in categories %}
+                <option value="{{ c.id }}" {% if t.category_id == c.id %}selected{% endif %}>{{ c.group_name }} / {{ c.name }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </td>
 
         {# Memo #}
@@ -111,7 +233,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="text-center text-muted py-4">No transactions match.</td></tr>
+      <tr><td colspan="7" class="text-center text-muted py-4">No transactions.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -120,54 +242,311 @@
 
 {% block scripts %}
 <script>
-  async function saveField(tid, field, value) {
-    const fd = new FormData();
-    fd.append('field', field);
-    fd.append('value', value);
-    const r = await fetch(`/transactions/${tid}/edit`, { method: 'POST', body: fd });
-    return r.ok;
+// ---- data from server ----
+const CAT_COLORS = {{ cat_colors | tojson }};
+const INIT_CAT   = {{ initial_cat_id | tojson }};
+const INIT_PAYEE = {{ initial_payee | tojson }};
+
+// ---- filter state ----
+let activeCats   = new Set();  // category_id strings
+let activePayees = new Set();  // payee name strings
+let dateStart    = null;       // ISO string or null
+let dateEnd      = null;       // ISO string or null
+
+// ---- date range helpers ----
+function toISO(d) { return d.toISOString().slice(0, 10); }
+function daysAgo(n) { const d = new Date(); d.setDate(d.getDate() - n); d.setHours(0,0,0,0); return d; }
+
+function getDateRange(preset) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const y = today.getFullYear(), m = today.getMonth();
+  switch (preset) {
+    case 'last_30d':   return { s: toISO(daysAgo(29)),  e: toISO(today) };
+    case 'last_90d':   return { s: toISO(daysAgo(89)),  e: toISO(today) };
+    case 'last_180d':  return { s: toISO(daysAgo(179)), e: toISO(today) };
+    case 'last_365d':  return { s: toISO(daysAgo(364)), e: toISO(today) };
+    case 'this_month': return { s: toISO(new Date(y, m, 1)),      e: toISO(today) };
+    case 'last_month': return { s: toISO(new Date(y, m-1, 1)),    e: toISO(new Date(y, m, 0)) };
+    case 'last_3':     return { s: toISO(new Date(y, m-3, today.getDate())), e: toISO(today) };
+    case 'last_6':     return { s: toISO(new Date(y, m-6, today.getDate())), e: toISO(today) };
+    case 'last_12':    return { s: toISO(new Date(y, m-12, today.getDate())), e: toISO(today) };
+    case 'last_24':    return { s: toISO(new Date(y, m-24, today.getDate())), e: toISO(today) };
+    case 'this_year':  return { s: toISO(new Date(y, 0, 1)),  e: toISO(today) };
+    case 'last_year':  return { s: toISO(new Date(y-1, 0, 1)), e: toISO(new Date(y-1, 11, 31)) };
+    default:           return null;
   }
+}
 
-  // Category selects (existing endpoint)
-  document.querySelectorAll('.js-cat').forEach(sel => {
-    sel.addEventListener('change', async () => {
-      const fd = new FormData();
-      fd.append('category_id', sel.value);
-      await fetch(`/transactions/${sel.dataset.tid}/categorize`, { method: 'POST', body: fd });
-    });
+function onDatePreset(preset) {
+  const customDiv = document.getElementById('custom-dates');
+  if (preset === 'custom') {
+    customDiv.classList.remove('d-none');
+    // keep whatever dateStart/dateEnd are from the inputs
+    const s = document.getElementById('custom-start').value;
+    const e = document.getElementById('custom-end').value;
+    dateStart = s || null;
+    dateEnd   = e || null;
+  } else if (preset === 'all') {
+    customDiv.classList.add('d-none');
+    dateStart = null; dateEnd = null;
+  } else {
+    customDiv.classList.add('d-none');
+    const r = getDateRange(preset);
+    dateStart = r.s; dateEnd = r.e;
+  }
+  applyFilters();
+}
+
+document.getElementById('custom-start').addEventListener('change', e => {
+  dateStart = e.target.value || null;
+  applyFilters();
+});
+document.getElementById('custom-end').addEventListener('change', e => {
+  dateEnd = e.target.value || null;
+  applyFilters();
+});
+
+// ---- gather all row data once ----
+const allRows = Array.from(document.querySelectorAll('#txn-body tr[data-tid]')).map(tr => ({
+  el:      tr,
+  date:    tr.dataset.date    || '',
+  payee:   tr.dataset.payee   || '',
+  catId:   tr.dataset.catId   || '',
+  catName: tr.dataset.catName || '',
+  amount:  parseInt(tr.dataset.amount) || 0,
+}));
+
+// ---- build a stable ordered list of categories and payees ----
+const catIndex   = {};  // catId -> {name, color}
+const payeeIndex = {};  // payee -> true
+
+allRows.forEach(r => {
+  if (r.catId && !catIndex[r.catId]) {
+    catIndex[r.catId] = {
+      name:  r.catName || '(uncategorized)',
+      color: CAT_COLORS[r.catId] || '#ccc',
+    };
+  }
+  if (r.payee) payeeIndex[r.payee] = true;
+});
+
+const catIds   = Object.keys(catIndex).sort((a,b) => catIndex[a].name.localeCompare(catIndex[b].name));
+const payees   = Object.keys(payeeIndex).sort((a,b) => a.localeCompare(b));
+
+// ---- apply filters and refresh display ----
+function applyFilters() {
+  const catCounts   = {};
+  const payeeCounts = {};
+  let count = 0, expenses = 0, income = 0;
+  const hasFilter = activeCats.size > 0 || activePayees.size > 0 || dateStart || dateEnd;
+
+  allRows.forEach(r => {
+    const catOk   = activeCats.size   === 0 || activeCats.has(r.catId);
+    const payeeOk = activePayees.size === 0 || activePayees.has(r.payee);
+    const dateOk  = (!dateStart || r.date >= dateStart) && (!dateEnd || r.date <= dateEnd);
+    const visible = catOk && payeeOk && dateOk;
+
+    r.el.style.display = visible ? '' : 'none';
+    r.el.classList.toggle('filter-match', visible && hasFilter);
+
+    if (visible) {
+      count++;
+      if (r.amount < 0) expenses += r.amount; else income += r.amount;
+      catCounts[r.catId]   = (catCounts[r.catId]   || 0) + 1;
+      payeeCounts[r.payee] = (payeeCounts[r.payee] || 0) + 1;
+    }
   });
 
-  // Date + Account selects (new endpoint)
-  document.querySelectorAll('.js-edit').forEach(el => {
-    const row = el.closest('tr');
-    el.addEventListener('change', () => {
-      saveField(row.dataset.tid, el.dataset.field, el.value);
-    });
-  });
+  updateSummary(count, expenses, income);
+  updateTagCounts(catCounts, payeeCounts);
+}
 
-  // Contenteditable fields (payee, memo, amount)
-  document.querySelectorAll('.js-editable').forEach(el => {
-    // Save original value on focus so we can revert on error
-    let original;
-    el.addEventListener('focus', () => { original = el.textContent.trim(); });
-    el.addEventListener('blur', async () => {
-      const val = el.textContent.trim();
-      if (val === original) return;  // nothing changed
-      const ok = await saveField(el.dataset.tid, el.dataset.field, val);
-      if (!ok) {
-        el.textContent = original;  // revert on failure
-      } else if (el.dataset.field === 'amount') {
-        // Re-colour after an amount edit
-        const cents = parseFloat(val.replace(/[^0-9.\-]/g, '')) * 100;
-        el.classList.toggle('money-pos', cents >= 0);
-        el.classList.toggle('money-neg', cents < 0);
+// ---- update the summary bar ----
+function fmtMoney(cents) {
+  return (cents < 0 ? '-' : '') + '$' + (Math.abs(cents)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+
+function updateSummary(count, expenses, income) {
+  document.getElementById('sum-count').textContent    = count;
+  document.getElementById('sum-expenses').textContent = fmtMoney(expenses);
+  document.getElementById('sum-income').textContent   = fmtMoney(income);
+  const net = income + expenses;
+  const netEl = document.getElementById('sum-net');
+  netEl.textContent = fmtMoney(net);
+  netEl.className = 'sum-val ' + (net >= 0 ? 'sum-net-pos' : 'sum-net-neg');
+}
+
+// ---- build / update tag cloud ----
+function buildTagCloud() {
+  renderCatTags({});
+  renderPayeeTags({});
+  applyFilters();
+}
+
+function renderCatTags(counts) {
+  const container = document.getElementById('cat-tags');
+  container.innerHTML = '';
+  catIds.forEach(id => {
+    const info  = catIndex[id];
+    const count = counts[id] ?? allRows.filter(r=>r.catId===id).length;
+    const pill  = document.createElement('span');
+    pill.className = 'tag-pill' + (activeCats.has(id) ? ' active' : '');
+    pill.dataset.type  = 'cat';
+    pill.dataset.value = id;
+    pill.style.setProperty('--tag-color', info.color);
+    pill.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${info.color};display:inline-block;flex-shrink:0;"></span>${info.name}<span class="tag-count">${count}</span>`;
+    pill.addEventListener('click', () => toggleCat(id));
+    container.appendChild(pill);
+  });
+}
+
+function renderPayeeTags(counts) {
+  const container = document.getElementById('payee-tags');
+  container.innerHTML = '';
+  payees.forEach(p => {
+    const count = counts[p] ?? allRows.filter(r=>r.payee===p).length;
+    const pill  = document.createElement('span');
+    pill.className = 'tag-pill' + (activePayees.has(p) ? ' active' : '');
+    pill.dataset.type  = 'payee';
+    pill.dataset.value = p;
+    pill.innerHTML = `${p}<span class="tag-count">${count}</span>`;
+    pill.addEventListener('click', () => togglePayee(p));
+    container.appendChild(pill);
+  });
+}
+
+function updateTagCounts(catCounts, payeeCounts) {
+  // Update counts on existing pills without full re-render (preserves DOM)
+  document.querySelectorAll('#cat-tags .tag-pill').forEach(pill => {
+    const id    = pill.dataset.value;
+    const count = catCounts[id] || 0;
+    pill.querySelector('.tag-count').textContent = count;
+    pill.classList.toggle('active', activeCats.has(id));
+  });
+  document.querySelectorAll('#payee-tags .tag-pill').forEach(pill => {
+    const p     = pill.dataset.value;
+    const count = payeeCounts[p] || 0;
+    pill.querySelector('.tag-count').textContent = count;
+    pill.classList.toggle('active', activePayees.has(p));
+  });
+}
+
+function toggleCat(id) {
+  if (activeCats.has(id)) activeCats.delete(id); else activeCats.add(id);
+  applyFilters();
+}
+function togglePayee(p) {
+  if (activePayees.has(p)) activePayees.delete(p); else activePayees.add(p);
+  applyFilters();
+}
+
+// ---- row trigger icons ----
+document.querySelectorAll('.js-tag-trigger').forEach(el => {
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    if (el.dataset.type === 'cat')   toggleCat(el.dataset.value);
+    if (el.dataset.type === 'payee') togglePayee(el.dataset.value);
+  });
+});
+
+// ---- clear all ----
+document.getElementById('clear-all-tags').addEventListener('click', () => {
+  activeCats.clear();
+  activePayees.clear();
+  dateStart = null; dateEnd = null;
+  document.getElementById('date-preset').value = 'all';
+  document.getElementById('custom-dates').classList.add('d-none');
+  document.getElementById('custom-start').value = '';
+  document.getElementById('custom-end').value   = '';
+  applyFilters();
+});
+
+// ---- apply initial filters from URL params ----
+if (INIT_CAT)   activeCats.add(String(INIT_CAT));
+if (INIT_PAYEE) activePayees.add(INIT_PAYEE);
+
+// ---- init ----
+buildTagCloud();
+
+// ================================================================
+// Inline editing (unchanged from before)
+// ================================================================
+
+async function saveField(tid, field, value) {
+  const fd = new FormData();
+  fd.append('field', field);
+  fd.append('value', value);
+  const r = await fetch(`/transactions/${tid}/edit`, { method: 'POST', body: fd });
+  return r.ok;
+}
+
+// Category selects
+document.querySelectorAll('.js-cat').forEach(sel => {
+  sel.addEventListener('change', async () => {
+    const fd = new FormData();
+    fd.append('category_id', sel.value);
+    await fetch(`/transactions/${sel.dataset.tid}/categorize`, { method: 'POST', body: fd });
+    // Update row data attribute so filtering still works
+    const row = sel.closest('tr');
+    if (row) {
+      row.dataset.catId   = sel.value;
+      row.dataset.catName = sel.options[sel.selectedIndex].text.split(' / ').pop();
+      const rowObj = allRows.find(r => r.el === row);
+      if (rowObj) { rowObj.catId = sel.value; rowObj.catName = row.dataset.catName; }
+    }
+  });
+});
+
+// Date + Account selects
+document.querySelectorAll('.js-edit').forEach(el => {
+  const row = el.closest('tr');
+  el.addEventListener('change', () => {
+    saveField(row.dataset.tid, el.dataset.field, el.value);
+    if (el.dataset.field === 'date') {
+      row.dataset.date = el.value;
+      const rowObj = allRows.find(r => r.el === row);
+      if (rowObj) rowObj.date = el.value;
+      applyFilters();
+    }
+  });
+});
+
+// Contenteditable fields (payee, memo, amount)
+document.querySelectorAll('.js-editable').forEach(el => {
+  let original;
+  el.addEventListener('focus', () => { original = el.textContent.trim(); });
+  el.addEventListener('blur', async () => {
+    const val = el.textContent.trim();
+    if (val === original) return;
+    const ok = await saveField(el.dataset.tid, el.dataset.field, val);
+    if (!ok) {
+      el.textContent = original;
+    } else if (el.dataset.field === 'amount') {
+      const cents = parseFloat(val.replace(/[^0-9.\-]/g, '')) * 100;
+      el.classList.toggle('money-pos', cents >= 0);
+      el.classList.toggle('money-neg', cents < 0);
+      // Update row data so totals stay accurate
+      const row = el.closest('tr');
+      if (row) {
+        row.dataset.amount = Math.round(cents);
+        const rowObj = allRows.find(r => r.el === row);
+        if (rowObj) rowObj.amount = Math.round(cents);
+        applyFilters();
       }
-    });
-    // Commit on Enter, cancel on Escape
-    el.addEventListener('keydown', e => {
-      if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
-      if (e.key === 'Escape') { el.textContent = original; el.blur(); }
-    });
+    } else if (el.dataset.field === 'payee') {
+      // Update row data attribute
+      const row = el.closest('tr');
+      if (row) {
+        row.dataset.payee = val;
+        const rowObj = allRows.find(r => r.el === row);
+        if (rowObj) rowObj.payee = val;
+      }
+    }
   });
+  el.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); el.blur(); }
+    if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+  });
+});
 </script>
 {% endblock %}

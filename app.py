@@ -218,36 +218,179 @@ def register_routes(app: Flask):
     @login_required
     def dashboard():
         today = date.today()
-        ym = (today.year, today.month)
 
-        accounts = Account.query.filter_by(closed=False).all()
-        on_budget_total = sum(a.balance for a in accounts if a.on_budget)
-        off_budget_total = sum(a.balance for a in accounts if not a.on_budget)
-        net_worth = on_budget_total + off_budget_total
+        # ---- date-range chart data (same as reports page) ----
+        start_date, end_date, preset = _parse_report_range(request)
 
-        assigned, spent = _month_totals(*ym)
-        income_this_month = _income_total(*ym)
+        cat_totals = (db.session.query(Category.id, Category.name, func.sum(Transaction.amount))
+                      .join(Transaction, Transaction.category_id == Category.id)
+                      .filter(Transaction.date >= start_date,
+                              Transaction.date <= end_date,
+                              Transaction.amount < 0,
+                              Category.is_income.is_(False))
+                      .group_by(Category.id).all())
+        cat_ids    = [r[0] for r in cat_totals]
+        cat_labels = [r[1] for r in cat_totals]
+        cat_values = [abs(int(r[2] or 0)) for r in cat_totals]
 
-        recent = (Transaction.query
-                  .order_by(Transaction.date.desc(), Transaction.id.desc())
-                  .limit(10).all())
+        payee_totals = (db.session.query(Transaction.payee, func.sum(Transaction.amount))
+                        .join(Category, Category.id == Transaction.category_id)
+                        .filter(Transaction.date >= start_date,
+                                Transaction.date <= end_date,
+                                Transaction.amount < 0,
+                                Transaction.payee != '',
+                                Category.is_income.is_(False))
+                        .group_by(Transaction.payee)
+                        .order_by(func.sum(Transaction.amount))
+                        .limit(20).all())
+        payee_labels = [r[0] for r in payee_totals]
+        payee_values = [abs(int(r[1] or 0)) for r in payee_totals]
 
-        labels, income_series, expense_series = _income_expense_series(months=6)
+        trend_months = []
+        cur = date(start_date.year, start_date.month, 1)
+        while cur <= end_date:
+            trend_months.append((cur.year, cur.month))
+            cur = date(cur.year + (cur.month // 12), (cur.month % 12) + 1, 1)
+        month_idx    = {ym: i for i, ym in enumerate(trend_months)}
+        trend_labels = [f"{y}-{m:02d}" for y, m in trend_months]
+        n = len(trend_months)
 
-        return render_template("dashboard.html",
-                               accounts=accounts,
-                               net_worth=net_worth,
-                               on_budget_total=on_budget_total,
-                               off_budget_total=off_budget_total,
-                               assigned=assigned,
-                               spent=spent,
-                               income_this_month=income_this_month,
-                               recent=recent,
-                               chart_labels=labels,
-                               chart_income=income_series,
-                               chart_expense=expense_series,
-                               year=today.year,
-                               month=today.month)
+        monthly_rows = (db.session.query(
+                extract('year',  Transaction.date).label('yr'),
+                extract('month', Transaction.date).label('mo'),
+                Category.id, Category.name, func.sum(Transaction.amount))
+            .join(Category, Category.id == Transaction.category_id)
+            .filter(Transaction.date >= start_date,
+                    Transaction.date <= end_date,
+                    Transaction.amount < 0,
+                    Category.is_income.is_(False))
+            .group_by('yr', 'mo', Category.id).order_by('yr', 'mo').all())
+        cat_month_data: dict[int, dict] = {}
+        for yr, mo, cid, cname, total in monthly_rows:
+            if cid not in cat_month_data:
+                cat_month_data[cid] = {"label": cname, "data": [0.0] * n}
+            idx = month_idx.get((int(yr), int(mo)))
+            if idx is not None:
+                cat_month_data[cid]["data"][idx] = round(abs(int(total or 0)) / 100.0, 2)
+        trend_datasets = sorted(cat_month_data.values(),
+                                key=lambda d: sum(d["data"]), reverse=True)
+
+        # ---- calendar table data (always "this month") ----
+        lm_year, lm_month = _prev_month(today.year, today.month)
+        lm_start = date(lm_year, lm_month, 1)
+        lm_end   = date(lm_year, lm_month, monthrange(lm_year, lm_month)[1])
+        cm_start = date(today.year, today.month, 1)
+
+        categories = (Category.query
+                      .filter_by(is_income=False, hidden=False)
+                      .order_by(Category.group_name, Category.sort_order, Category.name)
+                      .all())
+        cat_ids_all = [c.id for c in categories]
+
+        if cat_ids_all:
+            alltime_rows = (db.session.query(
+                    Transaction.category_id, func.sum(Transaction.amount), func.min(Transaction.date))
+                .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0)
+                .group_by(Transaction.category_id).all())
+            avg_map = {}
+            for cid, total, first_date_ in alltime_rows:
+                if first_date_:
+                    months_ = max(1, (today.year - first_date_.year) * 12
+                                  + (today.month - first_date_.month) + 1)
+                    avg_map[cid] = int(abs(total or 0) / months_)
+
+            lm_map = {cid: int(abs(t or 0)) for cid, t in
+                      db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+                      .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0,
+                              Transaction.date >= lm_start, Transaction.date <= lm_end)
+                      .group_by(Transaction.category_id).all()}
+
+            budget_map = {cid: int(a or 0) for cid, a in
+                          db.session.query(BudgetMonth.category_id, BudgetMonth.assigned)
+                          .filter(BudgetMonth.year == today.year,
+                                  BudgetMonth.month == today.month,
+                                  BudgetMonth.category_id.in_(cat_ids_all)).all()}
+
+            cm_map = {cid: int(abs(t or 0)) for cid, t in
+                      db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+                      .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0,
+                              Transaction.date >= cm_start, Transaction.date <= today)
+                      .group_by(Transaction.category_id).all()}
+        else:
+            avg_map = lm_map = budget_map = cm_map = {}
+
+        _PALETTE = [
+            "#ff6384", "#ff9f40", "#ffcd56", "#4bc0c0",
+            "#36a2eb", "#9966ff", "#c9cbcf",
+        ]
+
+        def _pct(spent, budgeted):
+            return round(100 * spent / budgeted) if budgeted else None
+
+        groups: dict[str, list] = {}
+        for c in categories:
+            g = c.group_name or "General"
+            if g not in groups:
+                groups[g] = []
+            budgeted  = budget_map.get(c.id, 0)
+            spent_mo  = cm_map.get(c.id, 0)
+            groups[g].append({"id": c.id, "name": c.name,
+                               "color": _PALETTE[c.id % len(_PALETTE)],
+                               "avg_per_month": avg_map.get(c.id, 0),
+                               "last_month": lm_map.get(c.id, 0),
+                               "budgeted": budgeted, "spent_month": spent_mo,
+                               "spent_pct": _pct(spent_mo, budgeted)})
+        legend_groups = []
+        for gname, cats in groups.items():
+            gb = sum(c["budgeted"] for c in cats)
+            gs = sum(c["spent_month"] for c in cats)
+            legend_groups.append({"name": gname, "categories": cats,
+                                   "group_avg": sum(c["avg_per_month"] for c in cats),
+                                   "group_last_month": sum(c["last_month"] for c in cats),
+                                   "group_budgeted": gb, "group_spent_month": gs,
+                                   "group_spent_pct": _pct(gs, gb)})
+
+        # Payee table rows
+        payee_alltime = (db.session.query(Transaction.payee,
+                         func.sum(Transaction.amount), func.min(Transaction.date))
+            .filter(Transaction.amount < 0, Transaction.payee != '')
+            .group_by(Transaction.payee).all())
+        payee_avg_map = {}
+        for p, total, first_date_ in payee_alltime:
+            if p and first_date_:
+                months_ = max(1, (today.year - first_date_.year) * 12
+                              + (today.month - first_date_.month) + 1)
+                payee_avg_map[p] = int(abs(total or 0) / months_)
+        payee_lm_map = {p: int(abs(t or 0)) for p, t in
+                        db.session.query(Transaction.payee, func.sum(Transaction.amount))
+                        .filter(Transaction.amount < 0, Transaction.payee != '',
+                                Transaction.date >= lm_start, Transaction.date <= lm_end)
+                        .group_by(Transaction.payee).all() if p}
+        payee_cm_map = {p: int(abs(t or 0)) for p, t in
+                        db.session.query(Transaction.payee, func.sum(Transaction.amount))
+                        .filter(Transaction.amount < 0, Transaction.payee != '',
+                                Transaction.date >= cm_start, Transaction.date <= today)
+                        .group_by(Transaction.payee).all() if p}
+        all_payees = set(payee_avg_map) | set(payee_lm_map) | set(payee_cm_map)
+        payee_rows = sorted([
+            {"name": p, "avg_per_month": payee_avg_map.get(p, 0),
+             "last_month": payee_lm_map.get(p, 0), "spent_month": payee_cm_map.get(p, 0)}
+            for p in all_payees if p
+        ], key=lambda x: x["avg_per_month"], reverse=True)
+
+        return render_template("home.html",
+                               preset=preset,
+                               start_date=start_date.isoformat(),
+                               end_date=end_date.isoformat(),
+                               cat_ids=cat_ids,
+                               cat_labels=cat_labels,
+                               cat_values=cat_values,
+                               payee_labels=payee_labels,
+                               payee_values=payee_values,
+                               trend_labels=trend_labels,
+                               trend_datasets=trend_datasets,
+                               legend_groups=legend_groups,
+                               payee_rows=payee_rows)
 
     # ---- accounts ----
     @app.route("/accounts")
@@ -300,31 +443,28 @@ def register_routes(app: Flask):
     @app.route("/transactions")
     @login_required
     def transactions_list():
+        _palette = ["#ff6384","#ff9f40","#ffcd56","#4bc0c0","#36a2eb","#9966ff","#c9cbcf"]
         account_id  = request.args.get("account_id", type=int)
-        category_id = request.args.get("category_id", type=int)
-        payee       = request.args.get("payee", "").strip()
+        # category_id / payee are used only to seed the client-side tag filter
+        initial_cat_id = request.args.get("category_id", type=int)
+        initial_payee  = request.args.get("payee", "").strip()
         q = Transaction.query
         if account_id:
             q = q.filter_by(account_id=account_id)
-        if category_id:
-            q = q.filter_by(category_id=category_id)
-        if payee:
-            q = q.filter(Transaction.payee.ilike(f"%{payee}%"))
         txns = q.order_by(Transaction.date.desc(), Transaction.id.desc()).limit(500).all()
-        accounts = Account.query.order_by(Account.name).all()
+        accounts   = Account.query.order_by(Account.name).all()
         categories = Category.query.order_by(Category.group_name, Category.name).all()
-        distinct_payees = [r[0] for r in
-                           db.session.query(Transaction.payee)
-                           .filter(Transaction.payee != '')
-                           .distinct().order_by(Transaction.payee).all()]
+        cat_by_id  = {c.id: c.name for c in categories}
+        cat_colors = {c.id: _palette[c.id % len(_palette)] for c in categories}
         return render_template("transactions.html",
                                txns=txns,
                                accounts=accounts,
                                categories=categories,
-                               distinct_payees=distinct_payees,
+                               cat_by_id=cat_by_id,
+                               cat_colors=cat_colors,
                                filter_account=account_id,
-                               filter_category=category_id,
-                               filter_payee=payee)
+                               initial_cat_id=initial_cat_id,
+                               initial_payee=initial_payee)
 
     @app.route("/transactions/new", methods=["GET", "POST"])
     @login_required
@@ -552,6 +692,34 @@ def register_routes(app: Flask):
             groups[c.group_name].append(c)
         return render_template("categories.html", groups=groups)
 
+    @app.route("/categories/<int:cid>/edit", methods=["POST"])
+    @login_required
+    def category_edit(cid):
+        c = db.session.get(Category, cid) or abort(404)
+        field = request.form.get("field")
+        value = request.form.get("value", "").strip()
+        if field == "name" and value:
+            c.name = value
+        elif field == "group_name" and value:
+            c.group_name = value
+        elif field == "is_income":
+            c.is_income = value == "1"
+        else:
+            return jsonify({"ok": False, "error": "invalid field"}), 400
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/categories/group/rename", methods=["POST"])
+    @login_required
+    def category_group_rename():
+        old = request.form.get("old_name", "").strip()
+        new = request.form.get("new_name", "").strip()
+        if not old or not new or old == new:
+            return jsonify({"ok": False, "error": "invalid names"}), 400
+        Category.query.filter_by(group_name=old).update({"group_name": new})
+        db.session.commit()
+        return jsonify({"ok": True})
+
     @app.route("/categories/<int:cid>/delete", methods=["POST"])
     @login_required
     def category_delete(cid):
@@ -563,84 +731,12 @@ def register_routes(app: Flask):
         flash("Category deleted.", "warning")
         return redirect(url_for("categories_list"))
 
-    # ---- reports ----
+    # ---- reports (now merged into home) ----
     @app.route("/reports")
     @login_required
     def reports():
-        start_date, end_date, preset = _parse_report_range(request)
-
-        cat_totals = (db.session.query(Category.id, Category.name, func.sum(Transaction.amount))
-                      .join(Transaction, Transaction.category_id == Category.id)
-                      .filter(Transaction.date >= start_date,
-                              Transaction.date <= end_date,
-                              Transaction.amount < 0,
-                              Category.is_income.is_(False))
-                      .group_by(Category.id).all())
-        cat_ids    = [r[0] for r in cat_totals]
-        cat_labels = [r[1] for r in cat_totals]
-        cat_values = [abs(int(r[2] or 0)) for r in cat_totals]
-
-        payee_totals = (db.session.query(Transaction.payee, func.sum(Transaction.amount))
-                        .join(Category, Category.id == Transaction.category_id)
-                        .filter(Transaction.date >= start_date,
-                                Transaction.date <= end_date,
-                                Transaction.amount < 0,
-                                Transaction.payee != '',
-                                Category.is_income.is_(False))
-                        .group_by(Transaction.payee)
-                        .order_by(func.sum(Transaction.amount))
-                        .limit(20).all())
-        payee_labels = [r[0] for r in payee_totals]
-        payee_values = [abs(int(r[1] or 0)) for r in payee_totals]
-
-        # Monthly spend by category — stacked bar trend
-        monthly_rows = (db.session.query(
-                extract('year',  Transaction.date).label('yr'),
-                extract('month', Transaction.date).label('mo'),
-                Category.id, Category.name,
-                func.sum(Transaction.amount))
-            .join(Category, Category.id == Transaction.category_id)
-            .filter(Transaction.date >= start_date,
-                    Transaction.date <= end_date,
-                    Transaction.amount < 0,
-                    Category.is_income.is_(False))
-            .group_by('yr', 'mo', Category.id)
-            .order_by('yr', 'mo')
-            .all())
-
-        # Build ordered month list spanning the range
-        trend_months = []
-        cur = date(start_date.year, start_date.month, 1)
-        while cur <= end_date:
-            trend_months.append((cur.year, cur.month))
-            cur = date(cur.year + (cur.month // 12), (cur.month % 12) + 1, 1)
-        month_idx  = {ym: i for i, ym in enumerate(trend_months)}
-        trend_labels = [f"{y}-{m:02d}" for y, m in trend_months]
-        n = len(trend_months)
-
-        cat_month_data: dict[int, dict] = {}
-        for yr, mo, cid, cname, total in monthly_rows:
-            if cid not in cat_month_data:
-                cat_month_data[cid] = {"label": cname, "data": [0.0] * n}
-            idx = month_idx.get((int(yr), int(mo)))
-            if idx is not None:
-                cat_month_data[cid]["data"][idx] = round(abs(int(total or 0)) / 100.0, 2)
-
-        # Sort by total descending so biggest spenders sit at the bottom of the stack
-        trend_datasets = sorted(cat_month_data.values(),
-                                key=lambda d: sum(d["data"]), reverse=True)
-
-        return render_template("reports.html",
-                               preset=preset,
-                               start_date=start_date.isoformat(),
-                               end_date=end_date.isoformat(),
-                               trend_labels=trend_labels,
-                               trend_datasets=trend_datasets,
-                               cat_ids=cat_ids,
-                               cat_labels=cat_labels,
-                               cat_values=cat_values,
-                               payee_labels=payee_labels,
-                               payee_values=payee_values)
+        qs = request.query_string.decode()
+        return redirect(url_for("dashboard") + (f"?{qs}" if qs else ""))
 
     @app.route("/reports/category-transactions")
     @login_required
@@ -947,14 +1043,20 @@ def register_routes(app: Flask):
                     "category": t.category.name if t.category else "Uncategorized",
                     "amount": t.amount,
                 },
-                "url": url_for("transactions_list"),
+                "url": url_for("transactions_list", category_id=t.category_id)
+                       if t.category_id else url_for("transactions_list"),
             })
         return jsonify(events)
 
     @app.route("/calendar")
     @login_required
     def calendar_view():
-        """Dedicated calendar page with per-category color coding."""
+        return redirect(url_for("dashboard"))
+
+    @app.route("/calendar-old")
+    @login_required
+    def calendar_view_old():
+        """Kept for reference — calendar is now merged into home."""
         today = date.today()
         lm_year, lm_month = _prev_month(today.year, today.month)
         lm_start = date(lm_year, lm_month, 1)
