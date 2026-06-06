@@ -2,7 +2,7 @@
 
 A self-hosted budgeting app for two-person households, inspired by YNAB and Mint. Runs on a VPS behind nginx/Caddy. Zero recurring fees beyond your server cost.
 
-> **Hey Colin** 👋 — Andy built this, then had an AI help him make it look way more impressive than it actually is. It's essentially a very elaborate way to track how much he spends at Menards. You can use it too. Just don't tell him how easy it was to set up or he'll feel weird about it. Also he probably still owes you money from something — this app will not help him remember that.
+> **Hey Colin** 👋 — Andy built this(lie), then had an AI help him make it look way more impressive than it actually is. It's essentially a very elaborate way to track how much he spends at Menards. You can use it too. Just don't tell him how easy it was to set up or he'll feel weird about it. Also he probably still owes you money from something — this app will not help him remember that.
 
 ---
 
