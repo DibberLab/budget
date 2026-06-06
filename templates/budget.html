@@ -81,7 +81,8 @@
         {% set pct = ((r.spent | abs) / r.assigned * 100) if r.assigned > 0 else 0 %}
         {% set clamped = pct if pct <= 100 else 100 %}
         {% set color = 'over' if pct > 100 else ('warn' if pct > 75 else 'ok') %}
-        <tr>
+        <tr data-tip-url="/api/category/recent-transactions?category_id={{ r.cat.id }}"
+            data-tip-label="{{ r.cat.name }}">
           <td class="ps-3">{{ r.cat.name }}</td>
           <td class="text-end money-zero">{{ r.carryover | money }}</td>
           <td class="text-end">
@@ -161,6 +162,53 @@
     inp.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); saveBtn.click(); }
     });
+  });
+
+  // ---- hover tooltip ----
+  const _tip = document.createElement('div');
+  _tip.style.cssText = ['position:fixed','z-index:9999','display:none','pointer-events:none',
+    'background:#fff','border:1px solid #dee2e6','border-radius:8px',
+    'box-shadow:0 4px 20px rgba(0,0,0,.13)','padding:10px 14px',
+    'min-width:320px','max-width:520px','font-size:.8rem','line-height:1.5'].join(';');
+  document.body.appendChild(_tip);
+
+  let _mx = 0, _my = 0;
+  document.addEventListener('mousemove', e => { _mx = e.clientX; _my = e.clientY; });
+  const _cache = {};
+
+  function escHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function _fmtAmt(cents) {
+    const neg = cents < 0, abs = Math.abs(cents);
+    return (neg ? '-' : '') + '$' + Math.floor(abs/100).toLocaleString() + '.' + String(abs%100).padStart(2,'0');
+  }
+  function _placeTip() {
+    const margin=14, w=520, x0=_mx+margin;
+    _tip.style.left = (x0+w > window.innerWidth-margin ? _mx-w-margin : x0) + 'px';
+    _tip.style.top  = (_my+margin) + 'px';
+  }
+  function _renderTip(label, txns) {
+    if (!txns.length) { _tip.innerHTML = `<div class="fw-semibold mb-1">${escHtml(label)}</div><div class="text-muted small">No transactions</div>`; return; }
+    const rows = txns.map(t => `<tr>
+      <td style="padding:3px 10px 3px 0;white-space:nowrap;color:#6c757d">${t.date}</td>
+      <td style="padding:3px 10px 3px 0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(t.payee||'—')}</td>
+      <td style="padding:3px 10px 3px 0;max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#6c757d;font-style:italic">${escHtml(t.memo||'')}</td>
+      <td style="padding:3px 0;white-space:nowrap;text-align:right;color:${t.amount<0?'#dc3545':'#198754'}">${_fmtAmt(t.amount)}</td>
+    </tr>`).join('');
+    _tip.innerHTML = `<div class="fw-semibold mb-2">${escHtml(label)} <span class="fw-normal text-muted">— recent</span></div><table style="width:100%;border-collapse:collapse">${rows}</table>`;
+    _placeTip();
+  }
+  function _showTip(url, label) {
+    _tip.innerHTML = `<div class="fw-semibold mb-1">${escHtml(label)}</div><div class="text-muted small">Loading…</div>`;
+    _placeTip(); _tip.style.display = '';
+    if (_cache[url] !== undefined) { _renderTip(label, _cache[url]); return; }
+    fetch(url).then(r => r.json()).then(data => { _cache[url] = data.transactions||[]; _renderTip(label, _cache[url]); })
+      .catch(() => { _tip.innerHTML = `<div class="fw-semibold mb-1">${escHtml(label)}</div><div class="text-danger small">Failed</div>`; });
+  }
+
+  document.querySelectorAll('tr[data-tip-url]').forEach(row => {
+    row.addEventListener('mouseenter', () => _showTip(row.dataset.tipUrl, row.dataset.tipLabel));
+    row.addEventListener('mousemove', _placeTip);
+    row.addEventListener('mouseleave', () => { _tip.style.display = 'none'; });
   });
 </script>
 {% endblock %}

@@ -135,29 +135,111 @@ def _configure(app: Flask):
 
 
 def _seed_default_categories():
-    """Create a starter set of categories if the DB is empty."""
+    """Create starter categories and demo transactions if the DB is empty."""
     if Category.query.first():
         return
-    defaults = [
-        ("Income", "Paycheck", True),
-        ("Income", "Other Income", True),
-        ("Bills", "Rent / Mortgage", False),
-        ("Bills", "Utilities", False),
-        ("Bills", "Internet", False),
-        ("Bills", "Phone", False),
-        ("Bills", "Insurance", False),
-        ("Everyday", "Groceries", False),
-        ("Everyday", "Dining Out", False),
-        ("Everyday", "Transportation", False),
-        ("Everyday", "Personal", False),
-        ("Quality of Life", "Subscriptions", False),
-        ("Quality of Life", "Entertainment", False),
-        ("Quality of Life", "Hobbies", False),
-        ("Savings & Goals", "Emergency Fund", False),
-        ("Savings & Goals", "Vacation", False),
+
+    # ---- categories ----
+    cat_defs = [
+        ("Income",      "Paycheck",        True),
+        ("Income",      "Other Income",    True),
+        ("Housing",     "Rent / Mortgage", False),
+        ("Housing",     "Utilities",       False),
+        ("Everyday",    "Groceries",       False),
+        ("Everyday",    "Dining Out",      False),
+        ("Everyday",    "Gas",             False),
+        ("General",     "Shopping",        False),
+        ("General",     "Entertainment",   False),
+        ("General",     "Other",           False),
+        ("Savings",     "Savings",         False),
     ]
-    for group, name, is_income in defaults:
-        db.session.add(Category(group_name=group, name=name, is_income=is_income))
+    cats = {}
+    for group, name, is_income in cat_defs:
+        c = Category(group_name=group, name=name, is_income=is_income)
+        db.session.add(c)
+        cats[name] = c
+    db.session.flush()  # get IDs without committing
+
+    # ---- accounts ----
+    checking = Account(name="Joint Checking", type="checking", starting_balance=250000)
+    db.session.add(checking)
+    db.session.flush()
+
+    # ---- demo transactions (relative to today) ----
+    today = date.today()
+
+    def d(days_ago):
+        return today - timedelta(days=days_ago)
+
+    def txn(dt, payee, memo, amount_dollars, cat_name, account=None):
+        db.session.add(Transaction(
+            account_id  = (account or checking).id,
+            date        = dt,
+            payee       = payee,
+            memo        = memo,
+            amount      = int(amount_dollars * 100),
+            category_id = cats[cat_name].id,
+            source      = "manual",
+        ))
+
+    # -- two months ago --
+    txn(d(62), "Employer",          "Paycheck",             2500,  "Paycheck")
+    txn(d(58), "Landlord",          "Monthly rent",        -1200,  "Rent / Mortgage")
+    txn(d(57), "Electric Company",  "Electric bill",         -88,  "Utilities")
+    txn(d(55), "Grocery Store",     "Weekly groceries",      -94,  "Groceries")
+    txn(d(52), "Gas Station",       "Fill up",               -55,  "Gas")
+    txn(d(50), "Restaurant",        "Dinner out",            -62,  "Dining Out")
+    txn(d(48), "Employer",          "Paycheck",             2500,  "Paycheck")
+    txn(d(46), "Grocery Store",     "Weekly groceries",      -81,  "Groceries")
+    txn(d(44), "Amazon",            "Household supplies",    -47,  "Shopping")
+    txn(d(42), "Coffee Shop",       "Coffee",                -14,  "Dining Out")
+    txn(d(40), "Gas Station",       "Fill up",               -52,  "Gas")
+    txn(d(38), "Streaming Service", "Monthly subscription",  -18,  "Entertainment")
+
+    # -- last month --
+    txn(d(32), "Employer",          "Paycheck",             2500,  "Paycheck")
+    txn(d(29), "Landlord",          "Monthly rent",        -1200,  "Rent / Mortgage")
+    txn(d(28), "Electric Company",  "Electric bill",         -92,  "Utilities")
+    txn(d(26), "Grocery Store",     "Weekly groceries",     -107,  "Groceries")
+    txn(d(24), "Gas Station",       "Fill up",               -58,  "Gas")
+    txn(d(22), "Restaurant",        "Date night",            -85,  "Dining Out")
+    txn(d(20), "Employer",          "Paycheck",             2500,  "Paycheck")
+    txn(d(18), "Grocery Store",     "Weekly groceries",      -76,  "Groceries")
+    txn(d(16), "Department Store",  "Clothing",              -134, "Shopping")
+    txn(d(14), "Coffee Shop",       "Coffee",                -11,  "Dining Out")
+    txn(d(12), "Gas Station",       "Fill up",               -61,  "Gas")
+    txn(d(10), "Streaming Service", "Monthly subscription",  -18,  "Entertainment")
+    txn(d(10), "Friend",            "Venmo - owed money",     40,  "Other Income")
+
+    # -- this month --
+    txn(d(7),  "Employer",          "Paycheck",             2500,  "Paycheck")
+    txn(d(6),  "Landlord",          "Monthly rent",        -1200,  "Rent / Mortgage")
+    txn(d(5),  "Electric Company",  "Electric bill",         -79,  "Utilities")
+    txn(d(4),  "Grocery Store",     "Weekly groceries",      -88,  "Groceries")
+    txn(d(3),  "Gas Station",       "Fill up",               -54,  "Gas")
+    txn(d(2),  "Restaurant",        "Lunch with coworkers",  -38,  "Dining Out")
+    txn(d(1),  "Coffee Shop",       "Coffee",                -13,  "Dining Out")
+    txn(d(0),  "Savings Account",   "Monthly transfer",     -200,  "Savings")
+
+    # ---- budget for current month ----
+    y, m = today.year, today.month
+    budgets = {
+        "Rent / Mortgage": 1200,
+        "Utilities":        120,
+        "Groceries":        350,
+        "Dining Out":       150,
+        "Gas":              120,
+        "Shopping":         100,
+        "Entertainment":     50,
+        "Savings":          200,
+    }
+    for cat_name, amount in budgets.items():
+        db.session.add(BudgetMonth(
+            year=y, month=m,
+            category_id=cats[cat_name].id,
+            assigned=amount * 100,
+        ))
+
     db.session.commit()
 
 

@@ -1,23 +1,21 @@
-# nginx site config for budget.dibberlab.me
+# nginx site config for your budget app
 #
-# This server sits BEHIND Cloudflare. Cloudflare terminates TLS at its edge
-# and forwards plain HTTP to nginx on port 80. (If you later switch
-# Cloudflare to "Full" mode, you'll also want to add a `listen 443 ssl`
-# block — see deploy/DEPLOY_NGINX.md.)
+# Replace YOUR_DOMAIN below with your actual domain (e.g. budget.example.com).
+#
+# If you're behind Cloudflare: Cloudflare terminates TLS at its edge and
+# forwards plain HTTP to nginx on port 80 — this config handles that case.
+# If you're NOT using Cloudflare: replace X-Forwarded-Proto with $scheme and
+# consider adding a Certbot/Let's Encrypt `listen 443 ssl` block.
 #
 # Install:
 #   sudo cp /var/www/budget/deploy/budget.nginx /etc/nginx/sites-available/budget
 #   sudo ln -sf /etc/nginx/sites-available/budget /etc/nginx/sites-enabled/budget
 #   sudo nginx -t && sudo systemctl reload nginx
-#
-# Don't forget to also include the Cloudflare real-IP snippet from
-# deploy/cloudflare-real-ip.conf in your nginx http {} block, otherwise
-# rate limiting will treat every request as coming from a Cloudflare IP.
 
 server {
     listen 80;
     listen [::]:80;
-    server_name budget.dibberlab.me;
+    server_name YOUR_DOMAIN;
 
     # Drop oversized requests at nginx (CSV imports max out at 16 MB).
     client_max_body_size 16M;

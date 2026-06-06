@@ -76,6 +76,6 @@ done
 echo
 echo "Done. The app is running at http://127.0.0.1:8000."
 echo "Next steps:"
-echo "  1. Drop in the new nginx config: see DEPLOY_NGINX.md §5–6"
-echo "  2. Visit https://budget.dibberlab.me to complete first-run setup"
-echo "  3. Add the backup cron entry from DEPLOY_NGINX.md §8"
+echo "  1. Configure nginx to proxy your domain to 127.0.0.1:8000 (see deploy/budget.nginx)"
+echo "  2. Visit your domain to complete first-run setup (create your admin account)"
+echo "  3. Add the nightly backup cron entry (see scripts/backup.sh)"
