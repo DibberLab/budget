@@ -75,6 +75,7 @@ def create_app():
     with app.app_context():
         db.create_all()
         _seed_default_categories()
+        _migrate_owner_columns()
 
     @app.before_request
     def _post_recurring():
@@ -132,6 +133,20 @@ def _configure(app: Flask):
         # CSRF: full session lifetime so background tabs don't expire mid-edit.
         WTF_CSRF_TIME_LIMIT=None,
     )
+
+
+def _migrate_owner_columns():
+    """Add owner_user_id / is_joint to transactions table for existing DBs."""
+    from sqlalchemy import inspect as _sa_inspect, text as _text
+    insp = _sa_inspect(db.engine)
+    existing = {c["name"] for c in insp.get_columns("transactions")}
+    with db.engine.connect() as conn:
+        if "owner_user_id" not in existing:
+            conn.execute(_text("ALTER TABLE transactions ADD COLUMN owner_user_id INTEGER REFERENCES users(id)"))
+            conn.commit()
+        if "is_joint" not in existing:
+            conn.execute(_text("ALTER TABLE transactions ADD COLUMN is_joint BOOLEAN NOT NULL DEFAULT 0"))
+            conn.commit()
 
 
 def _seed_default_categories():
@@ -290,6 +305,26 @@ def _register_cli(app: Flask):
         click.echo(f"Password reset for {u.email}.")
 
 
+# ---------- helpers ----------
+
+def _owner_filter_clauses(owner: str) -> list:
+    """Return SQLAlchemy filter clauses for a given owner key.
+
+    owner='all'   → no restriction
+    owner='joint' → is_joint transactions only
+    owner='<id>'  → that user's transactions (not joint)
+    """
+    if not owner or owner == "all":
+        return []
+    if owner == "joint":
+        return [Transaction.is_joint.is_(True)]
+    try:
+        uid = int(owner)
+        return [Transaction.owner_user_id == uid, Transaction.is_joint.is_(False)]
+    except ValueError:
+        return []
+
+
 # ---------- routes ----------
 
 def register_routes(app: Flask):
@@ -304,16 +339,24 @@ def register_routes(app: Flask):
         # ---- date-range chart data (same as reports page) ----
         start_date, end_date, preset = _parse_report_range(request)
 
-        cat_totals = (db.session.query(Category.id, Category.name, func.sum(Transaction.amount))
+        cat_totals = (db.session.query(Category.id, Category.name, Category.group_name,
+                                       func.sum(Transaction.amount))
                       .join(Transaction, Transaction.category_id == Category.id)
                       .filter(Transaction.date >= start_date,
                               Transaction.date <= end_date,
                               Transaction.amount < 0,
                               Category.is_income.is_(False))
-                      .group_by(Category.id).all())
-        cat_ids    = [r[0] for r in cat_totals]
-        cat_labels = [r[1] for r in cat_totals]
-        cat_values = [abs(int(r[2] or 0)) for r in cat_totals]
+                      .group_by(Category.id)
+                      .order_by(Category.group_name, Category.name).all())
+        cat_ids         = [r[0] for r in cat_totals]
+        cat_labels      = [r[1] for r in cat_totals]
+        cat_values      = [abs(int(r[3] or 0)) for r in cat_totals]
+        cat_group_names = [r[2] or "General" for r in cat_totals]
+        _cg: dict = {}
+        for r in cat_totals:
+            gn = r[2] or "General"
+            _cg.setdefault(gn, []).append(r[0])
+        cat_groups = [{"name": gn, "cat_ids": ids} for gn, ids in _cg.items()]
 
         payee_totals = (db.session.query(Transaction.payee, func.sum(Transaction.amount))
                         .join(Category, Category.id == Transaction.category_id)
@@ -460,6 +503,8 @@ def register_routes(app: Flask):
             for p in all_payees if p
         ], key=lambda x: x["avg_per_month"], reverse=True)
 
+        users = User.query.order_by(User.id).all()
+        users_json = {str(u.id): u.display_name for u in users}
         return render_template("home.html",
                                preset=preset,
                                start_date=start_date.isoformat(),
@@ -467,12 +512,16 @@ def register_routes(app: Flask):
                                cat_ids=cat_ids,
                                cat_labels=cat_labels,
                                cat_values=cat_values,
+                               cat_group_names=cat_group_names,
+                               cat_groups=cat_groups,
                                payee_labels=payee_labels,
                                payee_values=payee_values,
                                trend_labels=trend_labels,
                                trend_datasets=trend_datasets,
                                legend_groups=legend_groups,
-                               payee_rows=payee_rows)
+                               payee_rows=payee_rows,
+                               users=users,
+                               users_json=users_json)
 
     # ---- accounts ----
     @app.route("/accounts")
@@ -536,12 +585,16 @@ def register_routes(app: Flask):
         txns = q.order_by(Transaction.date.desc(), Transaction.id.desc()).limit(500).all()
         accounts   = Account.query.order_by(Account.name).all()
         categories = Category.query.order_by(Category.group_name, Category.name).all()
+        users      = User.query.order_by(User.id).all()
         cat_by_id  = {c.id: c.name for c in categories}
         cat_colors = {c.id: _palette[c.id % len(_palette)] for c in categories}
+        users_json = {str(u.id): u.display_name for u in users}
         return render_template("transactions.html",
                                txns=txns,
                                accounts=accounts,
                                categories=categories,
+                               users=users,
+                               users_json=users_json,
                                cat_by_id=cat_by_id,
                                cat_colors=cat_colors,
                                filter_account=account_id,
@@ -643,6 +696,22 @@ def register_routes(app: Flask):
             t.amount = to_cents(value)
         elif field == "category_id":
             t.category_id = int(value) if value else None
+        elif field == "owner":
+            if value == "joint":
+                t.is_joint = True
+                t.owner_user_id = None
+            elif value == "":
+                t.is_joint = False
+                t.owner_user_id = None
+            else:
+                try:
+                    uid = int(value)
+                    if not db.session.get(User, uid):
+                        return jsonify({"ok": False, "error": "Unknown user"}), 400
+                    t.owner_user_id = uid
+                    t.is_joint = False
+                except (ValueError, TypeError):
+                    return jsonify({"ok": False, "error": "Invalid owner"}), 400
         else:
             return jsonify({"ok": False, "error": "Unknown field"}), 400
         db.session.commit()
@@ -887,6 +956,44 @@ def register_routes(app: Flask):
         cat_list = [{"id": c.id, "name": c.name, "group": c.group_name} for c in all_cats]
         return jsonify({"payee": payee, "transactions": rows,
                         "expenses": expenses, "categories": cat_list})
+
+    @app.route("/reports/filtered-transactions")
+    @login_required
+    def reports_filtered_transactions():
+        """Transactions matching the intersection of category + payee + owner filters."""
+        try:
+            sd = datetime.strptime(request.args["start_date"], "%Y-%m-%d").date()
+            ed = datetime.strptime(request.args["end_date"],   "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            return jsonify({"error": "invalid dates"}), 400
+
+        owner_clauses  = _owner_filter_clauses(request.args.get("owner", "all"))
+        filter_cat_ids = [int(x) for x in request.args.getlist("category_ids") if x.isdigit()]
+        filter_payees  = [x for x in request.args.getlist("payees") if x]
+
+        q = (Transaction.query
+             .join(Category, Category.id == Transaction.category_id)
+             .filter(Transaction.date >= sd, Transaction.date <= ed,
+                     Transaction.amount < 0, Category.is_income.is_(False),
+                     *owner_clauses))
+        if filter_cat_ids:
+            q = q.filter(Transaction.category_id.in_(filter_cat_ids))
+        if filter_payees:
+            q = q.filter(Transaction.payee.in_(filter_payees))
+
+        txns = q.order_by(Transaction.date.desc(), Transaction.id.desc()).all()
+        all_cats = (Category.query.filter_by(hidden=False)
+                    .order_by(Category.group_name, Category.sort_order, Category.name).all())
+        cat_list = [{"id": c.id, "name": c.name, "group": c.group_name} for c in all_cats]
+        rows = [{"id": t.id, "date": t.date.isoformat(),
+                 "payee": t.payee or "", "memo": t.memo or "", "amount": t.amount,
+                 "account": t.account.name if t.account else "",
+                 "category_id": t.category_id or "",
+                 "category_name": t.category.name if t.category else "",
+                 "is_joint": t.is_joint,
+                 "owner_name": t.owner.display_name if t.owner else None} for t in txns]
+        expenses = sum(abs(t.amount) for t in txns)
+        return jsonify({"transactions": rows, "expenses": expenses, "categories": cat_list})
 
     # ---- goals ----
     @app.route("/goals", methods=["GET", "POST"])
@@ -1278,6 +1385,74 @@ def register_routes(app: Flask):
 
         return render_template("calendar.html", legend_groups=legend_groups,
                                payee_rows=payee_rows)
+
+    @app.route("/api/date-range")
+    @login_required
+    def api_date_range():
+        """Return computed start/end dates for a given preset (or custom range)."""
+        start, end, preset = _parse_report_range(request)
+        return jsonify({"start_date": start.isoformat(), "end_date": end.isoformat(), "preset": preset})
+
+    @app.route("/api/dashboard-chart-data")
+    @login_required
+    def api_dashboard_chart_data():
+        """Return category + payee aggregates for the spending donut charts.
+
+        Accepts start_date, end_date, owner (all | joint | <user_id>).
+        Cross-filter: repeated category_ids filters the payee chart;
+        repeated payees filters the category chart.
+        """
+        try:
+            sd = datetime.strptime(request.args["start_date"], "%Y-%m-%d").date()
+            ed = datetime.strptime(request.args["end_date"],   "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            return jsonify({"error": "invalid dates"}), 400
+
+        owner_clauses  = _owner_filter_clauses(request.args.get("owner", "all"))
+        filter_cat_ids = [int(x) for x in request.args.getlist("category_ids") if x.isdigit()]
+        filter_payees  = [x for x in request.args.getlist("payees") if x]
+
+        # Category aggregates — cross-filtered by selected payees
+        cat_q = (db.session.query(Category.id, Category.name, Category.group_name,
+                                  func.sum(Transaction.amount))
+                 .join(Transaction, Transaction.category_id == Category.id)
+                 .filter(Transaction.date >= sd, Transaction.date <= ed,
+                         Transaction.amount < 0, Category.is_income.is_(False),
+                         *owner_clauses))
+        if filter_payees:
+            cat_q = cat_q.filter(Transaction.payee.in_(filter_payees))
+        cat_totals = (cat_q.group_by(Category.id)
+                      .order_by(Category.group_name, Category.name).all())
+
+        _cg: dict = {}
+        for r in cat_totals:
+            gn = r[2] or "General"
+            _cg.setdefault(gn, []).append(r[0])
+
+        # Payee aggregates — cross-filtered by selected categories
+        payee_q = (db.session.query(Transaction.payee, func.sum(Transaction.amount))
+                   .join(Category, Category.id == Transaction.category_id)
+                   .filter(Transaction.date >= sd, Transaction.date <= ed,
+                           Transaction.amount < 0, Transaction.payee != "",
+                           Category.is_income.is_(False), *owner_clauses))
+        if filter_cat_ids:
+            payee_q = payee_q.filter(Transaction.category_id.in_(filter_cat_ids))
+        payee_totals = (payee_q.group_by(Transaction.payee)
+                        .order_by(func.sum(Transaction.amount)).limit(20).all())
+
+        return jsonify({
+            "cat": {
+                "ids":         [r[0] for r in cat_totals],
+                "labels":      [r[1] for r in cat_totals],
+                "group_names": [r[2] or "General" for r in cat_totals],
+                "values":      [abs(int(r[3] or 0)) for r in cat_totals],
+                "groups":      [{"name": gn, "cat_ids": ids} for gn, ids in _cg.items()],
+            },
+            "payee": {
+                "labels": [r[0] for r in payee_totals],
+                "values": [abs(int(r[1] or 0)) for r in payee_totals],
+            },
+        })
 
     @app.route("/api/category/recent-transactions")
     @login_required

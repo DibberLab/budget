@@ -124,6 +124,11 @@
 
   <h6>Payees</h6>
   <div class="tag-cloud" id="payee-tags"></div>
+
+  <div class="filter-divider"></div>
+
+  <h6>Who</h6>
+  <div class="tag-cloud" id="owner-tags"></div>
 </div>
 
 {# ---- Summary bar ---- #}
@@ -153,7 +158,7 @@
     <thead>
       <tr>
         <th>Date</th><th>Account</th><th>Payee</th><th>Category</th>
-        <th>Memo</th><th class="text-end">Amount</th><th></th>
+        <th>Memo</th><th>Who</th><th class="text-end">Amount</th><th></th>
       </tr>
     </thead>
     <tbody id="txn-body">
@@ -163,7 +168,8 @@
           data-payee="{{ t.payee or '' }}"
           data-cat-id="{{ t.category_id or '' }}"
           data-cat-name="{{ cat_by_id.get(t.category_id, '') }}"
-          data-amount="{{ t.amount }}">
+          data-amount="{{ t.amount }}"
+          data-owner="{{ 'joint' if t.is_joint else (t.owner_user_id|string if t.owner_user_id else '') }}">
 
         {# Date #}
         <td>
@@ -217,6 +223,17 @@
           {% if t.source != 'manual' %} <span class="badge bg-light text-dark">{{ t.source }}</span>{% endif %}
         </td>
 
+        {# Who #}
+        <td>
+          <select class="form-select form-select-sm js-owner" data-tid="{{ t.id }}" style="min-width:105px;">
+            <option value="">—</option>
+            {% for u in users %}
+              <option value="{{ u.id }}" {% if not t.is_joint and t.owner_user_id == u.id %}selected{% endif %}>{{ u.display_name }}</option>
+            {% endfor %}
+            <option value="joint" {% if t.is_joint %}selected{% endif %}>Both</option>
+          </select>
+        </td>
+
         {# Amount #}
         <td class="text-end">
           <span class="js-editable {% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}"
@@ -233,7 +250,7 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="7" class="text-center text-muted py-4">No transactions.</td></tr>
+      <tr><td colspan="8" class="text-center text-muted py-4">No transactions.</td></tr>
     {% endfor %}
     </tbody>
   </table>
@@ -246,10 +263,12 @@
 const CAT_COLORS = {{ cat_colors | tojson }};
 const INIT_CAT   = {{ initial_cat_id | tojson }};
 const INIT_PAYEE = {{ initial_payee | tojson }};
+const USERS      = {{ users_json | tojson }};  // { "1": "Andrew", "2": "Libby" }
 
 // ---- filter state ----
 let activeCats   = new Set();  // category_id strings
 let activePayees = new Set();  // payee name strings
+let activeOwners = new Set();  // owner key strings: '', user_id string, 'joint'
 let dateStart    = null;       // ISO string or null
 let dateEnd      = null;       // ISO string or null
 
@@ -314,6 +333,7 @@ const allRows = Array.from(document.querySelectorAll('#txn-body tr[data-tid]')).
   catId:   tr.dataset.catId   || '',
   catName: tr.dataset.catName || '',
   amount:  parseInt(tr.dataset.amount) || 0,
+  owner:   tr.dataset.owner   || '',
 }));
 
 // ---- build a stable ordered list of categories and payees ----
@@ -337,14 +357,16 @@ const payees   = Object.keys(payeeIndex).sort((a,b) => a.localeCompare(b));
 function applyFilters() {
   const catCounts   = {};
   const payeeCounts = {};
+  const ownerCounts = {};
   let count = 0, expenses = 0, income = 0;
-  const hasFilter = activeCats.size > 0 || activePayees.size > 0 || dateStart || dateEnd;
+  const hasFilter = activeCats.size > 0 || activePayees.size > 0 || activeOwners.size > 0 || dateStart || dateEnd;
 
   allRows.forEach(r => {
     const catOk   = activeCats.size   === 0 || activeCats.has(r.catId);
     const payeeOk = activePayees.size === 0 || activePayees.has(r.payee);
+    const ownerOk = activeOwners.size === 0 || activeOwners.has(r.owner);
     const dateOk  = (!dateStart || r.date >= dateStart) && (!dateEnd || r.date <= dateEnd);
-    const visible = catOk && payeeOk && dateOk;
+    const visible = catOk && payeeOk && ownerOk && dateOk;
 
     r.el.style.display = visible ? '' : 'none';
     r.el.classList.toggle('filter-match', visible && hasFilter);
@@ -354,11 +376,12 @@ function applyFilters() {
       if (r.amount < 0) expenses += r.amount; else income += r.amount;
       catCounts[r.catId]   = (catCounts[r.catId]   || 0) + 1;
       payeeCounts[r.payee] = (payeeCounts[r.payee] || 0) + 1;
+      ownerCounts[r.owner] = (ownerCounts[r.owner] || 0) + 1;
     }
   });
 
   updateSummary(count, expenses, income);
-  updateTagCounts(catCounts, payeeCounts);
+  updateTagCounts(catCounts, payeeCounts, ownerCounts);
 }
 
 // ---- update the summary bar ----
@@ -376,10 +399,18 @@ function updateSummary(count, expenses, income) {
   netEl.className = 'sum-val ' + (net >= 0 ? 'sum-net-pos' : 'sum-net-neg');
 }
 
+// ---- owner label helper ----
+function ownerLabel(key) {
+  if (key === '') return 'Untagged';
+  if (key === 'joint') return 'Both';
+  return USERS[key] || `User ${key}`;
+}
+
 // ---- build / update tag cloud ----
 function buildTagCloud() {
   renderCatTags({});
   renderPayeeTags({});
+  renderOwnerTags({});
   applyFilters();
 }
 
@@ -415,7 +446,7 @@ function renderPayeeTags(counts) {
   });
 }
 
-function updateTagCounts(catCounts, payeeCounts) {
+function updateTagCounts(catCounts, payeeCounts, ownerCounts) {
   // Update counts on existing pills without full re-render (preserves DOM)
   document.querySelectorAll('#cat-tags .tag-pill').forEach(pill => {
     const id    = pill.dataset.value;
@@ -429,6 +460,35 @@ function updateTagCounts(catCounts, payeeCounts) {
     pill.querySelector('.tag-count').textContent = count;
     pill.classList.toggle('active', activePayees.has(p));
   });
+  document.querySelectorAll('#owner-tags .tag-pill').forEach(pill => {
+    const key   = pill.dataset.value;
+    const count = ownerCounts[key] || 0;
+    pill.querySelector('.tag-count').textContent = count;
+    pill.classList.toggle('active', activeOwners.has(key));
+  });
+}
+
+function renderOwnerTags(counts) {
+  const container = document.getElementById('owner-tags');
+  container.innerHTML = '';
+  const ownerSet  = new Set(allRows.map(r => r.owner));
+  // Fixed order: untagged → each user (by id) → both
+  const order = ['', ...Object.keys(USERS).sort((a,b) => parseInt(a)-parseInt(b)), 'joint'];
+  order.filter(k => ownerSet.has(k)).forEach(key => {
+    const cnt  = counts[key] ?? allRows.filter(r => r.owner === key).length;
+    const pill = document.createElement('span');
+    pill.className = 'tag-pill' + (activeOwners.has(key) ? ' active' : '');
+    pill.dataset.type  = 'owner';
+    pill.dataset.value = key;
+    pill.innerHTML = `${ownerLabel(key)}<span class="tag-count">${cnt}</span>`;
+    pill.addEventListener('click', () => toggleOwner(key));
+    container.appendChild(pill);
+  });
+}
+
+function toggleOwner(key) {
+  if (activeOwners.has(key)) activeOwners.delete(key); else activeOwners.add(key);
+  applyFilters();
 }
 
 function toggleCat(id) {
@@ -453,6 +513,7 @@ document.querySelectorAll('.js-tag-trigger').forEach(el => {
 document.getElementById('clear-all-tags').addEventListener('click', () => {
   activeCats.clear();
   activePayees.clear();
+  activeOwners.clear();
   dateStart = null; dateEnd = null;
   document.getElementById('date-preset').value = 'all';
   document.getElementById('custom-dates').classList.add('d-none');
@@ -508,6 +569,19 @@ document.querySelectorAll('.js-edit').forEach(el => {
       if (rowObj) rowObj.date = el.value;
       applyFilters();
     }
+  });
+});
+
+// Who selects
+document.querySelectorAll('.js-owner').forEach(sel => {
+  sel.addEventListener('change', async () => {
+    const row = sel.closest('tr');
+    const ok  = await saveField(row.dataset.tid, 'owner', sel.value);
+    if (!ok) { sel.value = row.dataset.owner; return; }
+    row.dataset.owner = sel.value;
+    const rowObj = allRows.find(r => r.el === row);
+    if (rowObj) rowObj.owner = sel.value;
+    applyFilters();
   });
 });
 

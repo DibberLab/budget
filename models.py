@@ -134,10 +134,17 @@ class Transaction(db.Model):
     external_id = db.Column(db.String(120))  # plaid txn id or csv hash, for dedupe
     recurring_id = db.Column(db.Integer, db.ForeignKey("recurring.id"))
 
+    # Ownership: which household member made this purchase.
+    # NULL = untagged, owner_user_id set = that user's transaction,
+    # is_joint = True = shared between all users.
+    owner_user_id = db.Column(db.Integer, db.ForeignKey("users.id"))
+    is_joint = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     account = db.relationship("Account", back_populates="transactions")
     category = db.relationship("Category")
+    owner = db.relationship("User", foreign_keys=[owner_user_id])
 
     __table_args__ = (
         Index("ix_txn_date", "date"),
