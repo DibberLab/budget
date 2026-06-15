@@ -169,7 +169,8 @@
           data-cat-id="{{ t.category_id or '' }}"
           data-cat-name="{{ cat_by_id.get(t.category_id, '') }}"
           data-amount="{{ t.amount }}"
-          data-owner="{{ 'joint' if t.is_joint else (t.owner_user_id|string if t.owner_user_id else '') }}">
+          data-owner="{{ 'joint' if t.is_joint else (t.owner_user_id|string if t.owner_user_id else '') }}"
+          style="border-left:3px solid {{ cat_colors.get(t.category_id, '#dee2e6') }};--bs-table-bg:{{ cat_bg_colors.get(t.category_id, 'transparent') }}">
 
         {# Date #}
         <td>

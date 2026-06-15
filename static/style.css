@@ -100,5 +100,29 @@ body { background: #f6f7fb; }
   pointer-events: none;
 }
 
+.txn-edit-input {
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 2px 5px !important;
+  font-size: inherit !important;
+  color: inherit !important;
+  height: auto !important;
+}
+.txn-edit-input:hover {
+  border-color: #ced4da !important;
+  background: rgba(255,255,255,0.75) !important;
+}
+.txn-edit-input:focus {
+  border-color: #86b7fe !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 2px rgba(13,110,253,.15) !important;
+  outline: none !important;
+}
+
 .chart-wrap { position: relative; height: 280px; }
-.chart-wrap.tall { height: 360px; }
+.chart-wrap.tall { height: 50vh; }
+.chart-wrap.xl   { height: 70vh; }
+@media (min-width: 768px) {
+  .chart-wrap.xl { height: 85vh; }
+}

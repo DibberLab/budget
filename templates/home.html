@@ -2,26 +2,6 @@
 {% block title %}Home – Local Budget{% endblock %}
 {% block content %}
 
-{# ===== CALENDAR SECTION ===== #}
-<div class="row g-3">
-  <div class="col-12">
-    <div class="card-soft p-3">
-      <div class="d-flex gap-3 mb-3 flex-wrap" style="font-size:.82rem">
-        <span class="d-flex align-items-center gap-1">
-          <span style="width:10px;height:10px;border-radius:2px;background:#198754;flex-shrink:0"></span> Income
-        </span>
-        <span class="d-flex align-items-center gap-1">
-          <span style="width:10px;height:10px;border-radius:2px;background:#6f42c1;flex-shrink:0"></span> Google Calendar
-        </span>
-        <span class="d-flex align-items-center gap-1">
-          <span style="width:10px;height:10px;border-radius:2px;background:#6c757d;flex-shrink:0"></span> Uncategorized
-        </span>
-      </div>
-      <div id="mainCalendar"></div>
-    </div>
-  </div>
-</div>
-
 {# ===== SPENDING ANALYSIS SECTION ===== #}
 <div class="d-flex justify-content-between align-items-center mt-4 mb-3 flex-wrap gap-2">
   <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -73,21 +53,47 @@
 </div>
 
 <div class="row g-3">
-  <div class="col-lg-6">
+  <div class="col-12 col-lg-5">
     <div class="card-soft p-3">
-      <h5 class="mb-0">Spending by Category</h5>
-      <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
-      <div id="cat-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
-      <div id="cat-group-tags" class="d-flex flex-wrap gap-1 mb-2"></div>
-      <div class="chart-wrap tall"><canvas id="cat"></canvas></div>
+      <ul class="nav nav-tabs mb-2" id="chart-tabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-group" type="button">Group</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-cat" type="button">Category</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-payee" type="button">Payee</button>
+        </li>
+      </ul>
+      <div class="tab-content">
+        <div class="tab-pane fade show active" id="tab-group" role="tabpanel">
+          <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
+          <div id="group-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
+          <div id="group-tags" class="d-flex flex-wrap gap-1 mb-2"></div>
+          <div class="chart-wrap xl"><canvas id="group"></canvas></div>
+        </div>
+        <div class="tab-pane fade" id="tab-cat" role="tabpanel">
+          <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
+          <div id="cat-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
+          <div id="cat-group-tags" class="d-flex flex-wrap gap-1 mb-2"></div>
+          <div class="chart-wrap xl"><canvas id="cat"></canvas></div>
+        </div>
+        <div class="tab-pane fade" id="tab-payee" role="tabpanel">
+          <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
+          <div id="payee-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
+          <div class="chart-wrap xl"><canvas id="payee"></canvas></div>
+        </div>
+      </div>
     </div>
   </div>
-  <div class="col-lg-6">
-    <div class="card-soft p-3">
-      <h5 class="mb-0">Spending by Payee</h5>
-      <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
-      <div id="payee-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
-      <div class="chart-wrap tall"><canvas id="payee"></canvas></div>
+  <div class="col-lg-7 d-none d-lg-flex flex-column">
+    <div class="card-soft p-3 flex-grow-1 d-flex flex-column" style="overflow:hidden">
+      <div class="d-flex justify-content-between align-items-center mb-2 flex-shrink-0">
+        <h6 class="mb-0 fw-semibold">Transactions</h6>
+        <span id="gutter-summary" class="small text-muted"></span>
+      </div>
+      <div id="gutter-txn-body" class="flex-grow-1 overflow-auto" style="min-height:0"></div>
     </div>
   </div>
 </div>
@@ -125,15 +131,16 @@
       <div class="tab-content">
 
         <div class="tab-pane fade show active" id="tab-categories">
+          <div class="table-responsive">
           <table class="table align-middle mb-0">
             <thead>
               <tr>
                 <th>Category</th>
-                <th class="text-end">Avg/mo</th>
-                <th class="text-end">Last mo</th>
-                <th class="text-end">Budget</th>
+                <th class="text-end d-none d-sm-table-cell">Avg/mo</th>
+                <th class="text-end d-none d-sm-table-cell">Last mo</th>
+                <th class="text-end d-none d-md-table-cell">Budget</th>
                 <th class="text-end">Spent</th>
-                <th style="min-width:160px">Progress</th>
+                <th class="d-none d-sm-table-cell" style="min-width:130px">Progress</th>
               </tr>
             </thead>
             <tbody>
@@ -143,11 +150,11 @@
               {% set g_color = 'over' if g_pct > 100 else ('warn' if g_pct > 75 else 'ok') %}
               <tr class="group-row">
                 <td>{{ group.name }}</td>
-                <td class="text-end">{{ group.group_avg | money if group.group_avg else '—' }}</td>
-                <td class="text-end">{{ group.group_last_month | money if group.group_last_month else '—' }}</td>
-                <td class="text-end">{{ group.group_budgeted | money if group.group_budgeted else '—' }}</td>
+                <td class="text-end d-none d-sm-table-cell">{{ group.group_avg | money if group.group_avg else '—' }}</td>
+                <td class="text-end d-none d-sm-table-cell">{{ group.group_last_month | money if group.group_last_month else '—' }}</td>
+                <td class="text-end d-none d-md-table-cell">{{ group.group_budgeted | money if group.group_budgeted else '—' }}</td>
                 <td class="text-end">{{ group.group_spent_month | money if group.group_spent_month else '—' }}</td>
-                <td>
+                <td class="d-none d-sm-table-cell">
                   <div class="spend-bar">
                     <div class="spend-fill spend-fill--{{ g_color }}" data-pct="{{ g_clamp | int }}"></div>
                     <span class="spend-label">{%- if g_pct > 100 %}Overspent{%- elif g_pct > 0 %}{{ g_pct | int }}%{%- endif -%}</span>
@@ -169,16 +176,16 @@
                       {{ item.name }}
                     </a>
                   </td>
-                  <td class="text-end text-muted">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
-                  <td class="text-end text-muted">{{ item.last_month | money if item.last_month else '—' }}</td>
-                  <td class="text-end">
+                  <td class="text-end text-muted d-none d-sm-table-cell">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
+                  <td class="text-end text-muted d-none d-sm-table-cell">{{ item.last_month | money if item.last_month else '—' }}</td>
+                  <td class="text-end d-none d-md-table-cell">
                     <span class="budget-editable"
                           contenteditable="true" spellcheck="false"
                           style="display:inline-block;min-width:50px;cursor:text;border-bottom:1px dashed #aaa;"
                           title="Click to edit budget">{{ item.budgeted | money if item.budgeted else '—' }}</span>
                   </td>
                   <td class="text-end {% if pct > 100 %}money-neg{% endif %}">{{ item.spent_month | money if item.spent_month else '—' }}</td>
-                  <td>
+                  <td class="d-none d-sm-table-cell">
                     <div class="spend-bar">
                       <div class="spend-fill spend-fill--{{ color }}" data-pct="{{ clamp | int }}"></div>
                       <span class="spend-label">{%- if pct > 100 %}Overspent{%- elif pct > 0 %}{{ pct | int }}%{%- endif -%}</span>
@@ -189,15 +196,17 @@
             {% endfor %}
             </tbody>
           </table>
+          </div>
         </div>
 
         <div class="tab-pane fade" id="tab-payees">
+          <div class="table-responsive">
           <table class="table align-middle mb-0">
             <thead>
               <tr>
                 <th>Payee</th>
-                <th class="text-end">Avg/mo</th>
-                <th class="text-end">Last mo</th>
+                <th class="text-end d-none d-sm-table-cell">Avg/mo</th>
+                <th class="text-end d-none d-sm-table-cell">Last mo</th>
                 <th class="text-end">This mo</th>
               </tr>
             </thead>
@@ -209,13 +218,14 @@
                   <a href="{{ url_for('transactions_list', payee=item.name) }}"
                      class="text-decoration-none text-body">{{ item.name }}</a>
                 </td>
-                <td class="text-end text-muted">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
-                <td class="text-end text-muted">{{ item.last_month | money if item.last_month else '—' }}</td>
+                <td class="text-end text-muted d-none d-sm-table-cell">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
+                <td class="text-end text-muted d-none d-sm-table-cell">{{ item.last_month | money if item.last_month else '—' }}</td>
                 <td class="text-end">{{ item.spent_month | money if item.spent_month else '—' }}</td>
               </tr>
             {% endfor %}
             </tbody>
           </table>
+          </div>
         </div>
 
       </div>
@@ -223,8 +233,29 @@
   </div>
 </div>
 
+{# ===== CALENDAR SECTION ===== #}
+<div class="row g-3 mt-3">
+  <div class="col-12">
+    <div class="card-soft p-3">
+      <div class="d-flex gap-3 mb-3 flex-wrap" style="font-size:.82rem">
+        <span class="d-flex align-items-center gap-1">
+          <span style="width:10px;height:10px;border-radius:2px;background:#198754;flex-shrink:0"></span> Income
+        </span>
+        <span class="d-flex align-items-center gap-1">
+          <span style="width:10px;height:10px;border-radius:2px;background:#6f42c1;flex-shrink:0"></span> Google Calendar
+        </span>
+        <span class="d-flex align-items-center gap-1">
+          <span style="width:10px;height:10px;border-radius:2px;background:#6c757d;flex-shrink:0"></span> Uncategorized
+        </span>
+      </div>
+      <div id="mainCalendar"></div>
+    </div>
+  </div>
+</div>
+
 {% endblock %}
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 {# FullCalendar #}
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ical.js@1.5.0/build/ical.min.js"></script>
@@ -237,10 +268,22 @@
 
   // ---- FullCalendar ----
   document.addEventListener('DOMContentLoaded', function () {
+    const _mobile = () => window.innerWidth < 768;
     const cal = new FullCalendar.Calendar(document.getElementById('mainCalendar'), {
-      initialView: 'dayGridMonth',
+      initialView: _mobile() ? 'listMonth' : 'dayGridMonth',
       height: 'auto',
-      headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listMonth' },
+      headerToolbar: _mobile()
+        ? { left: 'prev,next', center: 'title', right: 'listMonth,dayGridMonth' }
+        : { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listMonth' },
+      windowResize: function() {
+        if (_mobile()) {
+          cal.changeView('listMonth');
+          cal.setOption('headerToolbar', { left: 'prev,next', center: 'title', right: 'listMonth,dayGridMonth' });
+        } else {
+          cal.changeView('dayGridMonth');
+          cal.setOption('headerToolbar', { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,listMonth' });
+        }
+      },
       eventSources: [
         { url: '{{ url_for("api_calendar_transactions") }}?color_by=category' },
         { url: '{{ url_for("api_calendar_google_proxy") }}', format: 'ics', color: '#6f42c1' }
@@ -315,6 +358,59 @@
   const PALETTE = ['#ff6384','#ff9f40','#ffcd56','#4bc0c0','#36a2eb','#9966ff','#c9cbcf'];
   const USERS_HOME = {{ users_json | tojson }};
 
+  // Who badge: blue for user 1, pink for user 2, purple for both
+  const _userColorPalette = ['#0d6efd', '#e91e8c', '#198754', '#6f42c1'];
+  const _userColors = {};
+  (function() {
+    Object.keys(USERS_HOME).map(Number).sort((a,b) => a-b)
+      .forEach((id, i) => { _userColors[id] = _userColorPalette[i] || '#6c757d'; });
+  })();
+
+  function _whoBadge(t) {
+    if (t.is_joint) return `<span class="badge rounded-pill" style="background:#6f42c1;font-size:.68em">Both</span>`;
+    if (t.owner_user_id) {
+      const color = _userColors[t.owner_user_id] || '#6c757d';
+      return `<span class="badge rounded-pill" style="background:${color};font-size:.68em">${escHtml(t.owner_name || '?')}</span>`;
+    }
+    return '<span class="text-muted small">—</span>';
+  }
+
+  function _whoSelect(t) {
+    const cur = t.is_joint ? 'joint' : (t.owner_user_id ? String(t.owner_user_id) : '');
+    let opts = `<option value="">—</option><option value="joint"${cur==='joint'?' selected':''}>Both</option>`;
+    Object.keys(USERS_HOME).map(Number).sort((a,b)=>a-b).forEach(id => {
+      opts += `<option value="${id}"${cur===String(id)?' selected':''}>${escHtml(USERS_HOME[id])}</option>`;
+    });
+    return `<select class="form-select form-select-sm txn-edit-input" data-field="owner" style="min-width:80px">${opts}</select>`;
+  }
+
+  // Map category_id → PALETTE group color (for borders)
+  let _catColorCache = {};
+  // Map category_id → light background tint (unique per category, same hue as group)
+  let _catBgCache = {};
+
+  function _rebuildCatColorCache() {
+    _catColorCache = {};
+    _catBgCache    = {};
+
+    const groupIndex = {};
+    (currentCatData.groups || []).forEach((g, i) => { groupIndex[g.name] = i; });
+
+    // Track how many categories we've seen per group to vary opacity
+    const groupCount = {};
+    currentCatData.ids.forEach((id, i) => {
+      const gn  = currentCatData.group_names[i] || 'General';
+      const gi  = groupIndex[gn] ?? i;
+      const color = PALETTE[gi % PALETTE.length];
+      _catColorCache[id] = color;
+
+      groupCount[gn] = (groupCount[gn] || 0);
+      const opacity = 0.18 + groupCount[gn] * 0.10;
+      _catBgCache[id] = hexToRgba(color, Math.min(opacity, 0.45));
+      groupCount[gn]++;
+    });
+  }
+
   function hexToRgba(hex, a) {
     const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
     return `rgba(${r},${g},${b},${a})`;
@@ -342,6 +438,187 @@
                         : [...sel].reduce((s,i)=>s+(values[i]||0),0);
   }
 
+  function buildGroupData(catData) {
+    const totals = {}, ids = {};
+    catData.ids.forEach((id, i) => {
+      const gn = catData.group_names[i] || 'General';
+      totals[gn] = (totals[gn] || 0) + catData.values[i];
+      ids[gn] = ids[gn] || [];
+      ids[gn].push(id);
+    });
+    // Sort groups largest→smallest so group chart is also clockwise by value
+    const labels = Object.keys(totals).sort((a, b) => totals[b] - totals[a]);
+    return { labels, values: labels.map(g => totals[g]), catIds: labels.map(g => ids[g]) };
+  }
+
+  // Look up stable PALETTE index for a group by its name (from cat_groups, alphabetical order)
+  // This keeps group chart colors in sync with the cat chart regardless of sort order.
+  function _groupPaletteIdx(name) {
+    const i = (currentCatData.groups || []).findIndex(g => g.name === name);
+    return i >= 0 ? i : 0;
+  }
+  function buildGroupBgColors(groupData) {
+    return groupData.labels.map((name, i) => {
+      const c = PALETTE[_groupPaletteIdx(name) % PALETTE.length];
+      if (selectedCatIds.size === 0) return c;
+      const gids = groupData.catIds[i];
+      const allSel = gids.length > 0 && gids.every(id => selectedCatIds.has(id));
+      if (allSel) return c;
+      return hexToRgba(c, gids.some(id => selectedCatIds.has(id)) ? 0.5 : 0.2);
+    });
+  }
+  function buildGroupOffsets(groupData) {
+    return groupData.labels.map((_, i) => {
+      if (selectedCatIds.size === 0) return 0;
+      const gids = groupData.catIds[i];
+      return gids.length > 0 && gids.every(id => selectedCatIds.has(id)) ? 14 : 0;
+    });
+  }
+  function groupSelIdxs(groupData) {
+    const s = new Set();
+    if (selectedCatIds.size === 0) return s;
+    groupData.catIds.forEach((gids, i) => {
+      if (gids.length > 0 && gids.every(id => selectedCatIds.has(id))) s.add(i);
+    });
+    return s;
+  }
+
+  // All-in-one label plugin for the group chart.
+  // Large segments: label drawn inside the slice.
+  // Small segments: leader line to a fixed column on each side, with overlap nudging.
+  const groupLabelPlugin = {
+    id: 'groupLabels',
+    afterDraw(chart) {
+      if (!['group','cat','payee'].includes(chart.canvas.id)) return;
+      if (chart.width < 576) return;
+      const { ctx } = chart;
+      const ds   = chart.data.datasets[0];
+      const meta = chart.getDatasetMeta(0);
+      const total = ds.data.reduce((s, v) => s + v, 0);
+      if (total === 0) return;
+
+      // All arcs share the same center and radius
+      const ref    = meta.data.find(a => a);
+      if (!ref) return;
+      const CX     = ref.x;
+      const CY     = ref.y;
+      const OUTER  = ref.outerRadius;
+
+      const LH       = 13;
+      const FONT_IN  = 'bold 11px system-ui,sans-serif';
+      const FONT_OUT = 'bold 10px system-ui,sans-serif';
+      const ELBOW_D  = 12;   // px from arc to elbow column
+      const TICK_LEN = 8;    // px of horizontal tick
+
+      const insideQ  = [];
+      const outsideQ = [];
+
+      ds.data.forEach((value, i) => {
+        if (!chart.getDataVisibility(i)) return;
+        const pct = Math.round(value * 100 / total);
+        if (pct < 1) return;
+
+        const arc      = meta.data[i];
+        const mid      = (arc.startAngle + arc.endAngle) / 2;
+        const arcH     = OUTER - arc.innerRadius;
+        const arcW     = ((OUTER + arc.innerRadius) / 2) * (arc.endAngle - arc.startAngle);
+        const lines    = [chart.data.labels[i] || '', fmtMoney(value), pct + '%'];
+        const linesOut = lines.slice();   // will truncate name if needed after ctx is set
+        const labelH   = lines.length * LH;
+        const segColor = Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : '#aaa';
+
+        if (arcH >= labelH + 8 && arcW >= 60) {
+          const midR = (OUTER + arc.innerRadius) / 2;
+          insideQ.push({ lx: CX + Math.cos(mid) * midR,
+                         ly: CY + Math.sin(mid) * midR, lines });
+        } else {
+          const cos = Math.cos(mid), sin = Math.sin(mid);
+          const side = cos >= 0 ? 1 : -1;
+          const ax = CX + cos * (OUTER + 8);
+          const ay = CY + sin * (OUTER + 8);
+          const naturalY = CY + sin * (OUTER + ELBOW_D);
+          outsideQ.push({ ax, ay, side, naturalY, lines: linesOut, segColor });
+        }
+      });
+
+      ctx.save();
+
+      // --- Inside labels ---
+      insideQ.forEach(({ lx, ly, lines }) => {
+        ctx.font = FONT_IN;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowBlur = 3;
+        ctx.shadowColor = 'rgba(0,0,0,0.45)';
+        lines.forEach((ln, j) =>
+          ctx.fillText(ln, lx, ly - ((lines.length - 1) / 2) * LH + j * LH));
+        ctx.shadowBlur = 0;
+      });
+
+      // --- Outside labels: resolve vertical overlaps per side ---
+      [1, -1].forEach(side => {
+        outsideQ
+          .filter(o => o.side === side)
+          .sort((a, b) => a.naturalY - b.naturalY)
+          .reduce((lastBottom, item) => {
+            const h   = item.lines.length * LH;
+            const top = item.naturalY - h / 2;
+            item.finalY = top < lastBottom + 4
+              ? lastBottom + 4 + h / 2
+              : item.naturalY;
+            return item.finalY + h / 2;
+          }, -Infinity);
+      });
+
+      // Fixed elbow X for each side — all leader lines on one side share the same X column
+      const ELBOW_X = { '1': CX + OUTER + ELBOW_D, '-1': CX - OUTER - ELBOW_D };
+      const TICK_X  = { '1': ELBOW_X['1'] + TICK_LEN, '-1': ELBOW_X['-1'] - TICK_LEN };
+
+      // Available px for text on each side (canvas edge minus a 4px gutter)
+      const availW = {
+        '1':  chart.width - (TICK_X['1']  + 3) - 4,
+        '-1': (TICK_X['-1'] - 3) - 4
+      };
+
+      function _trunc(text, maxW) {
+        if (ctx.measureText(text).width <= maxW) return text;
+        let t = text;
+        while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+        return t + '…';
+      }
+
+      ctx.font = FONT_OUT;
+      outsideQ.forEach(({ ax, ay, side, lines, segColor, finalY }) => {
+        const ex    = ELBOW_X[side];
+        const tx    = TICK_X[side];
+        const avail = availW[String(side)];
+
+        // Leader line: arc → elbow column (diagonal) → tick (horizontal)
+        ctx.strokeStyle = segColor;
+        ctx.lineWidth   = 1.3;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(ex, finalY);
+        ctx.lineTo(tx, finalY);
+        ctx.stroke();
+
+        // Truncate the name line (index 0) if it's too wide; amount/pct always fit
+        const display = lines.map((ln, j) => j === 0 ? _trunc(ln, avail) : ln);
+
+        const textX = tx + side * 3;
+        ctx.fillStyle    = '#222';
+        ctx.textAlign    = side > 0 ? 'left' : 'right';
+        ctx.textBaseline = 'middle';
+        display.forEach((ln, j) =>
+          ctx.fillText(ln, textX,
+            finalY - ((display.length - 1) / 2) * LH + j * LH));
+      });
+
+      ctx.restore();
+    }
+  };
+
   // Center-total plugin — draws the total in the donut hole
   const centerTotalPlugin = {
     id: 'centerTotal',
@@ -355,7 +632,9 @@
       ctx.restore();
     }
   };
+  Chart.register(groupLabelPlugin);
   Chart.register(centerTotalPlugin);
+  Chart.register(ChartDataLabels);
 
   // Mutable date range — updated in place on preset/custom changes (no page reload)
   let _sd = {{ start_date|tojson }};
@@ -395,13 +674,38 @@
       labels: currentCatData.labels,
       datasets: [{ data: currentCatData.values,
                    backgroundColor: buildGroupColors(currentCatData.group_names, currentCatData.groups, new Set()),
-                   offset: buildOffsets(currentCatData.values.length, new Set()) }]
+                   offset: buildOffsets(currentCatData.values.length, new Set()),
+                   hoverOffset: 18 }]
     },
     options: {
       maintainAspectRatio: false,
+      layout: { padding: { top: 55, bottom: 10, left: 100, right: 100 } },
       plugins: {
-        legend: { position:'bottom' },
-        tooltip: { callbacks: { label(ctx) { return ' '+fmtMoney(ctx.parsed); } } }
+        datalabels: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: {
+            generateLabels(chart) {
+              const ds = chart.data.datasets[0];
+              return chart.data.labels.map((label, i) => ({
+                text: label + '  ' + fmtMoney(ds.data[i]),
+                fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
+                strokeStyle: '#fff', lineWidth: 2,
+                index: i, hidden: !chart.getDataVisibility(i),
+              }));
+            }
+          }
+        },
+        tooltip: { enabled: false }
+      },
+      onHover(evt, elements, chart) {
+        const idx = elements.length ? elements[0].index : -1;
+        if (idx === _catHoverIdx) return;
+        _catHoverIdx = idx;
+        chart.data.datasets[0].backgroundColor = idx >= 0
+          ? _catColorsForHover(idx)
+          : buildGroupColors(currentCatData.group_names, currentCatData.groups, catSelIdxs());
+        chart.update('none');
       },
       onClick(evt, elements) {
         if (!elements.length) return;
@@ -419,13 +723,38 @@
       labels: currentPayeeData.labels,
       datasets: [{ data: currentPayeeData.values,
                    backgroundColor: buildColors(currentPayeeData.values.length, new Set()),
-                   offset: buildOffsets(currentPayeeData.values.length, new Set()) }]
+                   offset: buildOffsets(currentPayeeData.values.length, new Set()),
+                   hoverOffset: 18 }]
     },
     options: {
       maintainAspectRatio: false,
+      layout: { padding: { top: 55, bottom: 10, left: 100, right: 100 } },
       plugins: {
-        legend: { position:'bottom' },
-        tooltip: { callbacks: { label(ctx) { return ' '+fmtMoney(ctx.parsed); } } }
+        datalabels: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: {
+            generateLabels(chart) {
+              const ds = chart.data.datasets[0];
+              return chart.data.labels.map((label, i) => ({
+                text: label + '  ' + fmtMoney(ds.data[i]),
+                fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
+                strokeStyle: '#fff', lineWidth: 2,
+                index: i, hidden: !chart.getDataVisibility(i),
+              }));
+            }
+          }
+        },
+        tooltip: { enabled: false }
+      },
+      onHover(evt, elements, chart) {
+        const idx = elements.length ? elements[0].index : -1;
+        if (idx === _payeeHoverIdx) return;
+        _payeeHoverIdx = idx;
+        chart.data.datasets[0].backgroundColor = idx >= 0
+          ? _payeeColorsForHover(idx)
+          : buildColors(currentPayeeData.values.length, payeeSelIdxs());
+        chart.update('none');
       },
       onClick(evt, elements) {
         if (!elements.length) return;
@@ -436,6 +765,89 @@
     }
   });
   payeeChart._centerTotal = currentPayeeData.values.reduce((s,v)=>s+v,0);
+
+  let currentGroupData = buildGroupData(currentCatData);
+  let _groupHoverIdx = -1;
+  let _catHoverIdx   = -1;
+  let _payeeHoverIdx = -1;
+
+  function _groupColorsForHover(hoverIdx) {
+    return currentGroupData.labels.map((name, i) => {
+      const c = PALETTE[_groupPaletteIdx(name) % PALETTE.length];
+      if (i === hoverIdx) return c;
+      if (selectedCatIds.size === 0) return hexToRgba(c, 0.22);
+      const gids = currentGroupData.catIds[i];
+      const allSel = gids.length > 0 && gids.every(id => selectedCatIds.has(id));
+      return hexToRgba(c, allSel ? 0.40 : 0.10);
+    });
+  }
+  function _catColorsForHover(hoverIdx) {
+    const gcm = {};
+    currentCatData.groups.forEach((g, i) => { gcm[g.name] = PALETTE[i % PALETTE.length]; });
+    return currentCatData.group_names.map((gn, i) => {
+      const c = gcm[gn] || PALETTE[i % PALETTE.length];
+      return i === hoverIdx ? c : hexToRgba(c, 0.15);
+    });
+  }
+  function _payeeColorsForHover(hoverIdx) {
+    return currentPayeeData.values.map((_, i) => {
+      const c = PALETTE[i % PALETTE.length];
+      return i === hoverIdx ? c : hexToRgba(c, 0.15);
+    });
+  }
+
+  const groupChart = new Chart(document.getElementById('group'), {
+    type: 'doughnut',
+    data: {
+      labels: currentGroupData.labels,
+      datasets: [{ data: currentGroupData.values,
+                   backgroundColor: buildGroupBgColors(currentGroupData),
+                   offset: buildGroupOffsets(currentGroupData),
+                   hoverOffset: 18 }]
+    },
+    options: {
+      maintainAspectRatio: false,
+      layout: { padding: { top: 55, bottom: 10, left: 100, right: 100 } },
+      plugins: {
+        datalabels: { display: false },
+        legend: {
+          position: 'bottom',
+          labels: {
+            generateLabels(chart) {
+              const ds = chart.data.datasets[0];
+              return chart.data.labels.map((label, i) => ({
+                text: label + '  ' + fmtMoney(ds.data[i]),
+                fillStyle: Array.isArray(ds.backgroundColor) ? ds.backgroundColor[i] : ds.backgroundColor,
+                strokeStyle: '#fff',
+                lineWidth: 2,
+                index: i,
+                hidden: !chart.getDataVisibility(i),
+              }));
+            }
+          }
+        },
+        tooltip: { enabled: false }
+      },
+      onHover(evt, elements, chart) {
+        const idx = elements.length ? elements[0].index : -1;
+        if (idx === _groupHoverIdx) return;
+        _groupHoverIdx = idx;
+        chart.data.datasets[0].backgroundColor = idx >= 0
+          ? _groupColorsForHover(idx)
+          : buildGroupBgColors(currentGroupData);
+        chart.update('none');
+      },
+      onClick(evt, elements) {
+        if (!elements.length) return;
+        const gids = currentGroupData.catIds[elements[0].index];
+        const allSel = gids.length > 0 && gids.every(id => selectedCatIds.has(id));
+        if (allSel) { gids.forEach(id => selectedCatIds.delete(id)); }
+        else        { gids.forEach(id => selectedCatIds.add(id)); }
+        refreshAll();
+      }
+    }
+  });
+  groupChart._centerTotal = currentGroupData.values.reduce((s,v)=>s+v,0);
 
   function _renderGroupTags() {
     const groups = currentCatData.groups || [];
@@ -451,7 +863,87 @@
       return `<button class="btn btn-sm cat-group-tag" style="${style}" data-group="${escHtml(g.name)}">${escHtml(g.name)}</button>`;
     }).join('');
   }
+
+  function _renderGroupChartTags() {
+    const gd  = currentGroupData;
+    const hasSelection = selectedCatIds.size > 0;
+    const _clearBtn = `<button class="btn btn-sm btn-outline-danger py-0 px-2 ms-1" onclick="clearChartSelections()">Clear filter</button>`;
+
+    // Badges for selected groups (all their cats selected)
+    const selGroups = gd.labels.filter((_, i) =>
+      gd.catIds[i].length > 0 && gd.catIds[i].every(id => selectedCatIds.has(id)));
+    document.getElementById('group-sel-badges').innerHTML =
+      selGroups.map((name, i) => {
+        const color = PALETTE[_groupPaletteIdx(name) % PALETTE.length];
+        return `<span class="badge d-inline-flex align-items-center gap-1" style="background:${color}">${escHtml(name)}<a href="#" class="group-badge-remove text-white text-decoration-none" style="font-size:1.05em;line-height:1" data-group="${escHtml(name)}">×</a></span>`;
+      }).join('') + (hasSelection ? _clearBtn : '');
+
+    // Tag cloud
+    document.getElementById('group-tags').innerHTML = gd.labels.map((name, i) => {
+      const catIds = gd.catIds[i];
+      const allSel  = catIds.length > 0 && catIds.every(id => selectedCatIds.has(id));
+      const someSel = !allSel && catIds.some(id => selectedCatIds.has(id));
+      const color   = PALETTE[_groupPaletteIdx(name) % PALETTE.length];
+      const style   = allSel  ? `background:${color};border-color:${color};color:#fff`
+                    : someSel ? `border-color:${color};color:${color};font-weight:600`
+                    :           `border-color:${color};color:${color}`;
+      return `<button class="btn btn-sm group-chart-tag" style="${style}" data-group="${escHtml(name)}">${escHtml(name)}</button>`;
+    }).join('');
+  }
+
+  // Delegated handlers for group chart badges and tags
+  document.getElementById('group-sel-badges').addEventListener('click', e => {
+    e.preventDefault();
+    const btn = e.target.closest('.group-badge-remove');
+    if (!btn) return;
+    const i = currentGroupData.labels.indexOf(btn.dataset.group);
+    if (i >= 0) currentGroupData.catIds[i].forEach(id => selectedCatIds.delete(id));
+    refreshAll();
+  });
+  document.getElementById('group-tags').addEventListener('click', e => {
+    const btn = e.target.closest('.group-chart-tag');
+    if (!btn) return;
+    const i = currentGroupData.labels.indexOf(btn.dataset.group);
+    if (i < 0) return;
+    const catIds = currentGroupData.catIds[i];
+    const allSel = catIds.length > 0 && catIds.every(id => selectedCatIds.has(id));
+    if (allSel) catIds.forEach(id => selectedCatIds.delete(id));
+    else        catIds.forEach(id => selectedCatIds.add(id));
+    refreshAll();
+  });
+
+  _rebuildCatColorCache();
   _renderGroupTags();
+  _renderGroupChartTags();
+  loadGutterTransactions();
+
+  // On mobile: remove side padding (no outside labels) and re-enable tap tooltip.
+  // On desktop: restore padding for outside labels, disable tooltip.
+  function _syncChartMobile(chart) {
+    const mobile = window.innerWidth < 768;
+    chart.options.layout.padding = mobile
+      ? 8
+      : { top: 55, bottom: 10, left: 100, right: 100 };
+    chart.options.plugins.tooltip.enabled = mobile;
+    chart.options.plugins.tooltip.callbacks = { label(ctx) { return ' ' + fmtMoney(ctx.parsed); } };
+    chart.update('none');
+  }
+  function _syncGroupMobile() {
+    _syncChartMobile(groupChart);
+    _syncChartMobile(catChart);
+    _syncChartMobile(payeeChart);
+  }
+  _syncGroupMobile();
+  window.addEventListener('resize', _syncGroupMobile);
+
+  // Resize whichever chart becomes visible when switching tabs
+  document.querySelectorAll('#chart-tabs button').forEach(btn => {
+    btn.addEventListener('shown.bs.tab', () => {
+      catChart.resize();
+      payeeChart.resize();
+      groupChart.resize();
+    });
+  });
 
   // Delegated handlers for badge × buttons (avoids string-in-onclick escaping issues)
   ['cat-sel-badges', 'payee-sel-badges'].forEach(elId => {
@@ -504,6 +996,7 @@
 
     currentCatData   = data.cat;
     currentPayeeData = data.payee;
+    _rebuildCatColorCache();
     data.cat.ids.forEach((id, i) => _catLabelCache.set(id, data.cat.labels[i]));
 
     const csi = catSelIdxs();
@@ -523,6 +1016,15 @@
     payeeChart._centerTotal = sumSelected(data.payee.values, psi);
     payeeChart.update();
 
+    currentGroupData = buildGroupData(data.cat);
+    const gsi = groupSelIdxs(currentGroupData);
+    groupChart.data.labels = currentGroupData.labels;
+    groupChart.data.datasets[0].data = currentGroupData.values;
+    groupChart.data.datasets[0].backgroundColor = buildGroupBgColors(currentGroupData);
+    groupChart.data.datasets[0].offset = buildGroupOffsets(currentGroupData);
+    groupChart._centerTotal = sumSelected(currentGroupData.values, gsi);
+    groupChart.update();
+
     const hasSelection = selectedCatIds.size > 0 || selectedPayeeNames.size > 0;
     const _clearBtn = `<button class="btn btn-sm btn-outline-danger py-0 px-2 ms-1" onclick="clearChartSelections()">Clear filter</button>`;
 
@@ -538,6 +1040,9 @@
       ).join('') + (hasSelection ? _clearBtn : '');
 
     _renderGroupTags();
+    _renderGroupChartTags();
+
+    loadGutterTransactions();
 
     if (hasSelection) {
       loadFilteredTransactions();
@@ -571,8 +1076,8 @@
     return html;
   }
 
-  function attachTxnEditHandlers() {
-    document.querySelectorAll('#cat-txn-body tr[data-tid]').forEach(row => {
+  function _attachEditHandlers(container, onSaved) {
+    container.querySelectorAll('tr[data-tid]').forEach(row => {
       const tid = row.dataset.tid, inputs = row.querySelectorAll('.txn-edit-input');
       const saveBtn = row.querySelector('.txn-save-btn');
       const checkDirty = () => { saveBtn.style.display = [...inputs].some(i => i.value !== i.dataset.original) ? '' : 'none'; };
@@ -595,13 +1100,16 @@
           const c = Math.round(parseFloat(a.value)*100);
           a.closest('td').className = 'text-end '+(c<0?'text-danger':'text-success');
           saveBtn.textContent='✓';
-          setTimeout(()=>{saveBtn.style.display='none';saveBtn.disabled=false;saveBtn.textContent='✓';},800);
+          setTimeout(()=>{saveBtn.style.display='none';saveBtn.disabled=false;saveBtn.textContent='✓'; if(onSaved) onSaved();},800);
         } catch(_) {
           saveBtn.textContent='✗'; saveBtn.disabled=false;
           setTimeout(()=>{saveBtn.style.display='';saveBtn.textContent='✓';},1200);
         }
       });
     });
+  }
+  function attachTxnEditHandlers() {
+    _attachEditHandlers(document.getElementById('cat-txn-body'));
   }
 
   // ---- category filter ----
@@ -622,27 +1130,23 @@
   });
   function closeCatTransactions() { document.getElementById('cat-transactions').style.display = 'none'; }
 
-  function _whoLabel(t) {
-    if (t.is_joint) return 'Both';
-    if (t.owner_name) return escHtml(t.owner_name);
-    return '<span class="text-muted">—</span>';
-  }
-
   function _txnRows(data) {
     const categories = data.categories || [];
-    return data.transactions.map(t =>
-      `<tr data-tid="${t.id}">
-        <td class="text-nowrap">${t.date}</td>
+    return data.transactions.map(t => {
+      const bColor = _catColorCache[t.category_id] || '#dee2e6';
+      const bgColor = _catBgCache[t.category_id] || 'transparent';
+      return `<tr data-tid="${t.id}" style="border-left:3px solid ${bColor};--bs-table-bg:${bgColor}">
+        <td class="text-nowrap" style="padding-left:6px">${t.date}</td>
         <td><input class="form-control form-control-sm txn-edit-input" data-field="payee" value="${escHtml(t.payee)}" style="min-width:130px"></td>
         <td><input class="form-control form-control-sm txn-edit-input" data-field="memo" value="${escHtml(t.memo)}" style="min-width:130px"></td>
         <td><select class="form-select form-select-sm txn-edit-input" data-field="category_id" style="min-width:140px">${buildCatOptions(categories,t.category_id)}</select></td>
-        <td class="text-nowrap">${escHtml(t.account)}</td>
-        <td class="text-nowrap small">${_whoLabel(t)}</td>
+        <td class="text-nowrap">${_whoBadge(t)}</td>
         <td class="text-end ${t.amount<0?'text-danger':'text-success'}">
           <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount" value="${(t.amount/100).toFixed(2)}" style="width:90px">
         </td>
         <td><button class="btn btn-sm btn-success txn-save-btn" style="display:none" title="Save">✓</button></td>
-      </tr>`).join('');
+      </tr>`;
+    }).join('');
   }
 
   function _showTxnPanel(title, rows) {
@@ -652,7 +1156,7 @@
     } else {
       document.getElementById('cat-txn-body').innerHTML =
         `<div class="table-responsive"><table class="table table-sm table-hover align-middle mb-0">
-          <thead><tr><th>Date</th><th>Payee</th><th>Memo</th><th>Category</th><th>Account</th><th>Who</th><th class="text-end">Amount</th><th></th></tr></thead>
+          <thead><tr><th>Date</th><th>Payee</th><th>Memo</th><th>Category</th><th>Who</th><th class="text-end">Amount</th><th></th></tr></thead>
           <tbody>${rows}</tbody></table></div>`;
       attachTxnEditHandlers();
     }
@@ -670,6 +1174,49 @@
     selectedCatIds.clear(); selectedPayeeNames.clear();
     selectedPayeeNames.add(payeeName);
     refreshAll();
+  }
+
+  function _gutterRows(txns, categories) {
+    return txns.map(t => {
+      const color   = _catColorCache[t.category_id] || '#dee2e6';
+      const bgColor = _catBgCache[t.category_id]   || 'transparent';
+      const amtCls  = t.amount < 0 ? 'text-danger' : 'text-success';
+      return `<tr data-tid="${t.id}" style="border-left:3px solid ${color};--bs-table-bg:${bgColor}">
+        <td class="text-nowrap" style="padding-left:5px;white-space:nowrap">${t.date}</td>
+        <td><select class="form-select form-select-sm txn-edit-input" data-field="category_id" style="min-width:120px">${buildCatOptions(categories,t.category_id)}</select></td>
+        <td><input class="form-control form-control-sm txn-edit-input" data-field="payee" value="${escHtml(t.payee)}" style="min-width:110px"></td>
+        <td><input class="form-control form-control-sm txn-edit-input" data-field="memo" value="${escHtml(t.memo)}" style="min-width:90px"></td>
+        <td>${_whoSelect(t)}</td>
+        <td class="text-end ${amtCls}">
+          <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount" value="${(t.amount/100).toFixed(2)}" style="width:80px">
+        </td>
+        <td><button class="btn btn-sm btn-success txn-save-btn py-0" style="display:none" title="Save">✓</button></td>
+      </tr>`;
+    }).join('');
+  }
+
+  async function loadGutterTransactions() {
+    const params = new URLSearchParams({ start_date: _sd, end_date: _ed, owner: activeOwner });
+    selectedCatIds.forEach(id => params.append('category_ids', id));
+    selectedPayeeNames.forEach(n => params.append('payees', n));
+    const data = await fetch(`/reports/filtered-transactions?${params}`).then(r => r.json()).catch(() => null);
+    if (!data) return;
+    document.getElementById('gutter-summary').textContent = `${data.transactions.length} txns — ${fmtMoney(data.expenses)}`;
+    const gutterEl = document.getElementById('gutter-txn-body');
+    if (!data.transactions.length) {
+      gutterEl.innerHTML = '<p class="text-muted small mb-0">No transactions in this range.</p>';
+      return;
+    }
+    gutterEl.innerHTML =
+      `<table class="table table-sm align-middle mb-0" style="font-size:.77rem">
+        <thead class="sticky-top bg-white"><tr>
+          <th>Date</th><th>Category</th><th>Payee</th>
+          <th>Memo</th><th>Who</th>
+          <th class="text-end">Amount</th><th></th>
+        </tr></thead>
+        <tbody>${_gutterRows(data.transactions, data.categories)}</tbody>
+       </table>`;
+    _attachEditHandlers(gutterEl, () => refreshAll());
   }
 
   async function loadFilteredTransactions() {
