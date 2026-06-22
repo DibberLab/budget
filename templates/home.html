@@ -57,7 +57,10 @@
     <div class="card-soft p-3">
       <ul class="nav nav-tabs mb-2" id="chart-tabs" role="tablist">
         <li class="nav-item" role="presentation">
-          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-group" type="button">Group</button>
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-budget" type="button">Budget</button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-group" type="button">Group</button>
         </li>
         <li class="nav-item" role="presentation">
           <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-cat" type="button">Category</button>
@@ -67,7 +70,7 @@
         </li>
       </ul>
       <div class="tab-content">
-        <div class="tab-pane fade show active" id="tab-group" role="tabpanel">
+        <div class="tab-pane fade" id="tab-group" role="tabpanel">
           <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
           <div id="group-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
           <div id="group-tags" class="d-flex flex-wrap gap-1 mb-2"></div>
@@ -83,6 +86,18 @@
           <p class="small text-muted mb-1">Click segments to select; click again to deselect</p>
           <div id="payee-sel-badges" class="d-flex flex-wrap gap-1 mb-2" style="min-height:22px"></div>
           <div class="chart-wrap xl"><canvas id="payee"></canvas></div>
+        </div>
+        <div class="tab-pane fade show active" id="tab-budget" role="tabpanel">
+          <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+            <div class="btn-group btn-group-sm" id="budget-sub-tabs">
+              <button class="btn btn-sm btn-secondary active" data-btab="group">Group</button>
+              <button class="btn btn-sm btn-outline-secondary" data-btab="cat">Category</button>
+            </div>
+            <p class="small text-muted mb-0">This month · slices fill as budget is spent · click to view</p>
+          </div>
+          <div id="budget-sel-badge" class="mb-2" style="min-height:22px"></div>
+          <div id="budget-group-pane"><div class="chart-wrap xl"><canvas id="budget-group-chart"></canvas></div></div>
+          <div id="budget-cat-pane" style="display:none"><div class="chart-wrap xl"><canvas id="budget-cat-chart"></canvas></div></div>
         </div>
       </div>
     </div>
@@ -632,8 +647,40 @@
       ctx.restore();
     }
   };
+  // Budget donut center plugin — shows totals in the donut hole
+  const budgetCenterPlugin = {
+    id: 'budgetCenter',
+    afterDraw(chart) {
+      const isGroup = chart.canvas.id === 'budget-group-chart';
+      const isCat   = chart.canvas.id === 'budget-cat-chart';
+      if (!isGroup && !isCat) return;
+      const items  = isGroup ? _budgetGroups : _budgetItems;
+      const selIdx = isGroup ? _selBudgetGroupIdx : _selBudgetCatIdx;
+      const { ctx, chartArea: { left, top, width, height } } = chart;
+      const cx = left + width / 2, cy = top + height / 2;
+      let totalSpent, totalBudget;
+      if (selIdx >= 0 && items[selIdx]) {
+        const it = items[selIdx];
+        totalSpent = it.spent; totalBudget = it.budgeted;
+      } else {
+        totalSpent  = items.reduce((s, it) => s + it.spent, 0);
+        totalBudget = items.reduce((s, it) => s + it.budgeted, 0);
+      }
+      const pct = totalBudget > 0 ? Math.round(100 * totalSpent / totalBudget) : 0;
+      ctx.save();
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = totalSpent > totalBudget ? '#dc3545' : '#333';
+      ctx.font = 'bold 13px system-ui,sans-serif';
+      ctx.fillText(fmtMoney(totalSpent), cx, cy - 10);
+      ctx.fillStyle = '#6c757d'; ctx.font = '11px system-ui,sans-serif';
+      ctx.fillText('of ' + fmtMoney(totalBudget), cx, cy + 5);
+      ctx.fillText(pct + '% used', cx, cy + 18);
+      ctx.restore();
+    }
+  };
   Chart.register(groupLabelPlugin);
   Chart.register(centerTotalPlugin);
+  Chart.register(budgetCenterPlugin);
   Chart.register(ChartDataLabels);
 
   // Mutable date range — updated in place on preset/custom changes (no page reload)
@@ -649,6 +696,61 @@
     groups:      {{ cat_groups|tojson }},
   };
   let currentPayeeData = {labels: {{ payee_labels|tojson }}, values: {{ payee_values|tojson }}};
+
+  // ----- Budget chart state (always this month) -----
+  const _LEGEND_GROUPS = {{ legend_groups|tojson }};
+
+  // Category-level budget items
+  const _budgetItems = [];
+  _LEGEND_GROUPS.forEach(group => {
+    group.categories.forEach(cat => {
+      if (cat.budgeted > 0) {
+        _budgetItems.push({ id: cat.id, name: cat.name, color: cat.color,
+                            budgeted: cat.budgeted, spent: cat.spent_month || 0,
+                            groupName: group.name });
+      }
+    });
+  });
+
+  // Group-level budget items (color from the group's first budgeted category)
+  const _budgetGroups = _LEGEND_GROUPS
+    .filter(g => g.group_budgeted > 0)
+    .map(g => ({
+      name:       g.name,
+      color:      g.categories.find(c => c.budgeted > 0)?.color || '#6c757d',
+      budgeted:   g.group_budgeted,
+      spent:      g.group_spent_month || 0,
+      categories: g.categories,
+    }));
+
+  let _selBudgetCatIdx   = -1;
+  let _selBudgetGroupIdx = -1;
+  let _activeBudgetTab   = 'group';
+
+  // Shared fill-up builder — two segments per item (spent + remaining)
+  function _buildBudgetData(items, selIdx) {
+    const data = [], colors = [], labels = [], borderColors = [], offsets = [];
+    items.forEach((item, i) => {
+      const isSel    = selIdx === i;
+      const hasSel   = selIdx >= 0;
+      const alpha    = (!hasSel || isSel) ? 1 : 0.3;
+      const isOver   = item.spent > item.budgeted;
+      const spentAmt = Math.min(item.spent, item.budgeted);
+      const remAmt   = Math.max(item.budgeted - item.spent, 0);
+      data.push(Math.max(spentAmt, 1));
+      colors.push(hexToRgba(isOver ? '#dc3545' : item.color, alpha));
+      labels.push(item.name);
+      borderColors.push('#f8f9fa');
+      offsets.push(0);
+      data.push(Math.max(remAmt, 1));
+      colors.push(hexToRgba(item.color, isSel ? 0.45 : Math.max(alpha * 0.25, 0.08)));
+      labels.push('');
+      borderColors.push('#f8f9fa');
+      offsets.push(0);
+    });
+    return { data, colors, labels, borderColors, offsets };
+  }
+
   let activeOwner       = 'all';
   let selectedCatIds    = new Set();   // integer category IDs
   let selectedPayeeNames = new Set();  // payee name strings
@@ -849,6 +951,327 @@
   });
   groupChart._centerTotal = currentGroupData.values.reduce((s,v)=>s+v,0);
 
+  // ----- Budget charts (Group + Category) -----
+  function _makeBudgetChart(canvasId, items, getSelIdx, onSelect) {
+    const bd = _buildBudgetData(items, getSelIdx());
+    const budgetPlugin = {
+      // Pop BOTH segments of the hovered pair via offset array.
+      // Selected items never use offset — radial growth handles their prominence.
+      afterEvent(chart, args) {
+        const e = args.event;
+        if (e.type !== 'mousemove' && e.type !== 'mouseout') return;
+        const els = chart.getElementsAtEventForMode(e.native, 'nearest', { intersect: true }, false);
+        const newIdx = els.length ? Math.floor(els[0].index / 2) : -1;
+        if (e.native) e.native.target.style.cursor = newIdx >= 0 ? 'pointer' : 'default';
+        if (newIdx === (chart._hovPairIdx ?? -1)) return;
+        chart._hovPairIdx = newIdx;
+        const ds = chart.data.datasets[0];
+        const selIdx = getSelIdx();
+        ds.offset = Array.from({ length: ds.data.length }, (_, k) => {
+          const item = Math.floor(k / 2);
+          return (item !== selIdx && item === newIdx) ? 8 : 0;
+        });
+        args.changed = true;
+      },
+      // Store the controller's outerRadius (the Chart.js ground-truth, never animation-
+      // interpolated) so beforeDatasetsDraw always starts from the correct base value.
+      afterUpdate(chart) {
+        const ctrl = chart.getDatasetMeta(0).controller;
+        if (ctrl) chart._budgetBaseR = ctrl.outerRadius;
+      },
+      // Set every arc's outerRadius from the stored base, then grow the selected pair.
+      // Reading from the controller (not the element) prevents the boost from accumulating
+      // across renders.
+      beforeDatasetsDraw(chart) {
+        const base = chart._budgetBaseR;
+        if (base == null) return;
+        const selIdx = getSelIdx();
+        const BOOST  = 18;
+        chart.getDatasetMeta(0).data.forEach((el, i) => {
+          el.outerRadius = (Math.floor(i / 2) === selIdx) ? base + BOOST : base;
+        });
+      }
+    };
+    const ch = new Chart(document.getElementById(canvasId), {
+      type: 'doughnut',
+      data: {
+        labels: bd.labels,
+        datasets: [{
+          data: bd.data, backgroundColor: bd.colors,
+          borderWidth: 0, offset: bd.offsets, hoverOffset: 0,
+          // Round only the item-start edge (outerStart/innerStart) on the filled segment and
+          // only the item-end edge (outerEnd/innerEnd) on the faded segment.
+          // The filled→faded joint stays flat so they flow together as one arc per item.
+          // The rounded ends create natural gaps between different items.
+          borderRadius: ctx => ctx.dataIndex % 2 === 0
+            ? { outerStart: 7, innerStart: 7, outerEnd: 0, innerEnd: 0 }
+            : { outerStart: 0, innerStart: 0, outerEnd: 7, innerEnd: 7 }
+        }]
+      },
+      plugins: [budgetPlugin],
+      options: {
+        maintainAspectRatio: false,
+        layout: { padding: 30 },
+        plugins: {
+          datalabels: { display: false },
+          legend: {
+            position: 'bottom',
+            onClick(e, li) {
+              const idx = li.index;
+              onSelect(idx === getSelIdx() ? -1 : idx);
+            },
+            labels: {
+              generateLabels() {
+                return items.map((item, i) => ({
+                  text: item.name + '  ' + fmtMoney(item.spent) + ' / ' + fmtMoney(item.budgeted),
+                  fillStyle: item.spent > item.budgeted ? '#dc3545' : item.color,
+                  strokeStyle: '#fff', lineWidth: 2, index: i, hidden: false,
+                }));
+              }
+            }
+          },
+          tooltip: {
+            enabled: true,
+            callbacks: {
+              title(ti) { return items[Math.floor(ti[0].dataIndex / 2)]?.name || ''; },
+              label(ctx) {
+                const item = items[Math.floor(ctx.dataIndex / 2)];
+                if (!item) return '';
+                const pct = item.budgeted ? Math.round(100 * item.spent / item.budgeted) : 0;
+                return [' Spent: ' + fmtMoney(item.spent),
+                        ' Budget: ' + fmtMoney(item.budgeted),
+                        ' ' + pct + '% used' + (item.spent > item.budgeted ? ' · over budget!' : '')];
+              }
+            }
+          }
+        },
+        onClick(evt, elements) {
+          if (!elements.length) return;
+          const idx = Math.floor(elements[0].index / 2);
+          if (idx < items.length) onSelect(idx === getSelIdx() ? -1 : idx);
+        }
+      }
+    });
+    return ch;
+  }
+
+  const budgetGroupChart = _makeBudgetChart('budget-group-chart', _budgetGroups,
+    () => _selBudgetGroupIdx, idx => {
+      _selBudgetGroupIdx = idx;
+      _refreshBudgetChart(budgetGroupChart, _budgetGroups, _selBudgetGroupIdx);
+      if (idx >= 0) loadBudgetGutter('group', idx); else loadGutterTransactions();
+    });
+
+  const budgetCatChart = _makeBudgetChart('budget-cat-chart', _budgetItems,
+    () => _selBudgetCatIdx, idx => {
+      _selBudgetCatIdx = idx;
+      _refreshBudgetChart(budgetCatChart, _budgetItems, _selBudgetCatIdx);
+      if (idx >= 0) loadBudgetGutter('cat', idx); else loadGutterTransactions();
+    });
+
+  function _refreshBudgetChart(chart, items, selIdx) {
+    const bd = _buildBudgetData(items, selIdx);
+    const ds = chart.data.datasets[0];
+    chart.data.labels = bd.labels;
+    ds.data = bd.data; ds.backgroundColor = bd.colors;
+    ds.offset = bd.offsets;
+    chart.update('none');
+    // Badge
+    const el = document.getElementById('budget-sel-badge');
+    if (selIdx < 0) { el.innerHTML = ''; return; }
+    const item = items[selIdx];
+    const pct  = Math.round(100 * item.spent / item.budgeted);
+    el.innerHTML = '<span class="badge d-inline-flex align-items-center gap-1" style="background:'
+      + (item.spent > item.budgeted ? '#dc3545' : item.color) + '">'
+      + escHtml(item.name) + ' · ' + fmtMoney(item.spent) + ' / ' + fmtMoney(item.budgeted) + ' · ' + pct + '%'
+      + '<a href="#" class="budget-badge-clr text-white text-decoration-none ms-1" style="font-size:1.05em;line-height:1">×</a></span>';
+    el.querySelector('.budget-badge-clr').addEventListener('click', e => {
+      e.preventDefault();
+      if (_activeBudgetTab === 'group') {
+        _selBudgetGroupIdx = -1;
+        _refreshBudgetChart(budgetGroupChart, _budgetGroups, -1);
+      } else {
+        _selBudgetCatIdx = -1;
+        _refreshBudgetChart(budgetCatChart, _budgetItems, -1);
+      }
+      loadGutterTransactions();
+    });
+  }
+
+  // Sub-tab toggle (Group ↔ Category within the Budget tab)
+  document.getElementById('budget-sub-tabs').addEventListener('click', e => {
+    const btn = e.target.closest('[data-btab]');
+    if (!btn) return;
+    _activeBudgetTab = btn.dataset.btab;
+    document.querySelectorAll('#budget-sub-tabs button').forEach(b => {
+      b.className = b.dataset.btab === _activeBudgetTab
+        ? 'btn btn-sm btn-secondary active'
+        : 'btn btn-sm btn-outline-secondary';
+    });
+    document.getElementById('budget-group-pane').style.display = _activeBudgetTab === 'group' ? '' : 'none';
+    document.getElementById('budget-cat-pane').style.display   = _activeBudgetTab === 'cat'   ? '' : 'none';
+    // Reset both selections and restore normal gutter
+    _selBudgetGroupIdx = -1; _selBudgetCatIdx = -1;
+    document.getElementById('budget-sel-badge').innerHTML = '';
+    loadGutterTransactions();
+    // Force resize so the newly-visible chart fills correctly
+    (_activeBudgetTab === 'group' ? budgetGroupChart : budgetCatChart).resize();
+  });
+
+  // Budget gutter: budget summary table (with editable Assigned) + transactions
+  function _budgetAssignedCell(catId, budgetedCents, spentCents) {
+    const display = budgetedCents > 0 ? fmtMoney(budgetedCents) : '—';
+    return '<span class="budget-gutter-editable" contenteditable="true" spellcheck="false"'
+      + ' data-cat-id="' + catId + '" data-spent="' + spentCents + '"'
+      + ' title="Click to edit budget"'
+      + ' style="display:inline-block;min-width:52px;cursor:text;border-bottom:1px dashed #aaa;text-align:right">'
+      + display + '</span>';
+  }
+
+  async function loadBudgetGutter(mode, idx) {
+    const now = new Date();
+    const y   = now.getFullYear();
+    const mo  = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const sd  = y + '-' + mo + '-01';
+    const ed  = y + '-' + mo + '-' + day;
+    const params = new URLSearchParams({ start_date: sd, end_date: ed });
+
+    let summaryHtml = '';
+    if (mode === 'group') {
+      const grp = _budgetGroups[idx];
+      grp.categories.forEach(c => params.append('category_ids', c.id));
+      const data = await fetch('/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
+      if (!data) return;
+      const avail = grp.budgeted - grp.spent;
+      summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0" style="font-size:.78rem">'
+        + '<thead><tr><th>Category</th><th class="text-end">Assigned</th><th class="text-end">Spent</th><th class="text-end">Available</th></tr></thead>'
+        + '<tbody>'
+        // Group total row (not editable — derived from category budgets)
+        + '<tr class="table-active fw-semibold"><td>' + escHtml(grp.name) + '</td>'
+        + '<td class="text-end budget-group-assigned">' + fmtMoney(grp.budgeted) + '</td>'
+        + '<td class="text-end">' + fmtMoney(grp.spent) + '</td>'
+        + '<td class="text-end budget-group-avail ' + (avail < 0 ? 'text-danger' : '') + '">' + fmtMoney(avail) + '</td></tr>'
+        // Per-category rows with editable Assigned
+        + grp.categories.map(c => {
+            const sp = c.spent_month || 0;
+            const a  = (c.budgeted || 0) - sp;
+            return '<tr><td class="ps-3"><span style="width:7px;height:7px;border-radius:2px;background:'
+              + c.color + ';display:inline-block;margin-right:5px;vertical-align:middle"></span>'
+              + escHtml(c.name) + '</td>'
+              + '<td class="text-end">' + _budgetAssignedCell(c.id, c.budgeted || 0, sp) + '</td>'
+              + '<td class="text-end text-muted">' + (sp ? fmtMoney(sp) : '—') + '</td>'
+              + '<td class="text-end budget-avail-cell ' + (a < 0 ? 'text-danger' : 'text-muted') + '">' + fmtMoney(a) + '</td></tr>';
+          }).join('')
+        + '</tbody></table></div>';
+      const pct = Math.round(100 * grp.spent / grp.budgeted);
+      document.getElementById('gutter-summary').textContent =
+        grp.name + ' · ' + fmtMoney(grp.spent) + ' / ' + fmtMoney(grp.budgeted) + ' (' + pct + '%) · ' + data.transactions.length + ' txns';
+      _renderBudgetGutterTxns(data, () => loadBudgetGutter(mode, idx), summaryHtml);
+    } else {
+      const item = _budgetItems[idx];
+      params.append('category_ids', item.id);
+      const data = await fetch('/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
+      if (!data) return;
+      const avail = item.budgeted - item.spent;
+      summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0" style="font-size:.78rem">'
+        + '<thead><tr><th>Category</th><th class="text-end">Assigned</th><th class="text-end">Spent</th><th class="text-end">Available</th></tr></thead>'
+        + '<tbody><tr>'
+        + '<td><span style="width:7px;height:7px;border-radius:2px;background:' + item.color
+        + ';display:inline-block;margin-right:5px;vertical-align:middle"></span>' + escHtml(item.name) + '</td>'
+        + '<td class="text-end">' + _budgetAssignedCell(item.id, item.budgeted, item.spent) + '</td>'
+        + '<td class="text-end">' + fmtMoney(item.spent) + '</td>'
+        + '<td class="text-end budget-avail-cell ' + (avail < 0 ? 'text-danger' : '') + '">' + fmtMoney(avail) + '</td>'
+        + '</tr></tbody></table></div>';
+      const pct = Math.round(100 * item.spent / item.budgeted);
+      document.getElementById('gutter-summary').textContent =
+        item.name + ' · ' + fmtMoney(item.spent) + ' / ' + fmtMoney(item.budgeted) + ' (' + pct + '%) · ' + data.transactions.length + ' txns';
+      _renderBudgetGutterTxns(data, () => loadBudgetGutter(mode, idx), summaryHtml);
+    }
+  }
+
+  function _renderBudgetGutterTxns(data, onSaved, summaryHtml) {
+    const gutterEl = document.getElementById('gutter-txn-body');
+    if (!data.transactions.length) {
+      gutterEl.innerHTML = (summaryHtml || '') + '<p class="text-muted small mb-0 mt-1">No transactions this month.</p>';
+    } else {
+      const txnTable = '<div class="small fw-semibold text-muted mb-1 mt-1">Transactions</div>'
+        + '<table class="table table-sm align-middle mb-0" style="font-size:.77rem">'
+        + '<thead class="sticky-top bg-white"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Memo</th><th>Who</th><th class="text-end">Amount</th><th></th></tr></thead>'
+        + '<tbody>' + _gutterRows(data.transactions, data.categories) + '</tbody></table>';
+      gutterEl.innerHTML = (summaryHtml || '') + txnTable;
+      _attachEditHandlers(gutterEl, onSaved);
+    }
+    _attachBudgetEditHandlers(gutterEl);
+  }
+
+  function _attachBudgetEditHandlers(container) {
+    const yr = new Date().getFullYear();
+    const mo = new Date().getMonth() + 1;
+    container.querySelectorAll('.budget-gutter-editable').forEach(el => {
+      let original;
+      el.addEventListener('focus', () => { original = el.textContent.trim(); });
+      el.addEventListener('blur', async () => {
+        const raw = el.textContent.trim();
+        if (raw === original) return;
+        const num = parseFloat(raw.replace(/[$,—]/g, ''));
+        if (isNaN(num) || num < 0) { el.textContent = original; return; }
+        const catId     = parseInt(el.dataset.catId);
+        const spentCents = parseInt(el.dataset.spent) || 0;
+        const newCents  = Math.round(num * 100);
+        const fd = new FormData();
+        fd.append('year', yr); fd.append('month', mo);
+        fd.append('category_id', catId); fd.append('amount', num.toFixed(2));
+        const r = await fetch('/budget/assign', { method: 'POST', body: fd });
+        if (!r.ok) { el.textContent = original; return; }
+        // Update this cell's display
+        el.textContent = num === 0 ? '—'
+          : '$' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        // Update Available in same row
+        const avail = newCents - spentCents;
+        const row = el.closest('tr');
+        const availCell = row.querySelector('.budget-avail-cell');
+        if (availCell) {
+          availCell.textContent = fmtMoney(avail);
+          availCell.className   = 'text-end budget-avail-cell' + (avail < 0 ? ' text-danger' : ' text-muted');
+        }
+        // Update group total row if present (recalculate from all editable cells)
+        const groupAssigned = container.querySelector('.budget-group-assigned');
+        const groupAvail    = container.querySelector('.budget-group-avail');
+        if (groupAssigned || groupAvail) {
+          let totAssigned = 0, totSpent = 0;
+          container.querySelectorAll('.budget-gutter-editable').forEach(e2 => {
+            const v = parseFloat(e2.textContent.replace(/[$,—]/g, '')) || 0;
+            totAssigned += Math.round(v * 100);
+            totSpent    += parseInt(e2.dataset.spent) || 0;
+          });
+          if (groupAssigned) groupAssigned.textContent = fmtMoney(totAssigned);
+          if (groupAvail) {
+            const ga = totAssigned - totSpent;
+            groupAvail.textContent = fmtMoney(ga);
+            groupAvail.className   = 'text-end budget-group-avail' + (ga < 0 ? ' text-danger' : '');
+          }
+        }
+        // Sync in-memory data and refresh charts
+        const bi = _budgetItems.find(i => i.id === catId);
+        if (bi) bi.budgeted = newCents;
+        _budgetGroups.forEach(g => {
+          const cat = g.categories.find(c => c.id === catId);
+          if (cat) {
+            cat.budgeted = newCents;
+            g.budgeted   = g.categories.reduce((s, c) => s + (c.budgeted || 0), 0);
+          }
+        });
+        _refreshBudgetChart(budgetGroupChart, _budgetGroups, _selBudgetGroupIdx);
+        _refreshBudgetChart(budgetCatChart,   _budgetItems,  _selBudgetCatIdx);
+      });
+      el.addEventListener('keydown', e => {
+        if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
+        if (e.key === 'Escape') { el.textContent = original; el.blur(); }
+      });
+    });
+  }
+
   function _renderGroupTags() {
     const groups = currentCatData.groups || [];
     const gcm = {};
@@ -932,6 +1355,12 @@
     _syncChartMobile(groupChart);
     _syncChartMobile(catChart);
     _syncChartMobile(payeeChart);
+    const mobile = window.innerWidth < 768;
+    [budgetGroupChart, budgetCatChart].forEach(ch => {
+      ch.options.layout.padding = mobile ? 8 : 30;
+      ch.options.plugins.tooltip.enabled = true;
+      ch.update('none');
+    });
   }
   _syncGroupMobile();
   window.addEventListener('resize', _syncGroupMobile);
@@ -942,6 +1371,8 @@
       catChart.resize();
       payeeChart.resize();
       groupChart.resize();
+      budgetGroupChart.resize();
+      budgetCatChart.resize();
     });
   });
 
