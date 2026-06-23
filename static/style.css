@@ -126,3 +126,22 @@ body { background: #f6f7fb; }
 @media (min-width: 768px) {
   .chart-wrap.xl { height: 85vh; }
 }
+
+/* Gutter transaction panel: cap height on mobile so it scrolls instead of filling the page */
+@media (max-width: 991.98px) {
+  #gutter-txn-body { max-height: 420px; }
+}
+
+/* Tag cloud alphabetical / group dividers */
+.tag-group-hdr {
+  flex-basis: 100%;
+  width: 100%;
+  font-size: .6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: #adb5bd;
+  margin-top: 6px;
+  line-height: 1;
+}
+.tag-group-hdr:first-child { margin-top: 0; }

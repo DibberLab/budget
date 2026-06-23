@@ -2,54 +2,64 @@
 {% block title %}Home – Local Budget{% endblock %}
 {% block content %}
 
-{# ===== SPENDING ANALYSIS SECTION ===== #}
-<div class="d-flex justify-content-between align-items-center mt-4 mb-3 flex-wrap gap-2">
-  <div class="d-flex align-items-center gap-2 flex-wrap">
-    <h5 class="mb-0">Spending Analysis</h5>
-    <span id="cat-filter-badge" class="badge rounded-pill text-bg-secondary d-none">
-      <span id="cat-filter-label"></span>
-      <a href="#" id="cat-filter-clear" class="text-white ms-1 text-decoration-none" title="Show all">×</a>
-    </span>
-  </div>
-  <div class="d-flex align-items-center gap-3 flex-wrap">
-    {# Who filter #}
-    <div class="d-flex align-items-center gap-2">
-      <span class="small text-muted">Who:</span>
-      <div class="btn-group btn-group-sm" id="who-filter">
-        <button class="btn btn-outline-secondary active" data-owner="all">All</button>
-        {% for u in users %}
-          <button class="btn btn-outline-secondary" data-owner="{{ u.id }}">{{ u.display_name }}</button>
-        {% endfor %}
-        <button class="btn btn-outline-secondary" data-owner="joint">Both</button>
-      </div>
+{# ===== FILTERS + MONTHLY OVERVIEW ===== #}
+<div class="d-flex align-items-center gap-3 flex-wrap mt-3 mb-2">
+  {# Who filter #}
+  <div class="d-flex align-items-center gap-2">
+    <span class="small text-muted">Who:</span>
+    <div class="btn-group btn-group-sm" id="who-filter">
+      <button class="btn btn-outline-secondary active" data-owner="all">All</button>
+      {% for u in users %}
+        <button class="btn btn-outline-secondary" data-owner="{{ u.id }}">{{ u.display_name }}</button>
+      {% endfor %}
+      <button class="btn btn-outline-secondary" data-owner="joint">Both</button>
     </div>
-    {# Date range #}
-    <form method="get" id="range-form" class="d-flex gap-2 align-items-center flex-wrap">
-      <label class="form-label small mb-0">Range:</label>
-      <select class="form-select form-select-sm" name="preset" id="preset-select" style="width:auto" onchange="onPresetChange(this)">
-        <option value="last_30d"   {% if preset == 'last_30d'   %}selected{% endif %}>Last 30 Days</option>
-        <option value="last_90d"   {% if preset == 'last_90d'   %}selected{% endif %}>Last 90 Days</option>
-        <option value="last_180d"  {% if preset == 'last_180d'  %}selected{% endif %}>Last 180 Days</option>
-        <option value="last_365d"  {% if preset == 'last_365d'  %}selected{% endif %}>Last 365 Days</option>
-        <option disabled>──────────</option>
-        <option value="this_month" {% if preset == 'this_month' %}selected{% endif %}>This Month</option>
-        <option value="last_month" {% if preset == 'last_month' %}selected{% endif %}>Last Month</option>
-        <option value="last_3"     {% if preset == 'last_3'     %}selected{% endif %}>Last 3 Months</option>
-        <option value="last_6"     {% if preset == 'last_6'     %}selected{% endif %}>Last 6 Months</option>
-        <option value="last_12"    {% if preset == 'last_12'    %}selected{% endif %}>Last 12 Months</option>
-        <option value="last_24"    {% if preset == 'last_24'    %}selected{% endif %}>Last 24 Months</option>
-        <option value="this_year"  {% if preset == 'this_year'  %}selected{% endif %}>This Year</option>
-        <option value="last_year"  {% if preset == 'last_year'  %}selected{% endif %}>Last Year</option>
-        <option value="custom"     {% if preset == 'custom'     %}selected{% endif %}>Custom Range</option>
-      </select>
-      <div id="custom-range" class="{% if preset != 'custom' %}d-none {% endif %}d-flex gap-2 align-items-center flex-wrap">
-        <input type="date" class="form-control form-control-sm" name="start_date" value="{{ start_date }}" style="width:auto">
-        <span class="small text-muted">to</span>
-        <input type="date" class="form-control form-control-sm" name="end_date" value="{{ end_date }}" style="width:auto">
-        <button type="submit" class="btn btn-sm btn-primary">Go</button>
-      </div>
-    </form>
   </div>
+  {# Date range #}
+  <form method="get" id="range-form" class="d-flex gap-2 align-items-center flex-wrap">
+    <label class="form-label small mb-0">Range:</label>
+    <select class="form-select form-select-sm" name="preset" id="preset-select" style="width:auto" onchange="onPresetChange(this)">
+      <option value="last_30d"   {% if preset == 'last_30d'   %}selected{% endif %}>Last 30 Days</option>
+      <option value="last_90d"   {% if preset == 'last_90d'   %}selected{% endif %}>Last 90 Days</option>
+      <option value="last_180d"  {% if preset == 'last_180d'  %}selected{% endif %}>Last 180 Days</option>
+      <option value="last_365d"  {% if preset == 'last_365d'  %}selected{% endif %}>Last 365 Days</option>
+      <option disabled>──────────</option>
+      <option value="this_month" {% if preset == 'this_month' %}selected{% endif %}>This Month</option>
+      <option value="last_month" {% if preset == 'last_month' %}selected{% endif %}>Last Month</option>
+      <option value="last_3"     {% if preset == 'last_3'     %}selected{% endif %}>Last 3 Months</option>
+      <option value="last_6"     {% if preset == 'last_6'     %}selected{% endif %}>Last 6 Months</option>
+      <option value="last_12"    {% if preset == 'last_12'    %}selected{% endif %}>Last 12 Months</option>
+      <option value="last_24"    {% if preset == 'last_24'    %}selected{% endif %}>Last 24 Months</option>
+      <option value="this_year"  {% if preset == 'this_year'  %}selected{% endif %}>This Year</option>
+      <option value="last_year"  {% if preset == 'last_year'  %}selected{% endif %}>Last Year</option>
+      <option value="custom"     {% if preset == 'custom'     %}selected{% endif %}>Custom Range</option>
+    </select>
+    <div id="custom-range" class="{% if preset != 'custom' %}d-none {% endif %}d-flex gap-2 align-items-center flex-wrap">
+      <input type="date" class="form-control form-control-sm" name="start_date" value="{{ start_date }}" style="width:auto">
+      <span class="small text-muted">to</span>
+      <input type="date" class="form-control form-control-sm" name="end_date" value="{{ end_date }}" style="width:auto">
+      <button type="submit" class="btn btn-sm btn-primary">Go</button>
+    </div>
+  </form>
+</div>
+
+<div class="card-soft p-3 mb-3" id="month-overview-card">
+  <div class="d-flex justify-content-between align-items-baseline mb-2">
+    <h6 class="mb-0 text-muted text-uppercase" style="font-size:.7rem;letter-spacing:.07em">Overview</h6>
+    <span class="small text-muted" id="month-overview-range" style="font-size:.75rem">{{ today().strftime('%B %Y') }}</span>
+  </div>
+  <div id="month-overview-bars" style="font-size:.82rem">
+    <div class="text-muted small">Loading…</div>
+  </div>
+</div>
+
+{# ===== SPENDING ANALYSIS SECTION ===== #}
+<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
+  <h5 class="mb-0">Spending Analysis</h5>
+  <span id="cat-filter-badge" class="badge rounded-pill text-bg-secondary d-none">
+    <span id="cat-filter-label"></span>
+    <a href="#" id="cat-filter-clear" class="text-white ms-1 text-decoration-none" title="Show all">×</a>
+  </span>
 </div>
 
 <div class="row g-3">
@@ -95,6 +105,7 @@
             </div>
             <p class="small text-muted mb-0">This month · slices fill as budget is spent · click to view</p>
           </div>
+          <div id="budget-overspend-alert"></div>
           <div id="budget-sel-badge" class="mb-2" style="min-height:22px"></div>
           <div id="budget-group-pane"><div class="chart-wrap xl"><canvas id="budget-group-chart"></canvas></div></div>
           <div id="budget-cat-pane" style="display:none"><div class="chart-wrap xl"><canvas id="budget-cat-chart"></canvas></div></div>
@@ -102,7 +113,7 @@
       </div>
     </div>
   </div>
-  <div class="col-lg-7 d-none d-lg-flex flex-column">
+  <div class="col-12 col-lg-7 d-flex flex-column mt-3 mt-lg-0">
     <div class="card-soft p-3 flex-grow-1 d-flex flex-column" style="overflow:hidden">
       <div class="d-flex justify-content-between align-items-center mb-2 flex-shrink-0">
         <h6 class="mb-0 fw-semibold">Transactions</h6>
@@ -127,127 +138,6 @@
   </div>
 </div>
 
-{# ===== CATEGORIES / PAYEES TABLE ===== #}
-<div class="row g-3 mt-0">
-  <div class="col-12">
-    <div class="card-soft p-3">
-      <ul class="nav nav-tabs mb-3" role="tablist">
-        <li class="nav-item" role="presentation">
-          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-categories" type="button">
-            Categories <span class="text-muted fw-normal small">— This Month</span>
-          </button>
-        </li>
-        <li class="nav-item" role="presentation">
-          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-payees" type="button">
-            Payees <span class="text-muted fw-normal small">— This Month</span>
-          </button>
-        </li>
-      </ul>
-      <div class="tab-content">
-
-        <div class="tab-pane fade show active" id="tab-categories">
-          <div class="table-responsive">
-          <table class="table align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Category</th>
-                <th class="text-end d-none d-sm-table-cell">Avg/mo</th>
-                <th class="text-end d-none d-sm-table-cell">Last mo</th>
-                <th class="text-end d-none d-md-table-cell">Budget</th>
-                <th class="text-end">Spent</th>
-                <th class="d-none d-sm-table-cell" style="min-width:130px">Progress</th>
-              </tr>
-            </thead>
-            <tbody>
-            {% for group in legend_groups %}
-              {% set g_pct   = group.group_spent_pct or 0 %}
-              {% set g_clamp = [g_pct, 100] | min %}
-              {% set g_color = 'over' if g_pct > 100 else ('warn' if g_pct > 75 else 'ok') %}
-              <tr class="group-row">
-                <td>{{ group.name }}</td>
-                <td class="text-end d-none d-sm-table-cell">{{ group.group_avg | money if group.group_avg else '—' }}</td>
-                <td class="text-end d-none d-sm-table-cell">{{ group.group_last_month | money if group.group_last_month else '—' }}</td>
-                <td class="text-end d-none d-md-table-cell">{{ group.group_budgeted | money if group.group_budgeted else '—' }}</td>
-                <td class="text-end">{{ group.group_spent_month | money if group.group_spent_month else '—' }}</td>
-                <td class="d-none d-sm-table-cell">
-                  <div class="spend-bar">
-                    <div class="spend-fill spend-fill--{{ g_color }}" data-pct="{{ g_clamp | int }}"></div>
-                    <span class="spend-label">{%- if g_pct > 100 %}Overspent{%- elif g_pct > 0 %}{{ g_pct | int }}%{%- endif -%}</span>
-                  </div>
-                </td>
-              </tr>
-              {% for item in group.categories %}
-                {% set pct   = item.spent_pct or 0 %}
-                {% set clamp = [pct, 100] | min %}
-                {% set color = 'over' if pct > 100 else ('warn' if pct > 75 else 'ok') %}
-                <tr data-tip-url="/api/category/recent-transactions?category_id={{ item.id }}"
-                    data-tip-label="{{ item.name }}"
-                    data-cat-id="{{ item.id }}"
-                    data-spent="{{ item.spent_month or 0 }}">
-                  <td class="ps-3">
-                    <a href="{{ url_for('transactions_list', category_id=item.id) }}"
-                       class="d-flex align-items-center gap-2 text-decoration-none text-body">
-                      <span style="width:10px;height:10px;border-radius:2px;background:{{ item.color }};flex-shrink:0"></span>
-                      {{ item.name }}
-                    </a>
-                  </td>
-                  <td class="text-end text-muted d-none d-sm-table-cell">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
-                  <td class="text-end text-muted d-none d-sm-table-cell">{{ item.last_month | money if item.last_month else '—' }}</td>
-                  <td class="text-end d-none d-md-table-cell">
-                    <span class="budget-editable"
-                          contenteditable="true" spellcheck="false"
-                          style="display:inline-block;min-width:50px;cursor:text;border-bottom:1px dashed #aaa;"
-                          title="Click to edit budget">{{ item.budgeted | money if item.budgeted else '—' }}</span>
-                  </td>
-                  <td class="text-end {% if pct > 100 %}money-neg{% endif %}">{{ item.spent_month | money if item.spent_month else '—' }}</td>
-                  <td class="d-none d-sm-table-cell">
-                    <div class="spend-bar">
-                      <div class="spend-fill spend-fill--{{ color }}" data-pct="{{ clamp | int }}"></div>
-                      <span class="spend-label">{%- if pct > 100 %}Overspent{%- elif pct > 0 %}{{ pct | int }}%{%- endif -%}</span>
-                    </div>
-                  </td>
-                </tr>
-              {% endfor %}
-            {% endfor %}
-            </tbody>
-          </table>
-          </div>
-        </div>
-
-        <div class="tab-pane fade" id="tab-payees">
-          <div class="table-responsive">
-          <table class="table align-middle mb-0">
-            <thead>
-              <tr>
-                <th>Payee</th>
-                <th class="text-end d-none d-sm-table-cell">Avg/mo</th>
-                <th class="text-end d-none d-sm-table-cell">Last mo</th>
-                <th class="text-end">This mo</th>
-              </tr>
-            </thead>
-            <tbody>
-            {% for item in payee_rows %}
-              <tr data-tip-url="/api/payee/recent-transactions?payee={{ item.name | urlencode }}"
-                  data-tip-label="{{ item.name }}">
-                <td>
-                  <a href="{{ url_for('transactions_list', payee=item.name) }}"
-                     class="text-decoration-none text-body">{{ item.name }}</a>
-                </td>
-                <td class="text-end text-muted d-none d-sm-table-cell">{{ item.avg_per_month | money if item.avg_per_month else '—' }}</td>
-                <td class="text-end text-muted d-none d-sm-table-cell">{{ item.last_month | money if item.last_month else '—' }}</td>
-                <td class="text-end">{{ item.spent_month | money if item.spent_month else '—' }}</td>
-              </tr>
-            {% endfor %}
-            </tbody>
-          </table>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-</div>
-
 {# ===== CALENDAR SECTION ===== #}
 <div class="row g-3 mt-3">
   <div class="col-12">
@@ -268,6 +158,15 @@
   </div>
 </div>
 
+{% endblock %}
+{% block head %}
+<style>
+  /* Sortable gutter budget table headers */
+  .gutter-sort-hdr { cursor:pointer; user-select:none; white-space:nowrap; }
+  .gutter-sort-hdr:hover { color:#0d6efd; }
+  .gutter-sort-hdr.sort-asc::after  { content:' ↑'; font-size:.72em; opacity:.7; }
+  .gutter-sort-hdr.sort-desc::after { content:' ↓'; font-size:.72em; opacity:.7; }
+</style>
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
@@ -380,6 +279,20 @@
     Object.keys(USERS_HOME).map(Number).sort((a,b) => a-b)
       .forEach((id, i) => { _userColors[id] = _userColorPalette[i] || '#6c757d'; });
   })();
+
+  // Projected monthly income per person (cents), matched by display name
+  const _PROJECTED_INCOME = 1012200;
+  const _projectedByUser  = {};
+  const _incomeColors     = {};
+  (function() {
+    const nameAmt   = { 'Libby': 565800, 'Andy': 446400 };
+    const nameColor = { 'Libby': '#2da44e', 'Andy': '#74c990' };
+    Object.entries(USERS_HOME).forEach(([id, name]) => {
+      _projectedByUser[id] = nameAmt[name]   || 0;
+      _incomeColors[id]    = nameColor[name] || '#5ba85c';
+    });
+  })();
+  let _actualIncomeByUser = {{ income_by_user | tojson }};
 
   function _whoBadge(t) {
     if (t.is_joint) return `<span class="badge rounded-pill" style="background:#6f42c1;font-size:.68em">Both</span>`;
@@ -666,15 +579,20 @@
         totalSpent  = items.reduce((s, it) => s + it.spent, 0);
         totalBudget = items.reduce((s, it) => s + it.budgeted, 0);
       }
-      const pct = totalBudget > 0 ? Math.round(100 * totalSpent / totalBudget) : 0;
+      const pct   = totalBudget > 0 ? Math.round(100 * totalSpent / totalBudget) : 0;
+      const avail = totalBudget - totalSpent;
+      const isOver = avail < 0;
       ctx.save();
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillStyle = totalSpent > totalBudget ? '#dc3545' : '#333';
+      ctx.fillStyle = isOver ? '#dc3545' : '#333';
       ctx.font = 'bold 13px system-ui,sans-serif';
-      ctx.fillText(fmtMoney(totalSpent), cx, cy - 10);
+      ctx.fillText(fmtMoney(totalSpent), cx, cy - 16);
       ctx.fillStyle = '#6c757d'; ctx.font = '11px system-ui,sans-serif';
-      ctx.fillText('of ' + fmtMoney(totalBudget), cx, cy + 5);
-      ctx.fillText(pct + '% used', cx, cy + 18);
+      ctx.fillText('of ' + fmtMoney(totalBudget), cx, cy - 2);
+      ctx.fillText(pct + '% used', cx, cy + 11);
+      ctx.fillStyle = isOver ? '#dc3545' : '#2da44e';
+      ctx.font = '11px system-ui,sans-serif';
+      ctx.fillText((isOver ? 'Over: ' : 'Available: ') + fmtMoney(Math.abs(avail)), cx, cy + 25);
       ctx.restore();
     }
   };
@@ -707,10 +625,13 @@
       if (cat.budgeted > 0) {
         _budgetItems.push({ id: cat.id, name: cat.name, color: cat.color,
                             budgeted: cat.budgeted, spent: cat.spent_month || 0,
-                            groupName: group.name });
+                            groupName: group.name,
+                            avg: cat.avg_per_month || 0,
+                            lastMonth: cat.last_month || 0 });
       }
     });
   });
+  _budgetItems.sort((a, b) => b.budgeted - a.budgeted);
 
   // Group-level budget items (color from the group's first budgeted category)
   const _budgetGroups = _LEGEND_GROUPS
@@ -720,8 +641,30 @@
       color:      g.categories.find(c => c.budgeted > 0)?.color || '#6c757d',
       budgeted:   g.group_budgeted,
       spent:      g.group_spent_month || 0,
+      avg:        g.group_avg         || 0,
+      lastMonth:  g.group_last_month  || 0,
       categories: g.categories,
-    }));
+    }))
+    .sort((a, b) => b.budgeted - a.budgeted);
+
+  // Overspend warning — re-rendered after every budget edit
+  function _renderBudgetOverspendAlert() {
+    const over = _budgetItems.filter(i => i.budgeted > 0 && i.spent > i.budgeted);
+    const el = document.getElementById('budget-overspend-alert');
+    if (!over.length) { el.innerHTML = ''; return; }
+    const chips = over.map(i => {
+      const idx = _budgetItems.indexOf(i);
+      return `<a href="#" class="budget-over-link text-decoration-none" data-idx="${idx}">`
+        + `<span class="fw-semibold text-danger-emphasis">${escHtml(i.name)}</span>`
+        + `<span class="text-muted ms-1">${fmtMoney(i.spent - i.budgeted)} over</span>`
+        + `</a>`;
+    }).join('<span class="text-danger mx-2">·</span>');
+    el.innerHTML = `<div class="alert alert-danger d-flex align-items-start gap-2 py-2 px-3 mb-2" role="alert" style="font-size:.85rem">`
+      + `<span style="font-size:1rem;line-height:1.4">⚠️</span>`
+      + `<div><strong>${over.length} ${over.length === 1 ? 'category' : 'categories'} over budget</strong>`
+      + ` &mdash; ${chips}</div></div>`;
+  }
+  _renderBudgetOverspendAlert();
 
   let _selBudgetCatIdx   = -1;
   let _selBudgetGroupIdx = -1;
@@ -869,6 +812,7 @@
   payeeChart._centerTotal = currentPayeeData.values.reduce((s,v)=>s+v,0);
 
   let currentGroupData = buildGroupData(currentCatData);
+  _renderMonthOverview({{ month_income }}, null);
   let _groupHoverIdx = -1;
   let _catHoverIdx   = -1;
   let _payeeHoverIdx = -1;
@@ -990,7 +934,7 @@
         chart.getDatasetMeta(0).data.forEach((el, i) => {
           el.outerRadius = (Math.floor(i / 2) === selIdx) ? base + BOOST : base;
         });
-      }
+      },
     };
     const ch = new Chart(document.getElementById(canvasId), {
       type: 'doughnut',
@@ -1079,12 +1023,16 @@
     // Badge
     const el = document.getElementById('budget-sel-badge');
     if (selIdx < 0) { el.innerHTML = ''; return; }
-    const item = items[selIdx];
-    const pct  = Math.round(100 * item.spent / item.budgeted);
-    el.innerHTML = '<span class="badge d-inline-flex align-items-center gap-1" style="background:'
-      + (item.spent > item.budgeted ? '#dc3545' : item.color) + '">'
-      + escHtml(item.name) + ' · ' + fmtMoney(item.spent) + ' / ' + fmtMoney(item.budgeted) + ' · ' + pct + '%'
-      + '<a href="#" class="budget-badge-clr text-white text-decoration-none ms-1" style="font-size:1.05em;line-height:1">×</a></span>';
+    const item  = items[selIdx];
+    const pct   = Math.round(100 * item.spent / item.budgeted);
+    const avail = item.budgeted - item.spent;
+    const isOver = avail < 0;
+    el.innerHTML = '<span class="badge" style="background:'
+      + (isOver ? '#dc3545' : item.color)
+      + ';display:inline-flex;align-items:center;gap:4px;white-space:normal;max-width:100%;word-break:break-word">'
+      + '<span>' + escHtml(item.name) + ' · ' + fmtMoney(item.spent) + ' / ' + fmtMoney(item.budgeted) + ' · ' + pct + '%'
+      + ' · ' + (isOver ? 'Over: ' : 'Available: ') + fmtMoney(Math.abs(avail)) + '</span>'
+      + '<a href="#" class="budget-badge-clr text-white text-decoration-none" style="font-size:1.05em;line-height:1;flex-shrink:0">×</a></span>';
     el.querySelector('.budget-badge-clr').addEventListener('click', e => {
       e.preventDefault();
       if (_activeBudgetTab === 'group') {
@@ -1097,6 +1045,29 @@
       loadGutterTransactions();
     });
   }
+
+  // Overspend alert clicks — navigate within whichever sub-tab is currently active
+  document.getElementById('budget-overspend-alert').addEventListener('click', e => {
+    const a = e.target.closest('.budget-over-link');
+    if (!a) return;
+    e.preventDefault();
+    const catIdx = parseInt(a.dataset.idx, 10);
+    const item   = _budgetItems[catIdx];
+    if (!item) return;
+    if (_activeBudgetTab === 'group') {
+      const gIdx = _budgetGroups.findIndex(g => g.name === item.groupName);
+      if (gIdx < 0) return;
+      _selBudgetGroupIdx = gIdx;
+      _selBudgetCatIdx   = -1;
+      _refreshBudgetChart(budgetGroupChart, _budgetGroups, gIdx);
+      loadBudgetGutter('group', gIdx);
+    } else {
+      _selBudgetGroupIdx = -1;
+      _selBudgetCatIdx   = catIdx;
+      _refreshBudgetChart(budgetCatChart, _budgetItems, catIdx);
+      loadBudgetGutter('cat', catIdx);
+    }
+  });
 
   // Sub-tab toggle (Group ↔ Category within the Budget tab)
   document.getElementById('budget-sub-tabs').addEventListener('click', e => {
@@ -1119,6 +1090,17 @@
   });
 
   // Budget gutter: budget summary table (with editable Assigned) + transactions
+  function _spendBar(spent, budgeted) {
+    if (!budgeted) return '<span class="text-muted small">—</span>';
+    const pct   = Math.round(100 * spent / budgeted);
+    const clamp = Math.min(pct, 100);
+    const color = pct > 100 ? 'over' : (pct > 75 ? 'warn' : 'ok');
+    const label = pct > 100 ? 'Over' : (pct > 0 ? pct + '%' : '0%');
+    return '<div class="spend-bar" style="min-width:70px">'
+      + '<div class="spend-fill spend-fill--' + color + '" style="--w:' + clamp + '"></div>'
+      + '<span class="spend-label">' + label + '</span></div>';
+  }
+
   function _budgetAssignedCell(catId, budgetedCents, spentCents) {
     const display = budgetedCents > 0 ? fmtMoney(budgetedCents) : '—';
     return '<span class="budget-gutter-editable" contenteditable="true" spellcheck="false"'
@@ -1144,24 +1126,42 @@
       const data = await fetch('/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
       if (!data) return;
       const avail = grp.budgeted - grp.spent;
-      summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0" style="font-size:.78rem">'
-        + '<thead><tr><th>Category</th><th class="text-end">Assigned</th><th class="text-end">Spent</th><th class="text-end">Available</th></tr></thead>'
+      summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0 gutter-budget-table" style="font-size:.78rem">'
+        + '<thead><tr>'
+        + '<th class="gutter-sort-hdr" data-col="name">Category</th>'
+        + '<th class="text-end d-none d-sm-table-cell gutter-sort-hdr" data-col="avg" style="font-weight:500">Avg/mo</th>'
+        + '<th class="text-end d-none d-sm-table-cell gutter-sort-hdr" data-col="lm" style="font-weight:500">Last Mo</th>'
+        + '<th class="text-end gutter-sort-hdr" data-col="assigned">Assigned</th>'
+        + '<th class="text-end gutter-sort-hdr" data-col="spent">Spent</th>'
+        + '<th class="text-end gutter-sort-hdr" data-col="avail">Available</th>'
+        + '<th class="d-none d-md-table-cell gutter-sort-hdr" data-col="pct" style="min-width:80px">Progress</th>'
+        + '</tr></thead>'
         + '<tbody>'
-        // Group total row (not editable — derived from category budgets)
+        // Group total row — pinned, not sortable
         + '<tr class="table-active fw-semibold"><td>' + escHtml(grp.name) + '</td>'
+        + '<td class="text-end d-none d-sm-table-cell text-muted">' + (grp.avg ? fmtMoney(grp.avg) : '—') + '</td>'
+        + '<td class="text-end d-none d-sm-table-cell text-muted">' + (grp.lastMonth ? fmtMoney(grp.lastMonth) : '—') + '</td>'
         + '<td class="text-end budget-group-assigned">' + fmtMoney(grp.budgeted) + '</td>'
         + '<td class="text-end">' + fmtMoney(grp.spent) + '</td>'
-        + '<td class="text-end budget-group-avail ' + (avail < 0 ? 'text-danger' : '') + '">' + fmtMoney(avail) + '</td></tr>'
-        // Per-category rows with editable Assigned
+        + '<td class="text-end budget-group-avail ' + (avail < 0 ? 'text-danger' : '') + '">' + fmtMoney(avail) + '</td>'
+        + '<td class="d-none d-md-table-cell">' + _spendBar(grp.spent, grp.budgeted) + '</td></tr>'
+        // Per-category rows — carry sort values as data-* attributes
         + grp.categories.map(c => {
-            const sp = c.spent_month || 0;
-            const a  = (c.budgeted || 0) - sp;
-            return '<tr><td class="ps-3"><span style="width:7px;height:7px;border-radius:2px;background:'
-              + c.color + ';display:inline-block;margin-right:5px;vertical-align:middle"></span>'
-              + escHtml(c.name) + '</td>'
+            const sp  = c.spent_month || 0;
+            const a   = (c.budgeted || 0) - sp;
+            const avg = c.avg_per_month || 0;
+            const lm  = c.last_month   || 0;
+            const pct = c.budgeted ? Math.round(100 * sp / c.budgeted) : 0;
+            return '<tr data-name="' + escHtml(c.name) + '" data-avg="' + avg + '" data-lm="' + lm
+              + '" data-assigned="' + (c.budgeted||0) + '" data-spent="' + sp
+              + '" data-avail="' + a + '" data-pct="' + pct + '">'
+              + '<td class="ps-3">' + escHtml(c.name) + '</td>'
+              + '<td class="text-end d-none d-sm-table-cell text-muted">' + (avg ? fmtMoney(avg) : '—') + '</td>'
+              + '<td class="text-end d-none d-sm-table-cell text-muted">' + (lm  ? fmtMoney(lm)  : '—') + '</td>'
               + '<td class="text-end">' + _budgetAssignedCell(c.id, c.budgeted || 0, sp) + '</td>'
               + '<td class="text-end text-muted">' + (sp ? fmtMoney(sp) : '—') + '</td>'
-              + '<td class="text-end budget-avail-cell ' + (a < 0 ? 'text-danger' : 'text-muted') + '">' + fmtMoney(a) + '</td></tr>';
+              + '<td class="text-end budget-avail-cell ' + (a < 0 ? 'text-danger' : 'text-muted') + '">' + fmtMoney(a) + '</td>'
+              + '<td class="d-none d-md-table-cell">' + _spendBar(sp, c.budgeted || 0) + '</td></tr>';
           }).join('')
         + '</tbody></table></div>';
       const pct = Math.round(100 * grp.spent / grp.budgeted);
@@ -1174,19 +1174,70 @@
       const data = await fetch('/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
       if (!data) return;
       const avail = item.budgeted - item.spent;
-      summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0" style="font-size:.78rem">'
-        + '<thead><tr><th>Category</th><th class="text-end">Assigned</th><th class="text-end">Spent</th><th class="text-end">Available</th></tr></thead>'
+      summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0 gutter-budget-table" style="font-size:.78rem">'
+        + '<thead><tr>'
+        + '<th>Category</th>'
+        + '<th class="text-end d-none d-sm-table-cell" style="font-weight:500">Avg/mo</th>'
+        + '<th class="text-end d-none d-sm-table-cell" style="font-weight:500">Last Mo</th>'
+        + '<th class="text-end">Assigned</th>'
+        + '<th class="text-end">Spent</th>'
+        + '<th class="text-end">Available</th>'
+        + '<th class="d-none d-md-table-cell" style="min-width:80px">Progress</th>'
+        + '</tr></thead>'
         + '<tbody><tr>'
-        + '<td><span style="width:7px;height:7px;border-radius:2px;background:' + item.color
-        + ';display:inline-block;margin-right:5px;vertical-align:middle"></span>' + escHtml(item.name) + '</td>'
+        + '<td>' + escHtml(item.name) + '</td>'
+        + '<td class="text-end d-none d-sm-table-cell text-muted">' + (item.avg    ? fmtMoney(item.avg)      : '—') + '</td>'
+        + '<td class="text-end d-none d-sm-table-cell text-muted">' + (item.lastMonth ? fmtMoney(item.lastMonth) : '—') + '</td>'
         + '<td class="text-end">' + _budgetAssignedCell(item.id, item.budgeted, item.spent) + '</td>'
         + '<td class="text-end">' + fmtMoney(item.spent) + '</td>'
         + '<td class="text-end budget-avail-cell ' + (avail < 0 ? 'text-danger' : '') + '">' + fmtMoney(avail) + '</td>'
+        + '<td class="d-none d-md-table-cell">' + _spendBar(item.spent, item.budgeted) + '</td>'
         + '</tr></tbody></table></div>';
       const pct = Math.round(100 * item.spent / item.budgeted);
       document.getElementById('gutter-summary').textContent =
         item.name + ' · ' + fmtMoney(item.spent) + ' / ' + fmtMoney(item.budgeted) + ' (' + pct + '%) · ' + data.transactions.length + ' txns';
       _renderBudgetGutterTxns(data, () => loadBudgetGutter(mode, idx), summaryHtml);
+    }
+  }
+
+  // Generic sortable-table wiring. opts: { pinned, defaultCol, defaultAsc, onSort }
+  function _makeSortable(container, tableClass, opts) {
+    const table = container.querySelector('.' + tableClass);
+    if (!table) return;
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+    let col = null, asc = true;
+
+    function applySort() {
+      const fixed = opts.pinned ? [...tbody.querySelectorAll('tr.table-active')] : [];
+      const rows  = [...tbody.querySelectorAll(opts.pinned ? 'tr:not(.table-active)' : 'tr')];
+      rows.sort((a, b) => {
+        const av = a.dataset[col] ?? '', bv = b.dataset[col] ?? '';
+        const an = parseFloat(av), bn = parseFloat(bv);
+        const cmp = (!isNaN(an) && !isNaN(bn)) ? an - bn : av.localeCompare(bv);
+        return asc ? cmp : -cmp;
+      });
+      tbody.innerHTML = '';
+      fixed.forEach(r => tbody.appendChild(r));
+      rows.forEach(r => tbody.appendChild(r));
+      if (opts.onSort) opts.onSort(container);
+    }
+
+    table.querySelectorAll('th.gutter-sort-hdr[data-col]').forEach(th => {
+      th.addEventListener('click', () => {
+        asc = (col === th.dataset.col) ? !asc : true;
+        col = th.dataset.col;
+        table.querySelectorAll('th.gutter-sort-hdr').forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+        th.classList.add(asc ? 'sort-asc' : 'sort-desc');
+        applySort();
+      });
+    });
+
+    if (opts.defaultCol) {
+      col = opts.defaultCol; asc = opts.defaultAsc !== false;
+      const dth = table.querySelector(`th[data-col="${col}"]`);
+      if (dth) { table.querySelectorAll('th.gutter-sort-hdr').forEach(h => h.classList.remove('sort-asc','sort-desc')); dth.classList.add(asc ? 'sort-asc' : 'sort-desc'); }
+      applySort();
     }
   }
 
@@ -1196,13 +1247,22 @@
       gutterEl.innerHTML = (summaryHtml || '') + '<p class="text-muted small mb-0 mt-1">No transactions this month.</p>';
     } else {
       const txnTable = '<div class="small fw-semibold text-muted mb-1 mt-1">Transactions</div>'
-        + '<table class="table table-sm align-middle mb-0" style="font-size:.77rem">'
-        + '<thead class="sticky-top bg-white"><tr><th>Date</th><th>Category</th><th>Payee</th><th>Memo</th><th>Who</th><th class="text-end">Amount</th><th></th></tr></thead>'
+        + '<table class="table table-sm align-middle mb-0 gutter-txn-table" style="font-size:.77rem">'
+        + '<thead class="sticky-top bg-white"><tr>'
+        + '<th class="d-none d-lg-table-cell gutter-sort-hdr" data-col="date">Date</th>'
+        + '<th class="d-none d-lg-table-cell gutter-sort-hdr" data-col="cat">Category</th>'
+        + '<th class="gutter-sort-hdr" data-col="payee">Payee</th>'
+        + '<th class="d-none d-lg-table-cell">Memo</th>'
+        + '<th class="d-none d-lg-table-cell">Who</th>'
+        + '<th class="text-end gutter-sort-hdr" data-col="amount">Amount</th><th></th>'
+        + '</tr></thead>'
         + '<tbody>' + _gutterRows(data.transactions, data.categories) + '</tbody></table>';
       gutterEl.innerHTML = (summaryHtml || '') + txnTable;
       _attachEditHandlers(gutterEl, onSaved);
     }
     _attachBudgetEditHandlers(gutterEl);
+    _makeSortable(gutterEl, 'gutter-budget-table', { pinned: true, defaultCol: 'spent', defaultAsc: false, onSort: c => _attachBudgetEditHandlers(c) });
+    _makeSortable(gutterEl, 'gutter-txn-table', {});
   }
 
   function _attachBudgetEditHandlers(container) {
@@ -1264,6 +1324,7 @@
         });
         _refreshBudgetChart(budgetGroupChart, _budgetGroups, _selBudgetGroupIdx);
         _refreshBudgetChart(budgetCatChart,   _budgetItems,  _selBudgetCatIdx);
+        _renderBudgetOverspendAlert();
       });
       el.addEventListener('keydown', e => {
         if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
@@ -1358,7 +1419,7 @@
     const mobile = window.innerWidth < 768;
     [budgetGroupChart, budgetCatChart].forEach(ch => {
       ch.options.layout.padding = mobile ? 8 : 30;
-      ch.options.plugins.tooltip.enabled = true;
+      ch.options.plugins.tooltip.enabled = !mobile;
       ch.update('none');
     });
   }
@@ -1421,6 +1482,198 @@
     return fetch(`/api/dashboard-chart-data?${params}`).then(r => r.json()).catch(() => null);
   }
 
+  // ---- Monthly overview bar chart ----
+  function _renderMonthOverview(income, rangeLabel) {
+    const el = document.getElementById('month-overview-bars');
+    if (!el) return;
+    if (rangeLabel) {
+      const rl = document.getElementById('month-overview-range');
+      if (rl) rl.textContent = rangeLabel;
+    }
+
+    // Group color map — same PALETTE order as donut charts
+    const groupColors = {};
+    (currentCatData.groups || []).forEach((g, i) => {
+      groupColors[g.name] = PALETTE[i % PALETTE.length];
+    });
+
+    // Projected income segments (Libby + Andy), filtered by activeOwner when a person is selected
+    const projSegs = Object.entries(_projectedByUser)
+      .filter(([id, v]) => v > 0 && (activeOwner === 'all' || activeOwner === id))
+      .map(([id, v]) => ({ name: USERS_HOME[id] || `User ${id}`, value: v, color: _incomeColors[id] || '#2da44e' }))
+      .sort((a, b) => b.value - a.value);
+    const totalProjected = projSegs.reduce((s, g) => s + g.value, 0) || _PROJECTED_INCOME;
+
+    // Actual income segments (real transactions, split by person)
+    const actualSegs = Object.entries(_actualIncomeByUser)
+      .filter(([id, v]) => v > 0)
+      .map(([id, v]) => ({ name: USERS_HOME[id] || `User ${id}`, value: v, color: _incomeColors[id] || '#2da44e' }))
+      .sort((a, b) => b.value - a.value);
+    const totalActual = actualSegs.reduce((s, g) => s + g.value, 0);
+
+    // Spending by group (filtered by date range + who)
+    const spendSegs = currentGroupData.labels
+      .map((name, i) => ({ name, value: currentGroupData.values[i], color: groupColors[name] || '#c9cbcf' }))
+      .filter(s => s.value > 0)
+      .sort((a, b) => b.value - a.value);
+    const totalSpent = spendSegs.reduce((s, g) => s + g.value, 0);
+
+    // Budget by group (always current month)
+    const budgetSegs = _budgetGroups
+      .filter(g => g.budgeted > 0)
+      .map(g => ({ name: g.name, value: g.budgeted, color: groupColors[g.name] || g.color }))
+      .sort((a, b) => b.value - a.value);
+    const totalBudgeted = budgetSegs.reduce((s, g) => s + g.value, 0);
+
+    const maxVal = Math.max(totalProjected, totalSpent, totalBudgeted, 1);
+
+    function stackedBar(segs, total, rowName, opts) {
+      const clickable = rowName === 'budgeted' || rowName === 'spent';
+      const dashed    = opts && opts.dashed;
+      const trackStyle = dashed
+        ? 'background:#f0f1f3;height:18px;overflow:hidden;display:flex;position:relative;border:1.5px dashed #adb5bd;border-radius:4px;box-sizing:border-box'
+        : 'background:#f0f1f3;height:18px;overflow:hidden;display:flex;position:relative;border-radius:4px';
+      const track = `<div class="flex-grow-1" style="${trackStyle}">`;
+      if (!segs.length) return track + '</div>';
+      const barW = (total / maxVal * 100).toFixed(1);
+      let inner = `<div style="width:${barW}%;height:100%;display:flex;overflow:hidden;border-radius:inherit">`;
+      segs.forEach(s => {
+        const segW = total > 0 ? (s.value / total * 100).toFixed(2) : 0;
+        const attrs = clickable ? `data-group="${escHtml(s.name)}" data-row="${rowName}"` : `data-group="${escHtml(s.name)}" data-row="${rowName}"`;
+        const cur   = clickable ? 'cursor:pointer;' : '';
+        inner += `<div ${attrs} style="${cur}width:${segW}%;background:${s.color};height:100%;flex-shrink:0;transition:opacity .12s"></div>`;
+      });
+      inner += '</div>';
+      return track + inner + '</div>';
+    }
+
+    const incomeOver = totalSpent     > totalProjected && totalProjected > 0;
+    const budgetOver = totalBudgeted  > totalProjected && totalProjected > 0;
+
+    const rows = [
+      { label: 'Projected', segs: projSegs,   total: totalProjected, amount: totalProjected, rowName: 'projected', amtColor: '#2da44e', dashed: true  },
+      { label: 'Actual',    segs: actualSegs, total: totalActual,    amount: totalActual,    rowName: 'actual',    amtColor: '#198754', dashed: false },
+      { label: 'Budgeted',  segs: budgetSegs, total: totalBudgeted,  amount: totalBudgeted,  rowName: 'budgeted',  amtColor: '#0d6efd', dashed: false },
+      { label: 'Spent',     segs: spendSegs,  total: totalSpent,     amount: totalSpent,     rowName: 'spent',     amtColor: incomeOver ? '#dc3545' : '#fd9843', dashed: false },
+    ];
+
+    let html = '<div class="d-flex flex-column gap-2">';
+    rows.forEach(row => {
+      html += `<div class="d-flex align-items-center gap-2">
+        <span style="width:5.5rem;flex-shrink:0;color:#6c757d;font-size:.82rem">${row.label}</span>
+        ${stackedBar(row.segs, row.total, row.rowName, { dashed: row.dashed })}
+        <span class="text-end" style="width:5.5rem;flex-shrink:0;font-variant-numeric:tabular-nums;color:${row.amtColor};font-weight:600">${fmtMoney(row.amount)}</span>
+      </div>`;
+    });
+    html += '</div>';
+
+    if (incomeOver) {
+      html += '<p class="mb-0 mt-2 small text-danger" style="font-size:.76rem">⚠ Spending exceeds projected income for this period</p>';
+    } else if (budgetOver) {
+      html += '<p class="mb-0 mt-2 small text-warning-emphasis" style="font-size:.76rem">⚠ Budget exceeds projected income this month</p>';
+    }
+
+    el.innerHTML = html;
+  }
+
+  // ---- Overview bar interactivity (delegated — survives re-renders) ----
+  (function() {
+    const overviewEl = document.getElementById('month-overview-bars');
+
+    // Floating tooltip
+    const tip = document.createElement('div');
+    tip.style.cssText = 'position:fixed;background:#212529;color:#fff;padding:4px 10px;border-radius:5px;font-size:.75rem;pointer-events:none;z-index:9999;display:none;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,.25)';
+    document.body.appendChild(tip);
+
+    function _segInfo(group, row) {
+      if (row === 'projected') {
+        const uid = Object.keys(USERS_HOME).find(id => USERS_HOME[id] === group);
+        const val = uid ? (_projectedByUser[uid] || 0) : 0;
+        return { val, pct: _PROJECTED_INCOME > 0 ? Math.round(val / _PROJECTED_INCOME * 100) : 0 };
+      }
+      if (row === 'actual') {
+        const uid = Object.keys(USERS_HOME).find(id => USERS_HOME[id] === group);
+        const val = uid ? (_actualIncomeByUser[uid] || 0) : 0;
+        const tot = Object.values(_actualIncomeByUser).reduce((s, v) => s + v, 0);
+        return { val, pct: tot > 0 ? Math.round(val / tot * 100) : 0 };
+      }
+      if (row === 'spent') {
+        const gi = currentGroupData.labels.indexOf(group);
+        const val  = gi >= 0 ? currentGroupData.values[gi] : 0;
+        const tot  = currentGroupData.values.reduce((s,v) => s+v, 0);
+        return { val, pct: tot > 0 ? Math.round(val/tot*100) : 0 };
+      }
+      if (row === 'budgeted') {
+        const g = _budgetGroups.find(g => g.name === group);
+        const val  = g ? g.budgeted : 0;
+        const tot  = _budgetGroups.reduce((s,g) => s+g.budgeted, 0);
+        return { val, pct: tot > 0 ? Math.round(val/tot*100) : 0 };
+      }
+      return { val: 0, pct: 0 };
+    }
+
+    const _hasHover = window.matchMedia('(hover: hover) and (pointer: fine)');
+
+    let _lastSeg = null;
+    overviewEl.addEventListener('mousemove', e => {
+      if (!_hasHover.matches) return;
+      const seg = e.target.closest('[data-group]');
+      if (!seg) {
+        tip.style.display = 'none';
+        if (_lastSeg) { overviewEl.querySelectorAll('[data-group]').forEach(el => { el.style.opacity = '1'; }); _lastSeg = null; }
+        return;
+      }
+      if (seg !== _lastSeg) {
+        _lastSeg = seg;
+        const { val, pct } = _segInfo(seg.dataset.group, seg.dataset.row);
+        tip.textContent = `${seg.dataset.group}: ${fmtMoney(val)} (${pct}%)`;
+        overviewEl.querySelectorAll('[data-group]').forEach(el => {
+          el.style.opacity = el.dataset.group === seg.dataset.group && el.dataset.row === seg.dataset.row ? '1' : '0.45';
+        });
+      }
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top  = (e.clientY - 34) + 'px';
+    });
+
+    overviewEl.addEventListener('mouseleave', () => {
+      tip.style.display = 'none';
+      overviewEl.querySelectorAll('[data-group]').forEach(el => { el.style.opacity = '1'; });
+      _lastSeg = null;
+    });
+
+    overviewEl.addEventListener('click', e => {
+      const seg = e.target.closest('[data-group]');
+      if (!seg) return;
+      const { row } = seg.dataset;
+      if (row === 'income' || row === 'projected' || row === 'actual') return;
+      const group = seg.dataset.group;
+
+      // Both 'spent' and 'budgeted' rows behave exactly like clicking the budget group donut:
+      // switch to Budget tab, select that group, load its gutter.
+      const tabBtn = document.querySelector('[data-bs-target="#tab-budget"]');
+      if (tabBtn) bootstrap.Tab.getOrCreateInstance(tabBtn).show();
+
+      _activeBudgetTab = 'group';
+      document.querySelectorAll('#budget-sub-tabs button').forEach(b => {
+        b.className = b.dataset.btab === 'group'
+          ? 'btn btn-sm btn-secondary active'
+          : 'btn btn-sm btn-outline-secondary';
+      });
+      document.getElementById('budget-group-pane').style.display = '';
+      document.getElementById('budget-cat-pane').style.display   = 'none';
+
+      const gi     = _budgetGroups.findIndex(g => g.name === group);
+      const newSel = (gi >= 0 && gi !== _selBudgetGroupIdx) ? gi : -1;
+      _selBudgetGroupIdx = newSel;
+      _selBudgetCatIdx   = -1;
+
+      _refreshBudgetChart(budgetGroupChart, _budgetGroups, newSel);
+      if (newSel >= 0) loadBudgetGutter('group', newSel);
+      else loadGutterTransactions();
+    });
+  })();
+
   async function refreshAll() {
     const data = await _apiFetchChartData();
     if (!data) return;
@@ -1472,6 +1725,9 @@
 
     _renderGroupTags();
     _renderGroupChartTags();
+
+    _actualIncomeByUser = data.income_by_user || {};
+    _renderMonthOverview(data.income || 0, null);
 
     loadGutterTransactions();
 
@@ -1609,15 +1865,20 @@
 
   function _gutterRows(txns, categories) {
     return txns.map(t => {
-      const color   = _catColorCache[t.category_id] || '#dee2e6';
-      const bgColor = _catBgCache[t.category_id]   || 'transparent';
-      const amtCls  = t.amount < 0 ? 'text-danger' : 'text-success';
-      return `<tr data-tid="${t.id}" style="border-left:3px solid ${color};--bs-table-bg:${bgColor}">
-        <td class="text-nowrap" style="padding-left:5px;white-space:nowrap">${t.date}</td>
-        <td><select class="form-select form-select-sm txn-edit-input" data-field="category_id" style="min-width:120px">${buildCatOptions(categories,t.category_id)}</select></td>
-        <td><input class="form-control form-control-sm txn-edit-input" data-field="payee" value="${escHtml(t.payee)}" style="min-width:110px"></td>
-        <td><input class="form-control form-control-sm txn-edit-input" data-field="memo" value="${escHtml(t.memo)}" style="min-width:90px"></td>
-        <td>${_whoSelect(t)}</td>
+      const color    = _catColorCache[t.category_id] || '#dee2e6';
+      const bgColor  = _catBgCache[t.category_id]   || 'transparent';
+      const amtCls   = t.amount < 0 ? 'text-danger' : 'text-success';
+      const catName  = _catLabelCache.get(t.category_id) || '';
+      const subline  = [t.date, catName].filter(Boolean).join(' · ');
+      return `<tr data-tid="${t.id}" data-date="${t.date}" data-payee="${escHtml(t.payee)}" data-cat="${escHtml(catName)}" data-amount="${t.amount}" style="border-left:3px solid ${color};--bs-table-bg:${bgColor}">
+        <td class="d-none d-lg-table-cell text-nowrap" style="padding-left:5px">${t.date}</td>
+        <td class="d-none d-lg-table-cell"><select class="form-select form-select-sm txn-edit-input" data-field="category_id" style="min-width:120px">${buildCatOptions(categories,t.category_id)}</select></td>
+        <td style="padding-left:5px">
+          <input class="form-control form-control-sm txn-edit-input" data-field="payee" value="${escHtml(t.payee)}" style="min-width:110px">
+          <div class="d-lg-none text-muted" style="font-size:.68rem;margin-top:2px;pointer-events:none;padding-left:2px">${escHtml(subline)}</div>
+        </td>
+        <td class="d-none d-lg-table-cell"><input class="form-control form-control-sm txn-edit-input" data-field="memo" value="${escHtml(t.memo)}" style="min-width:90px"></td>
+        <td class="d-none d-lg-table-cell">${_whoSelect(t)}</td>
         <td class="text-end ${amtCls}">
           <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount" value="${(t.amount/100).toFixed(2)}" style="width:80px">
         </td>
@@ -1639,15 +1900,19 @@
       return;
     }
     gutterEl.innerHTML =
-      `<table class="table table-sm align-middle mb-0" style="font-size:.77rem">
+      `<table class="table table-sm align-middle mb-0 gutter-txn-table" style="font-size:.77rem">
         <thead class="sticky-top bg-white"><tr>
-          <th>Date</th><th>Category</th><th>Payee</th>
-          <th>Memo</th><th>Who</th>
-          <th class="text-end">Amount</th><th></th>
+          <th class="d-none d-lg-table-cell gutter-sort-hdr" data-col="date">Date</th>
+          <th class="d-none d-lg-table-cell gutter-sort-hdr" data-col="cat">Category</th>
+          <th class="gutter-sort-hdr" data-col="payee">Payee</th>
+          <th class="d-none d-lg-table-cell">Memo</th>
+          <th class="d-none d-lg-table-cell">Who</th>
+          <th class="text-end gutter-sort-hdr" data-col="amount">Amount</th><th></th>
         </tr></thead>
         <tbody>${_gutterRows(data.transactions, data.categories)}</tbody>
        </table>`;
     _attachEditHandlers(gutterEl, () => refreshAll());
+    _makeSortable(gutterEl, 'gutter-txn-table', {});
   }
 
   async function loadFilteredTransactions() {
@@ -1726,58 +1991,6 @@
   })();
 
   // ---- Inline budget editing ----
-  const _now = new Date();
-  const _budgetYear  = _now.getFullYear();
-  const _budgetMonth = _now.getMonth() + 1;
 
-  document.querySelectorAll('.budget-editable').forEach(el => {
-    let original;
-
-    el.addEventListener('focus', () => { original = el.textContent.trim(); });
-
-    el.addEventListener('blur', async () => {
-      const raw = el.textContent.trim();
-      if (raw === original) return;
-
-      // Parse dollar amount (strip $ , —)
-      const num = parseFloat(raw.replace(/[$,—]/g, ''));
-      if (isNaN(num) || num < 0) { el.textContent = original; return; }
-
-      const row    = el.closest('tr');
-      const catId  = row.dataset.catId;
-      const spent  = parseInt(row.dataset.spent) || 0;  // in cents
-      const newCents = Math.round(num * 100);
-
-      const fd = new FormData();
-      fd.append('year',        _budgetYear);
-      fd.append('month',       _budgetMonth);
-      fd.append('category_id', catId);
-      fd.append('amount',      num.toFixed(2));
-
-      const r = await fetch('/budget/assign', { method: 'POST', body: fd });
-      if (!r.ok) { el.textContent = original; return; }
-
-      // Format and redisplay
-      el.textContent = num === 0 ? '—' : '$' + num.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
-
-      // Update progress bar
-      const bar   = row.querySelector('.spend-fill');
-      const label = row.querySelector('.spend-label');
-      if (!bar) return;
-
-      const pct   = newCents > 0 ? Math.round(100 * Math.abs(spent) / newCents) : 0;
-      const clamp = Math.min(pct, 100);
-      const color = pct > 100 ? 'over' : pct > 75 ? 'warn' : 'ok';
-
-      bar.className = `spend-fill spend-fill--${color}`;
-      bar.style.setProperty('--w', clamp);
-      label.textContent = pct > 100 ? 'Overspent' : pct > 0 ? pct + '%' : '';
-    });
-
-    el.addEventListener('keydown', e => {
-      if (e.key === 'Enter')  { e.preventDefault(); el.blur(); }
-      if (e.key === 'Escape') { el.textContent = original; el.blur(); }
-    });
-  });
 </script>
 {% endblock %}

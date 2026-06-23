@@ -10,6 +10,7 @@ When deployed:
   - ProxyFix tells Flask the real scheme/host so url_for builds https URLs
   - Sessions are Secure + HttpOnly + SameSite=Lax cookies
 """
+import hashlib
 import os
 import secrets
 import sys
@@ -39,6 +40,27 @@ from recurring import post_due_recurring
 
 csrf = CSRFProtect()
 limiter = Limiter(get_remote_address, default_limits=[])
+
+# ---------- deterministic group colours ----------
+# Perceptually distinct palette (Tableau-10). Hash the group name so every
+# group always gets the same colour regardless of query order or page.
+_GROUP_PALETTE = [
+    "#4e79a7",  # blue
+    "#f28e2b",  # orange
+    "#e15759",  # red
+    "#76b7b2",  # teal
+    "#59a14f",  # green
+    "#edc948",  # yellow-gold
+    "#b07aa1",  # purple
+    "#ff9da7",  # pink
+    "#9c755f",  # brown
+    "#bab0ac",  # grey
+]
+
+def _group_color(group_name: str) -> str:
+    """Return a stable hex colour for a group name."""
+    idx = int(hashlib.md5(group_name.encode()).hexdigest(), 16) % len(_GROUP_PALETTE)
+    return _GROUP_PALETTE[idx]
 
 
 # ---------- factory ----------
@@ -447,21 +469,8 @@ def register_routes(app: Flask):
         else:
             avg_map = lm_map = budget_map = cm_map = {}
 
-        _PALETTE = [
-            "#ff6384", "#ff9f40", "#ffcd56", "#4bc0c0",
-            "#36a2eb", "#9966ff", "#c9cbcf",
-        ]
-
         def _pct(spent, budgeted):
             return round(100 * spent / budgeted) if budgeted else None
-
-        # Build group order once so color index matches the JS PALETTE logic
-        _group_order: list[str] = []
-        for c in categories:
-            g = c.group_name or "General"
-            if g not in _group_order:
-                _group_order.append(g)
-        _group_color = {gn: _PALETTE[i % len(_PALETTE)] for i, gn in enumerate(_group_order)}
 
         groups: dict[str, list] = {}
         for c in categories:
@@ -471,7 +480,7 @@ def register_routes(app: Flask):
             budgeted  = budget_map.get(c.id, 0)
             spent_mo  = cm_map.get(c.id, 0)
             groups[g].append({"id": c.id, "name": c.name,
-                               "color": _group_color[g],
+                               "color": _group_color(g),
                                "avg_per_month": avg_map.get(c.id, 0),
                                "last_month": lm_map.get(c.id, 0),
                                "budgeted": budgeted, "spent_month": spent_mo,
@@ -516,6 +525,20 @@ def register_routes(app: Flask):
 
         users = User.query.order_by(User.id).all()
         users_json = {str(u.id): u.display_name for u in users}
+        month_income   = abs(int(_income_total(today.year, today.month)))
+        month_spending = sum(cm_map.values())
+        month_budgeted = sum(budget_map.values())
+
+        _ibu_rows = (db.session.query(
+                Transaction.owner_user_id,
+                func.coalesce(func.sum(Transaction.amount), 0))
+            .join(Category, Category.id == Transaction.category_id)
+            .filter(extract("year", Transaction.date) == today.year,
+                    extract("month", Transaction.date) == today.month,
+                    Category.is_income.is_(True))
+            .group_by(Transaction.owner_user_id).all())
+        income_by_user = {str(r[0]): abs(int(r[1] or 0)) for r in _ibu_rows if r[0] is not None}
+
         return render_template("home.html",
                                preset=preset,
                                start_date=start_date.isoformat(),
@@ -532,7 +555,11 @@ def register_routes(app: Flask):
                                legend_groups=legend_groups,
                                payee_rows=payee_rows,
                                users=users,
-                               users_json=users_json)
+                               users_json=users_json,
+                               month_income=month_income,
+                               month_spending=month_spending,
+                               month_budgeted=month_budgeted,
+                               income_by_user=income_by_user)
 
     # ---- accounts ----
     @app.route("/accounts")
@@ -585,7 +612,6 @@ def register_routes(app: Flask):
     @app.route("/transactions")
     @login_required
     def transactions_list():
-        _palette = ["#ff6384","#ff9f40","#ffcd56","#4bc0c0","#36a2eb","#9966ff","#c9cbcf"]
         account_id  = request.args.get("account_id", type=int)
         initial_cat_id = request.args.get("category_id", type=int)
         initial_payee  = request.args.get("payee", "").strip()
@@ -599,24 +625,17 @@ def register_routes(app: Flask):
         cat_by_id  = {c.id: c.name for c in categories}
         users_json = {str(u.id): u.display_name for u in users}
 
-        # Group-index-based colors (consistent with home page charts)
-        _group_order: list = []
-        for c in categories:
-            g = c.group_name or "General"
-            if g not in _group_order:
-                _group_order.append(g)
-        _group_color = {gn: _palette[i % len(_palette)] for i, gn in enumerate(_group_order)}
-
         def _hex_rgba(hex_color, alpha):
             h = hex_color.lstrip('#')
             r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
             return f"rgba({r},{g},{b},{alpha:.2f})"
 
-        cat_colors, cat_bg_colors, _gc = {}, {}, {}
+        cat_colors, cat_bg_colors, cat_groups_by_id, _gc = {}, {}, {}, {}
         for c in categories:
             g = c.group_name or "General"
-            color = _group_color[g]
+            color = _group_color(g)
             cat_colors[c.id] = color
+            cat_groups_by_id[c.id] = g
             idx = _gc.get(g, 0)
             cat_bg_colors[c.id] = _hex_rgba(color, min(0.18 + idx * 0.10, 0.45))
             _gc[g] = idx + 1
@@ -630,6 +649,7 @@ def register_routes(app: Flask):
                                cat_by_id=cat_by_id,
                                cat_colors=cat_colors,
                                cat_bg_colors=cat_bg_colors,
+                               cat_groups=cat_groups_by_id,
                                filter_account=account_id,
                                initial_cat_id=initial_cat_id,
                                initial_payee=initial_payee)
@@ -802,6 +822,34 @@ def register_routes(app: Flask):
         cats = Category.query.filter_by(is_income=False, hidden=False).order_by(
             Category.group_name, Category.name).all()
 
+        cat_ids_all = [c.id for c in cats]
+        prev_y, prev_m = _prev_month(y, m)
+        lm_start = date(prev_y, prev_m, 1)
+        lm_end   = date(y, m, 1) - timedelta(days=1)
+
+        if cat_ids_all:
+            _alltime = (db.session.query(
+                    Transaction.category_id,
+                    func.sum(Transaction.amount),
+                    func.min(Transaction.date))
+                .filter(Transaction.category_id.in_(cat_ids_all),
+                        Transaction.amount < 0)
+                .group_by(Transaction.category_id).all())
+            avg_map = {}
+            for cid, total, first_d in _alltime:
+                if first_d:
+                    mo = max(1, (y - first_d.year) * 12 + (m - first_d.month) + 1)
+                    avg_map[cid] = int(abs(total or 0) / mo)
+            lm_map = {cid: int(abs(t or 0)) for cid, t in
+                      db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+                      .filter(Transaction.category_id.in_(cat_ids_all),
+                              Transaction.amount < 0,
+                              Transaction.date >= lm_start,
+                              Transaction.date <= lm_end)
+                      .group_by(Transaction.category_id).all()}
+        else:
+            avg_map = lm_map = {}
+
         rows_by_group = defaultdict(list)
         total_assigned = 0
         total_spent = 0
@@ -820,6 +868,8 @@ def register_routes(app: Flask):
                 "spent": spent,
                 "available": available,
                 "carryover": carryover,
+                "avg": avg_map.get(c.id, 0),
+                "last_month": lm_map.get(c.id, 0),
             })
 
         income_this_month = _income_total(y, m)
@@ -1247,7 +1297,7 @@ def register_routes(app: Flask):
                 if t.category and t.category.is_income:
                     color = "#198754"
                 elif t.category:
-                    color = _CHART_PALETTE[t.category_id % len(_CHART_PALETTE)]
+                    color = _group_color(t.category.group_name or "General")
                 else:
                     color = "#6c757d"
             else:
@@ -1356,7 +1406,7 @@ def register_routes(app: Flask):
             groups[g].append({
                 "id": c.id,
                 "name": c.name,
-                "color": _CHART_PALETTE[c.id % len(_CHART_PALETTE)],
+                "color": _group_color(g),
                 "avg_per_month": avg_map.get(c.id, 0),
                 "last_month": lm_map.get(c.id, 0),
                 "budgeted": budgeted,
@@ -1478,6 +1528,22 @@ def register_routes(app: Flask):
         payee_totals = (payee_q.group_by(Transaction.payee)
                         .order_by(func.sum(Transaction.amount)).limit(20).all())
 
+        income_total = abs(int(db.session.query(
+                func.coalesce(func.sum(Transaction.amount), 0))
+            .join(Category, Category.id == Transaction.category_id)
+            .filter(Transaction.date >= sd, Transaction.date <= ed,
+                    Category.is_income.is_(True), *owner_clauses)
+            .scalar() or 0))
+
+        _ibu = (db.session.query(
+                Transaction.owner_user_id,
+                func.coalesce(func.sum(Transaction.amount), 0))
+            .join(Category, Category.id == Transaction.category_id)
+            .filter(Transaction.date >= sd, Transaction.date <= ed,
+                    Category.is_income.is_(True), *owner_clauses)
+            .group_by(Transaction.owner_user_id).all())
+        income_by_user_api = {str(r[0]): abs(int(r[1] or 0)) for r in _ibu if r[0] is not None}
+
         return jsonify({
             "cat": {
                 "ids":         [r[0] for r in _sorted],
@@ -1490,6 +1556,8 @@ def register_routes(app: Flask):
                 "labels": [r[0] for r in payee_totals],
                 "values": [abs(int(r[1] or 0)) for r in payee_totals],
             },
+            "income": income_total,
+            "income_by_user": income_by_user_api,
         })
 
     @app.route("/api/category/recent-transactions")

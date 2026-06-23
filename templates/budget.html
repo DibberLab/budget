@@ -35,23 +35,27 @@
     <thead>
       <tr>
         <th>Category</th>
-        <th class="text-end">Carryover</th>
+        <th class="text-end text-muted d-none d-md-table-cell" style="font-weight:500">Avg/mo</th>
+        <th class="text-end text-muted d-none d-md-table-cell" style="font-weight:500">Last Mo</th>
+        <th class="text-end d-none d-sm-table-cell">Carryover</th>
         <th class="text-end">Assigned</th>
         <th class="text-end">Spent</th>
         <th class="text-end">Available</th>
-        <th style="min-width:180px;">Progress</th>
+        <th class="d-none d-lg-table-cell" style="min-width:180px;">Progress</th>
       </tr>
     </thead>
     <tbody>
     {% for group, rows in rows_by_group.items() %}
 
       {# Compute group-level totals #}
-      {% set g = namespace(assigned=0, spent=0, available=0, carryover=0) %}
+      {% set g = namespace(assigned=0, spent=0, available=0, carryover=0, avg=0, last_month=0) %}
       {% for r in rows %}
         {% set g.assigned   = g.assigned   + r.assigned %}
         {% set g.spent      = g.spent      + r.spent %}
         {% set g.available  = g.available  + r.available %}
         {% set g.carryover  = g.carryover  + r.carryover %}
+        {% set g.avg        = g.avg        + r.avg %}
+        {% set g.last_month = g.last_month + r.last_month %}
       {% endfor %}
 
       {% set g_pct = ((g.spent | abs) / g.assigned * 100) if g.assigned > 0 else 0 %}
@@ -59,13 +63,15 @@
       {% set g_color = 'over' if g_pct > 100 else ('warn' if g_pct > 75 else 'ok') %}
       <tr class="group-row">
         <td>{{ group }}</td>
-        <td class="text-end money-zero">{{ g.carryover | money }}</td>
+        <td class="text-end money-zero d-none d-md-table-cell">{{ g.avg | money if g.avg else '—' }}</td>
+        <td class="text-end money-zero d-none d-md-table-cell">{{ g.last_month | money if g.last_month else '—' }}</td>
+        <td class="text-end money-zero d-none d-sm-table-cell">{{ g.carryover | money }}</td>
         <td class="text-end">{{ g.assigned | money }}</td>
         <td class="text-end money-neg">{{ g.spent | money }}</td>
         <td class="text-end {% if g.available > 0 %}money-pos{% elif g.available < 0 %}money-neg{% else %}money-zero{% endif %}">
           {{ g.available | money }}
         </td>
-        <td>
+        <td class="d-none d-lg-table-cell">
           <div class="spend-bar">
             <div class="spend-fill spend-fill--{{ g_color }}" data-pct="{{ g_clamped | int }}"></div>
             <span class="spend-label">
@@ -84,7 +90,9 @@
         <tr data-tip-url="/api/category/recent-transactions?category_id={{ r.cat.id }}"
             data-tip-label="{{ r.cat.name }}">
           <td class="ps-3">{{ r.cat.name }}</td>
-          <td class="text-end money-zero">{{ r.carryover | money }}</td>
+          <td class="text-end text-muted d-none d-md-table-cell">{{ r.avg | money if r.avg else '—' }}</td>
+          <td class="text-end text-muted d-none d-md-table-cell">{{ r.last_month | money if r.last_month else '—' }}</td>
+          <td class="text-end money-zero d-none d-sm-table-cell">{{ r.carryover | money }}</td>
           <td class="text-end">
             <div class="d-flex align-items-center justify-content-end gap-1">
               <input class="form-control form-control-sm assign-input js-assign"
@@ -93,14 +101,14 @@
                      data-original="{{ '%.2f' % (r.assigned / 100.0) }}"
                      type="number" step="0.01"
                      value="{{ '%.2f' % (r.assigned / 100.0) }}">
-              <button class="btn btn-sm btn-success js-save" style="display:none;" title="Save">✓</button>
+              <button class="btn btn-sm btn-success js-save" style="visibility:hidden;" title="Save">✓</button>
             </div>
           </td>
           <td class="text-end money-neg">{{ r.spent | money }}</td>
           <td class="text-end {% if r.available > 0 %}money-pos{% elif r.available < 0 %}money-neg{% else %}money-zero{% endif %}">
             {{ r.available | money }}
           </td>
-          <td>
+          <td class="d-none d-lg-table-cell">
             <div class="spend-bar">
               <div class="spend-fill spend-fill--{{ color }}" data-pct="{{ clamped | int }}"></div>
               <span class="spend-label">
@@ -130,32 +138,22 @@
     // Show save button when value changes
     inp.addEventListener('input', () => {
       const dirty = inp.value !== inp.dataset.original;
-      saveBtn.style.display = dirty ? '' : 'none';
+      saveBtn.style.visibility = dirty ? 'visible' : 'hidden';
     });
 
     // Save on button click
     saveBtn.addEventListener('click', async () => {
       saveBtn.disabled = true;
-      saveBtn.textContent = '…';
-
       const fd = new FormData();
       fd.append('year', inp.dataset.year);
       fd.append('month', inp.dataset.month);
       fd.append('category_id', inp.dataset.cat);
       fd.append('amount', inp.value || '0');
-
-      let ok = false;
       try {
         const r = await fetch('/budget/assign', { method: 'POST', body: fd });
-        ok = r.ok;
-      } catch (_) { ok = false; }
-
-      if (ok) {
-        saveBtn.textContent = '✓';
-        setTimeout(() => location.reload(), 600);
-      } else {
-        location.reload();
-      }
+        if (r.ok) setTimeout(() => location.reload(), 300);
+        else location.reload();
+      } catch (_) { location.reload(); }
     });
 
     // Also save on Enter key

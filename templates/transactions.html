@@ -5,10 +5,17 @@
 {% block head %}
 <style>
   /* ---- tag cloud ---- */
-  .tag-cloud { display:flex; flex-wrap:wrap; gap:6px; }
+  .tag-cloud {
+    display: flex; flex-wrap: wrap; gap: 5px;
+    max-height: 180px; overflow-y: auto; padding: 2px 1px;
+  }
+  .tag-cloud::-webkit-scrollbar { width: 4px; }
+  .tag-cloud::-webkit-scrollbar-track { background: transparent; }
+  .tag-cloud::-webkit-scrollbar-thumb { background: #ced4da; border-radius: 2px; }
+
   .tag-pill {
     display:inline-flex; align-items:center; gap:5px;
-    padding:3px 10px; border-radius:20px; font-size:.8rem;
+    padding:3px 10px; border-radius:20px; font-size:.78rem;
     cursor:pointer; user-select:none; border:2px solid transparent;
     background:#f0f0f0; color:#333; transition:all .15s;
   }
@@ -21,7 +28,7 @@
   }
   .tag-pill .tag-count {
     background:rgba(0,0,0,.12); border-radius:10px;
-    padding:0 5px; font-size:.72rem; line-height:1.6;
+    padding:0 5px; font-size:.7rem; line-height:1.6;
   }
   .tag-pill.active .tag-count {
     background: color-mix(in srgb, var(--tag-color, #0d6efd) 30%, white);
@@ -41,13 +48,41 @@
   .sum-net-pos  { color:#198754; }
   .sum-net-neg  { color:#dc3545; }
 
-  /* ---- filter section ---- */
-  .filter-section { background:#fff; border:1px solid #dee2e6; border-radius:8px; padding:12px 14px; margin-bottom:12px; }
-  .filter-section h6 { font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:#888; margin-bottom:8px; }
-  .filter-divider { border-top:1px solid #e9ecef; margin:10px 0; }
+  /* ---- filter panel ---- */
+  .filter-section { background:#fff; border:1px solid #dee2e6; border-radius:8px; padding:12px 14px; }
+  .filter-section h6 { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; color:#aaa; margin-bottom:6px; margin-top:4px; }
+  .filter-divider { border-top:1px solid #f0f0f0; margin:10px 0; }
 
-  /* ---- row highlight on filter match ---- */
-  tr.filter-match td { background: rgba(13,110,253,.04); }
+  /* Sticky sidebar on desktop */
+  @media (min-width: 992px) {
+    #filter-sidebar {
+      position: sticky;
+      top: 16px;
+      height: 95vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+  }
+
+  /* Flex-grow sections (Groups + Categories) */
+  .filter-section-grow {
+    display: flex;
+    flex-direction: column;
+    min-height: 80px;
+    overflow: hidden;
+  }
+  .filter-section-grow .tag-cloud {
+    flex: 1;
+    max-height: none;
+    overflow-y: auto;
+  }
+  .filter-section-shrink { flex-shrink: 0; }
+  /* Groups uses natural height — no cap */
+  #group-tags { max-height: none; }
+
+  /* ---- row highlight on filter match — use outline so category bg/border stay intact ---- */
+  tr.filter-match { outline: none; }
 
   /* ---- payee / category cell click-to-filter ---- */
   .js-tag-trigger {
@@ -55,43 +90,22 @@
     border-bottom:1px dashed #bbb;
   }
   .js-tag-trigger:hover { border-bottom-color:#0d6efd; color:#0d6efd; }
+
+  /* payee search input */
+  #payee-search { font-size:.8rem; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3 class="mb-0">Transactions</h3>
-  <div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import CSV</a>
-    <a class="btn btn-primary" href="{{ url_for('transaction_new') }}">+ New</a>
-  </div>
-</div>
-
-{# ---- Account (server-side) filter ---- #}
-<form class="d-flex gap-2 align-items-end flex-wrap mb-3" method="get">
-  <div>
-    <label class="form-label small mb-1">Account</label>
-    <select class="form-select form-select-sm" name="account_id">
-      <option value="">All accounts</option>
-      {% for a in accounts %}
-        <option value="{{ a.id }}" {% if filter_account == a.id %}selected{% endif %}>{{ a.name }}</option>
-      {% endfor %}
-    </select>
-  </div>
-  <button class="btn btn-sm btn-outline-primary">Apply</button>
-  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('transactions_list') }}">Clear</a>
-</form>
-
-{# ---- Combined filter panel ---- #}
-<div class="filter-section">
-  <div class="d-flex justify-content-between align-items-start mb-2">
-    <span class="fw-semibold" style="font-size:.875rem;">Filter</span>
-    <button class="btn btn-sm btn-link p-0 text-secondary" id="clear-all-tags">Clear all</button>
-  </div>
-
-  {# Date range #}
-  <h6>Date Range</h6>
-  <div class="d-flex gap-2 align-items-center flex-wrap mb-1">
+  <div class="d-flex gap-2 align-items-center flex-wrap">
+    {# Mobile filter toggle #}
+    <button class="btn btn-sm btn-outline-secondary d-lg-none" type="button"
+            data-bs-toggle="collapse" data-bs-target="#filter-panel-collapse">
+      Filter <span id="mobile-filter-badge" class="badge bg-primary ms-1 d-none">0</span>
+    </button>
+    {# Date range — lives here, next to Import CSV #}
     <select class="form-select form-select-sm" id="date-preset" style="width:auto;" onchange="onDatePreset(this.value)">
       <option value="all">All time</option>
       <option value="last_30d">Last 30 Days</option>
@@ -108,56 +122,84 @@
       <option value="last_year">Last Year</option>
       <option value="custom">Custom Range</option>
     </select>
-    <div id="custom-dates" class="d-none d-flex gap-2 align-items-center">
-      <input type="date" class="form-control form-control-sm" id="custom-start" style="width:150px;">
-      <span class="text-muted small">to</span>
-      <input type="date" class="form-control form-control-sm" id="custom-end" style="width:150px;">
+    <div id="custom-dates" class="d-none d-flex gap-1 align-items-center">
+      <input type="date" class="form-control form-control-sm" id="custom-start" style="width:130px;">
+      <span class="text-muted small">–</span>
+      <input type="date" class="form-control form-control-sm" id="custom-end" style="width:130px;">
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('import_csv') }}">Import CSV</a>
+    <a class="btn btn-primary" href="{{ url_for('transaction_new') }}">+ New</a>
+  </div>
+</div>
+
+<div class="row g-3 align-items-start">
+
+  {# ---- Filter sidebar ---- #}
+  <div class="col-12 col-lg-3">
+    <div id="filter-panel-collapse" class="collapse d-lg-block">
+      <div id="filter-sidebar" class="filter-section">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <span class="fw-semibold" style="font-size:.82rem;">Filters</span>
+          <button class="btn btn-sm btn-link p-0 text-secondary" id="clear-all-tags">Clear all</button>
+        </div>
+
+        <div class="filter-section-shrink">
+          <div class="filter-divider"></div>
+          <h6>Groups</h6>
+          <div class="tag-cloud" id="group-tags"></div>
+        </div>
+
+        <div class="filter-section-grow" style="flex:2;">
+          <div class="filter-divider"></div>
+          <h6>Categories</h6>
+          <div class="tag-cloud" id="cat-tags"></div>
+        </div>
+
+        <div class="filter-section-grow" style="flex:3;">
+          <div class="filter-divider"></div>
+          <h6>Payees</h6>
+          <input type="search" class="form-control form-control-sm mb-2" id="payee-search" placeholder="Search payees…" autocomplete="off">
+          <div class="tag-cloud" id="payee-tags"></div>
+        </div>
+
+        <div class="filter-section-shrink">
+          <div class="filter-divider"></div>
+          <h6>Who</h6>
+          <div class="tag-cloud" id="owner-tags"></div>
+        </div>
+      </div>
     </div>
   </div>
 
-  <div class="filter-divider"></div>
-
-  <h6>Categories</h6>
-  <div class="tag-cloud mb-3" id="cat-tags"></div>
-
-  <div class="filter-divider"></div>
-
-  <h6>Payees</h6>
-  <div class="tag-cloud" id="payee-tags"></div>
-
-  <div class="filter-divider"></div>
-
-  <h6>Who</h6>
-  <div class="tag-cloud" id="owner-tags"></div>
-</div>
-
-{# ---- Summary bar ---- #}
-<div id="txn-summary">
-  <div class="sum-item">
-    <span class="sum-label">Showing</span>
-    <span class="sum-val" id="sum-count">—</span>
-    <span class="sum-label">transactions</span>
-  </div>
-  <div class="sum-item">
-    <span class="sum-label">Expenses</span>
-    <span class="sum-val sum-expenses" id="sum-expenses">—</span>
-  </div>
-  <div class="sum-item">
-    <span class="sum-label">Income</span>
-    <span class="sum-val sum-income" id="sum-income">—</span>
-  </div>
-  <div class="sum-item">
-    <span class="sum-label">Net</span>
-    <span class="sum-val" id="sum-net">—</span>
-  </div>
-</div>
+  {# ---- Main content ---- #}
+  <div class="col-12 col-lg-9">
+    {# Summary bar #}
+    <div id="txn-summary">
+      <div class="sum-item">
+        <span class="sum-label">Showing</span>
+        <span class="sum-val" id="sum-count">—</span>
+        <span class="sum-label">transactions</span>
+      </div>
+      <div class="sum-item">
+        <span class="sum-label">Expenses</span>
+        <span class="sum-val sum-expenses" id="sum-expenses">—</span>
+      </div>
+      <div class="sum-item">
+        <span class="sum-label">Income</span>
+        <span class="sum-val sum-income" id="sum-income">—</span>
+      </div>
+      <div class="sum-item">
+        <span class="sum-label">Net</span>
+        <span class="sum-val" id="sum-net">—</span>
+      </div>
+    </div>
 
 {# ---- Transactions table ---- #}
 <div class="card-soft p-3">
   <table class="table table-sm align-middle" id="txn-table">
     <thead>
       <tr>
-        <th>Date</th><th>Account</th><th>Payee</th><th>Category</th>
+        <th>Date</th><th>Payee</th><th>Category</th>
         <th>Memo</th><th>Who</th><th class="text-end">Amount</th><th></th>
       </tr>
     </thead>
@@ -176,15 +218,6 @@
         <td>
           <input type="date" class="form-control form-control-sm js-edit"
                  data-field="date" value="{{ t.date }}" style="min-width:130px;">
-        </td>
-
-        {# Account #}
-        <td>
-          <select class="form-select form-select-sm js-edit" data-field="account_id" style="min-width:120px;">
-            {% for a in accounts %}
-              <option value="{{ a.id }}" {% if t.account_id == a.id %}selected{% endif %}>{{ a.name }}</option>
-            {% endfor %}
-          </select>
         </td>
 
         {# Payee — contenteditable for editing, small trigger icon for filtering #}
@@ -217,11 +250,13 @@
         </td>
 
         {# Memo #}
-        <td>
-          <span class="js-editable text-muted small" data-field="memo" data-tid="{{ t.id }}"
-                contenteditable="true" spellcheck="false"
-                style="display:inline-block;min-width:60px;">{{ t.memo or '' }}</span>
-          {% if t.source != 'manual' %} <span class="badge bg-light text-dark">{{ t.source }}</span>{% endif %}
+        <td style="min-width:200px;">
+          <div style="display:flex;align-items:center;gap:5px;">
+            <span class="js-editable text-muted small" data-field="memo" data-tid="{{ t.id }}"
+                  contenteditable="true" spellcheck="false"
+                  style="display:inline-block;min-width:120px;flex:1;">{{ t.memo or '' }}</span>
+            {% if t.source != 'manual' %}<span class="badge bg-light text-dark" style="flex-shrink:0;font-size:.65rem;font-weight:500;">{{ t.source }}</span>{% endif %}
+          </div>
         </td>
 
         {# Who #}
@@ -251,23 +286,27 @@
         </td>
       </tr>
     {% else %}
-      <tr><td colspan="8" class="text-center text-muted py-4">No transactions.</td></tr>
+      <tr><td colspan="7" class="text-center text-muted py-4">No transactions.</td></tr>
     {% endfor %}
     </tbody>
   </table>
 </div>
+  </div>{# end col-lg-9 #}
+</div>{# end row #}
 {% endblock %}
 
 {% block scripts %}
 <script>
 // ---- data from server ----
-const CAT_COLORS = {{ cat_colors | tojson }};
-const INIT_CAT   = {{ initial_cat_id | tojson }};
-const INIT_PAYEE = {{ initial_payee | tojson }};
-const USERS      = {{ users_json | tojson }};  // { "1": "Andrew", "2": "Libby" }
+const CAT_COLORS  = {{ cat_colors | tojson }};
+const CAT_GROUPS  = {{ cat_groups | tojson }};
+const INIT_CAT    = {{ initial_cat_id | tojson }};
+const INIT_PAYEE  = {{ initial_payee | tojson }};
+const USERS       = {{ users_json | tojson }};  // { "1": "Andrew", "2": "Libby" }
 
 // ---- filter state ----
 let activeCats   = new Set();  // category_id strings
+let activeGroups = new Set();  // group name strings
 let activePayees = new Set();  // payee name strings
 let activeOwners = new Set();  // owner key strings: '', user_id string, 'joint'
 let dateStart    = null;       // ISO string or null
@@ -337,8 +376,8 @@ const allRows = Array.from(document.querySelectorAll('#txn-body tr[data-tid]')).
   owner:   tr.dataset.owner   || '',
 }));
 
-// ---- build a stable ordered list of categories and payees ----
-const catIndex   = {};  // catId -> {name, color}
+// ---- build a stable ordered list of categories, groups, and payees ----
+const catIndex   = {};  // catId -> {name, color, group}
 const payeeIndex = {};  // payee -> true
 
 allRows.forEach(r => {
@@ -346,6 +385,7 @@ allRows.forEach(r => {
     catIndex[r.catId] = {
       name:  r.catName || '(uncategorized)',
       color: CAT_COLORS[r.catId] || '#ccc',
+      group: CAT_GROUPS[r.catId] || 'Other',
     };
   }
   if (r.payee) payeeIndex[r.payee] = true;
@@ -354,16 +394,29 @@ allRows.forEach(r => {
 const catIds   = Object.keys(catIndex).sort((a,b) => catIndex[a].name.localeCompare(catIndex[b].name));
 const payees   = Object.keys(payeeIndex).sort((a,b) => a.localeCompare(b));
 
+// Build group index from catIndex
+const groupIndex = {};  // groupName -> {color}
+catIds.forEach(id => {
+  const grp = catIndex[id].group;
+  if (!groupIndex[grp]) groupIndex[grp] = { color: catIndex[id].color };
+});
+const groupNames = Object.keys(groupIndex).sort();
+
 // ---- apply filters and refresh display ----
 function applyFilters() {
   const catCounts   = {};
+  const groupCounts = {};
   const payeeCounts = {};
   const ownerCounts = {};
   let count = 0, expenses = 0, income = 0;
-  const hasFilter = activeCats.size > 0 || activePayees.size > 0 || activeOwners.size > 0 || dateStart || dateEnd;
+  const hasFilter = activeCats.size > 0 || activeGroups.size > 0 || activePayees.size > 0 || activeOwners.size > 0 || dateStart || dateEnd;
 
   allRows.forEach(r => {
-    const catOk   = activeCats.size   === 0 || activeCats.has(r.catId);
+    const rGroup  = r.catId ? (catIndex[r.catId]?.group || '') : '';
+    // Cat/group filter: pass if nothing selected, or category matches, or group matches
+    const catOk   = (activeCats.size === 0 && activeGroups.size === 0)
+                  || activeCats.has(r.catId)
+                  || (rGroup && activeGroups.has(rGroup));
     const payeeOk = activePayees.size === 0 || activePayees.has(r.payee);
     const ownerOk = activeOwners.size === 0 || activeOwners.has(r.owner);
     const dateOk  = (!dateStart || r.date >= dateStart) && (!dateEnd || r.date <= dateEnd);
@@ -378,11 +431,12 @@ function applyFilters() {
       catCounts[r.catId]   = (catCounts[r.catId]   || 0) + 1;
       payeeCounts[r.payee] = (payeeCounts[r.payee] || 0) + 1;
       ownerCounts[r.owner] = (ownerCounts[r.owner] || 0) + 1;
+      if (rGroup) groupCounts[rGroup] = (groupCounts[rGroup] || 0) + 1;
     }
   });
 
   updateSummary(count, expenses, income);
-  updateTagCounts(catCounts, payeeCounts, ownerCounts);
+  updateTagCounts(catCounts, groupCounts, payeeCounts, ownerCounts);
 }
 
 // ---- update the summary bar ----
@@ -398,6 +452,11 @@ function updateSummary(count, expenses, income) {
   const netEl = document.getElementById('sum-net');
   netEl.textContent = fmtMoney(net);
   netEl.className = 'sum-val ' + (net >= 0 ? 'sum-net-pos' : 'sum-net-neg');
+  // Mobile badge: count active filters
+  const activeCount = activeCats.size + activeGroups.size + activePayees.size + activeOwners.size + (dateStart || dateEnd ? 1 : 0);
+  const badge = document.getElementById('mobile-filter-badge');
+  badge.textContent = activeCount;
+  badge.classList.toggle('d-none', activeCount === 0);
 }
 
 // ---- owner label helper ----
@@ -409,10 +468,28 @@ function ownerLabel(key) {
 
 // ---- build / update tag cloud ----
 function buildTagCloud() {
+  renderGroupTags({});
   renderCatTags({});
   renderPayeeTags({});
   renderOwnerTags({});
   applyFilters();
+}
+
+function renderGroupTags(counts) {
+  const container = document.getElementById('group-tags');
+  container.innerHTML = '';
+  groupNames.forEach(grp => {
+    const info  = groupIndex[grp];
+    const count = counts[grp] ?? allRows.filter(r => r.catId && catIndex[r.catId]?.group === grp).length;
+    const pill  = document.createElement('span');
+    pill.className = 'tag-pill' + (activeGroups.has(grp) ? ' active' : '');
+    pill.dataset.type  = 'group';
+    pill.dataset.value = grp;
+    pill.style.setProperty('--tag-color', info.color);
+    pill.innerHTML = `<span style="width:8px;height:8px;border-radius:50%;background:${info.color};display:inline-block;flex-shrink:0;"></span>${grp}<span class="tag-count">${count}</span>`;
+    pill.addEventListener('click', () => toggleGroup(grp));
+    container.appendChild(pill);
+  });
 }
 
 function renderCatTags(counts) {
@@ -447,8 +524,14 @@ function renderPayeeTags(counts) {
   });
 }
 
-function updateTagCounts(catCounts, payeeCounts, ownerCounts) {
+function updateTagCounts(catCounts, groupCounts, payeeCounts, ownerCounts) {
   // Update counts on existing pills without full re-render (preserves DOM)
+  document.querySelectorAll('#group-tags .tag-pill').forEach(pill => {
+    const grp   = pill.dataset.value;
+    const count = groupCounts[grp] || 0;
+    pill.querySelector('.tag-count').textContent = count;
+    pill.classList.toggle('active', activeGroups.has(grp));
+  });
   document.querySelectorAll('#cat-tags .tag-pill').forEach(pill => {
     const id    = pill.dataset.value;
     const count = catCounts[id] || 0;
@@ -492,6 +575,10 @@ function toggleOwner(key) {
   applyFilters();
 }
 
+function toggleGroup(name) {
+  if (activeGroups.has(name)) activeGroups.delete(name); else activeGroups.add(name);
+  applyFilters();
+}
 function toggleCat(id) {
   if (activeCats.has(id)) activeCats.delete(id); else activeCats.add(id);
   applyFilters();
@@ -513,6 +600,7 @@ document.querySelectorAll('.js-tag-trigger').forEach(el => {
 // ---- clear all ----
 document.getElementById('clear-all-tags').addEventListener('click', () => {
   activeCats.clear();
+  activeGroups.clear();
   activePayees.clear();
   activeOwners.clear();
   dateStart = null; dateEnd = null;
@@ -521,6 +609,14 @@ document.getElementById('clear-all-tags').addEventListener('click', () => {
   document.getElementById('custom-start').value = '';
   document.getElementById('custom-end').value   = '';
   applyFilters();
+});
+
+// ---- payee search ----
+document.getElementById('payee-search').addEventListener('input', function() {
+  const q = this.value.toLowerCase().trim();
+  document.querySelectorAll('#payee-tags .tag-pill').forEach(p => {
+    p.style.display = (!q || p.dataset.value.toLowerCase().includes(q)) ? '' : 'none';
+  });
 });
 
 // ---- apply initial filters from URL params ----
