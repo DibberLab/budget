@@ -1,0 +1,412 @@
+{% extends "base.html" %}
+{% block title %}AI Budget Advisor{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h2 class="mb-0 me-3">AI Budget Advisor</h2>
+  <span class="badge bg-secondary">claude-opus-4-8</span>
+</div>
+
+<ul class="nav nav-tabs mb-3" id="aiTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="chat-tab" data-bs-toggle="tab" data-bs-target="#chatPane" type="button">
+      Chat
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="payee-tab" data-bs-toggle="tab" data-bs-target="#payeePane" type="button">
+      Payee Cleanup
+      {% if pending_count > 0 %}
+      <span class="badge bg-warning text-dark ms-1">{{ pending_count }}</span>
+      {% endif %}
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  {# ── Chat tab ── #}
+  <div class="tab-pane fade show active" id="chatPane" role="tabpanel">
+    <div class="row g-3">
+
+      {# Message thread #}
+      <div class="col-lg-8">
+        <div id="chatMessages" class="border rounded p-3 mb-2 bg-light"
+             style="height:520px; overflow-y:auto;">
+          <div id="emptyState" class="text-center text-muted py-5">
+            <p class="mb-1 fs-5">Ask anything about your budget.</p>
+            <p class="small">I can see your last 90 days of transactions, category spending, recurring items, and goals.</p>
+          </div>
+        </div>
+        <div class="input-group">
+          <textarea id="chatInput" class="form-control" rows="2"
+                    placeholder="e.g. Where are we overspending? How does this month compare to last month?"
+                    style="resize:none;"></textarea>
+          <button id="sendBtn" class="btn btn-primary" onclick="sendMessage()">Send</button>
+        </div>
+        <div class="d-flex justify-content-end mt-1">
+          <button class="btn btn-link btn-sm text-muted p-0" onclick="clearChat()">Clear conversation</button>
+        </div>
+      </div>
+
+      {# Quick-question sidebar #}
+      <div class="col-lg-4">
+        <div class="card">
+          <div class="card-header fw-semibold">Quick Questions</div>
+          <div class="list-group list-group-flush">
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('Where are we spending the most money right now?')">
+              Where are we spending the most?
+            </button>
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('What are our top 3 opportunities to cut expenses?')">
+              Top opportunities to cut expenses
+            </button>
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('How does this month compare to last month in terms of spending?')">
+              This month vs last month
+            </button>
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('Do we have any subscriptions or recurring charges worth reviewing?')">
+              Review subscriptions &amp; recurring
+            </button>
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('What are our 6-month spending trends? Are we improving or getting worse?')">
+              6-month spending trends
+            </button>
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('What categories are we over- or under-budget in?')">
+              Over / under budget by category
+            </button>
+            <button class="list-group-item list-group-item-action py-2"
+                    onclick="askQuick('Give me a summary of our financial health and the biggest risks we should address.')">
+              Overall financial health check
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ── Payee Cleanup tab ── #}
+  <div class="tab-pane fade" id="payeePane" role="tabpanel">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <p class="text-muted mb-0">
+        Claude analyzes your payee names and suggests cleaner, standardized versions.
+        Approve to update all matching transactions; reject to skip.
+      </p>
+      <button class="btn btn-primary" id="analyzeBtn" onclick="analyzePayees()">
+        <span id="analyzeBtnLabel">Analyze Payees</span>
+        <span id="analyzeBtnSpinner" class="spinner-border spinner-border-sm ms-1 d-none" role="status"></span>
+      </button>
+    </div>
+
+    <div id="payeeSuggestions">
+      {% if pending_suggestions %}
+        {% for s in pending_suggestions %}
+        <div class="card mb-2" id="sugg-{{ s.id }}">
+          <div class="card-body py-2">
+            <div class="row align-items-center">
+              <div class="col">
+                <span class="font-monospace text-muted">{{ s.original_payee }}</span>
+                <span class="mx-2 text-muted">→</span>
+                <strong>{{ s.suggested_payee }}</strong>
+                <div class="small text-muted mt-1">
+                  {{ s.reason }}
+                  &bull; affects {{ s.transaction_count }} transaction{{ 's' if s.transaction_count != 1 }}
+                </div>
+              </div>
+              <div class="col-auto">
+                <button class="btn btn-success btn-sm me-1"
+                        onclick="approvePayee({{ s.id }}, this)">Approve</button>
+                <button class="btn btn-outline-secondary btn-sm"
+                        onclick="rejectPayee({{ s.id }}, this)">Reject</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-center text-muted py-5" id="noSuggestions">
+          <p class="mb-1">No pending suggestions.</p>
+          <p class="small">Click "Analyze Payees" to scan your recent transactions.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── State ──────────────────────────────────────────────────────────────
+let conversationHistory = [];
+let isLoading = false;
+
+// ── Markdown renderer (safe: HTML escaped first) ───────────────────────
+function renderMarkdown(raw) {
+  let s = raw
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  // Headings
+  s = s.replace(/^### (.+)$/gm, '<h6 class="mt-3 mb-1 fw-bold">$1</h6>');
+  s = s.replace(/^## (.+)$/gm,  '<h5 class="mt-3 mb-1 fw-bold">$1</h5>');
+  s = s.replace(/^# (.+)$/gm,   '<h4 class="mt-3 mb-1 fw-bold">$1</h4>');
+  // Bold / italic
+  s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/\*(.+?)\*/g,     '<em>$1</em>');
+  // Inline code
+  s = s.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Horizontal rule
+  s = s.replace(/^---+$/gm, '<hr>');
+  // Bullet lists — wrap consecutive li lines
+  s = s.replace(/^[-•] (.+)$/gm, '<li>$1</li>');
+  s = s.replace(/(<li>[\s\S]*?<\/li>)(\n(?!<li>)|$)/g, '$1</li-block>\n');
+  s = s.replace(/(<li>[\s\S]*?<\/li-block>)/g, (m) =>
+    '<ul class="mb-1">' + m.replace(/<\/li-block>/, '') + '</ul>');
+  // Numbered lists
+  s = s.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
+  // Newlines → <br> (but not inside block elements)
+  s = s.replace(/\n/g, '<br>');
+  return s;
+}
+
+// ── DOM helpers ────────────────────────────────────────────────────────
+function appendMessage(role, text, id) {
+  const empty = document.getElementById('emptyState');
+  if (empty) empty.remove();
+
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'd-flex mb-3 ' + (role === 'user' ? 'justify-content-end' : '');
+  if (id) div.id = id;
+
+  const bubble = document.createElement('div');
+  bubble.className = role === 'user'
+    ? 'p-2 px-3 rounded-3 bg-primary text-white'
+    : 'p-2 px-3 rounded-3 bg-white border';
+  bubble.style.maxWidth = '85%';
+  bubble.style.whiteSpace = 'pre-wrap';
+  bubble.textContent = text;
+
+  div.appendChild(bubble);
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+  return bubble;
+}
+
+// ── Streaming chat ─────────────────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text || isLoading) return;
+
+  conversationHistory.push({ role: 'user', content: text });
+  appendMessage('user', text);
+  input.value = '';
+
+  isLoading = true;
+  document.getElementById('sendBtn').disabled = true;
+
+  const msgId = 'ai-msg-' + Date.now();
+  const bubble = appendMessage('assistant', '⬤ ', msgId);
+  let fullText = '';
+
+  try {
+    const resp = await fetch('/api/ai/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: conversationHistory }),
+    });
+
+    if (!resp.ok) throw new Error(`Server error ${resp.status}`);
+
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      const lines = buf.split('\n');
+      buf = lines.pop();
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice(6);
+        if (payload === '[DONE]') continue;
+        try {
+          const parsed = JSON.parse(payload);
+          if (parsed.error) throw new Error(parsed.error);
+          if (parsed.text) {
+            fullText += parsed.text;
+            // Show raw text while streaming
+            bubble.textContent = fullText;
+            document.getElementById('chatMessages').scrollTop =
+              document.getElementById('chatMessages').scrollHeight;
+          }
+        } catch (e) {
+          if (e.message !== 'JSON parse') throw e;
+        }
+      }
+    }
+
+    // Re-render final response as formatted markdown
+    bubble.style.whiteSpace = '';
+    bubble.innerHTML = renderMarkdown(fullText);
+    conversationHistory.push({ role: 'assistant', content: fullText });
+
+  } catch (err) {
+    bubble.textContent = '⚠ Error: ' + err.message;
+    bubble.classList.add('text-danger');
+    conversationHistory.pop();
+  } finally {
+    isLoading = false;
+    document.getElementById('sendBtn').disabled = false;
+    document.getElementById('chatMessages').scrollTop =
+      document.getElementById('chatMessages').scrollHeight;
+  }
+}
+
+function askQuick(question) {
+  const input = document.getElementById('chatInput');
+  input.value = question;
+  sendMessage();
+}
+
+function clearChat() {
+  conversationHistory = [];
+  const container = document.getElementById('chatMessages');
+  container.innerHTML =
+    '<div id="emptyState" class="text-center text-muted py-5">' +
+    '<p class="mb-1 fs-5">Ask anything about your budget.</p>' +
+    '<p class="small">I can see your last 90 days of transactions, category spending, recurring items, and goals.</p>' +
+    '</div>';
+}
+
+// Allow Enter (without Shift) to send
+document.getElementById('chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+
+// ── Payee analysis ─────────────────────────────────────────────────────
+async function analyzePayees() {
+  const btn = document.getElementById('analyzeBtn');
+  const label = document.getElementById('analyzeBtnLabel');
+  const spinner = document.getElementById('analyzeBtnSpinner');
+  btn.disabled = true;
+  label.textContent = 'Analyzing…';
+  spinner.classList.remove('d-none');
+
+  try {
+    const resp = await fetch('/api/ai/suggest-payees', { method: 'POST' });
+    const data = await resp.json();
+
+    if (data.error) throw new Error(data.error);
+
+    const container = document.getElementById('payeeSuggestions');
+    const noSugg = document.getElementById('noSuggestions');
+    if (noSugg) noSugg.remove();
+
+    // Remove any cards that are no longer pending
+    container.querySelectorAll('[id^="sugg-"]').forEach(el => el.remove());
+
+    if (!data.suggestions || data.suggestions.length === 0) {
+      container.innerHTML =
+        '<div class="text-center text-muted py-5" id="noSuggestions">' +
+        '<p class="mb-1">All payee names look clean!</p>' +
+        '<p class="small">No normalization suggestions at this time.</p></div>';
+      return;
+    }
+
+    data.suggestions.forEach(s => {
+      const card = document.createElement('div');
+      card.className = 'card mb-2';
+      card.id = 'sugg-new-' + encodeURIComponent(s.original);
+      card.innerHTML = `
+        <div class="card-body py-2">
+          <div class="row align-items-center">
+            <div class="col">
+              <span class="font-monospace text-muted">${escHtml(s.original)}</span>
+              <span class="mx-2 text-muted">→</span>
+              <strong>${escHtml(s.canonical)}</strong>
+              <div class="small text-muted mt-1">
+                ${escHtml(s.reason)} &bull; affects ${s.count} transaction${s.count !== 1 ? 's' : ''}
+              </div>
+            </div>
+            <div class="col-auto" id="actions-new-${escHtml(s.original)}">
+              <span class="text-muted small">Refresh page to approve/reject</span>
+            </div>
+          </div>
+        </div>`;
+      container.appendChild(card);
+    });
+
+    // Reload page so server-rendered cards with proper IDs appear
+    window.location.reload();
+  } catch (err) {
+    alert('Error analyzing payees: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    label.textContent = 'Analyze Payees';
+    spinner.classList.add('d-none');
+  }
+}
+
+async function approvePayee(id, btn) {
+  btn.disabled = true;
+  btn.nextElementSibling.disabled = true;
+  try {
+    const resp = await fetch(`/api/ai/approve-payee/${id}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    const card = document.getElementById(`sugg-${id}`);
+    card.innerHTML =
+      `<div class="card-body py-2 text-success">
+         ✓ Approved — ${data.updated_transactions} transaction${data.updated_transactions !== 1 ? 's' : ''} updated.
+       </div>`;
+    card.classList.add('border-success');
+    updatePendingBadge(-1);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.nextElementSibling.disabled = false;
+  }
+}
+
+async function rejectPayee(id, btn) {
+  btn.disabled = true;
+  btn.previousElementSibling.disabled = true;
+  try {
+    const resp = await fetch(`/api/ai/reject-payee/${id}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    const card = document.getElementById(`sugg-${id}`);
+    card.innerHTML =
+      `<div class="card-body py-2 text-muted">✕ Rejected.</div>`;
+    card.classList.add('opacity-50');
+    updatePendingBadge(-1);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.previousElementSibling.disabled = false;
+  }
+}
+
+function updatePendingBadge(delta) {
+  const badge = document.querySelector('#payee-tab .badge');
+  if (!badge) return;
+  const current = parseInt(badge.textContent, 10) || 0;
+  const next = current + delta;
+  if (next <= 0) badge.remove();
+  else badge.textContent = next;
+}
+
+function escHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+</script>
+{% endblock %}

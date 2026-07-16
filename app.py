@@ -11,6 +11,7 @@ When deployed:
   - Sessions are Secure + HttpOnly + SameSite=Lax cookies
 """
 import hashlib
+import json
 import os
 import secrets
 import sys
@@ -19,9 +20,11 @@ from calendar import monthrange
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 
+import anthropic
 import click
-from flask import (Flask, abort, current_app, flash, jsonify, redirect,
-                   render_template, request, url_for)
+from flask import (Flask, Response, abort, current_app, flash, jsonify,
+                   redirect, render_template, request, stream_with_context,
+                   url_for)
 from flask_login import current_user, login_required
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -32,9 +35,9 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import csv_import
 import plaid_client
 from auth import auth_bp, login_manager, setup_required
-from models import (MAX_USERS, Account, BudgetMonth, Category, Goal,
-                    PlaidItem, Recurring, Transaction, User, db, fmt_money,
-                    from_cents, to_cents)
+from models import (MAX_USERS, Account, AiPayeeSuggestion, BudgetMonth,
+                    Category, Goal, PlaidItem, Recurring, Transaction, User,
+                    db, fmt_money, from_cents, to_cents)
 from recurring import post_due_recurring
 
 
@@ -61,6 +64,126 @@ def _group_color(group_name: str) -> str:
     """Return a stable hex colour for a group name."""
     idx = int(hashlib.md5(group_name.encode()).hexdigest(), 16) % len(_GROUP_PALETTE)
     return _GROUP_PALETTE[idx]
+
+
+# ---------- Anthropic AI helpers ----------
+
+_ai_client: anthropic.Anthropic | None = None
+
+
+def _get_ai_client() -> anthropic.Anthropic:
+    global _ai_client
+    if _ai_client is None:
+        api_key = os.environ.get("CLAUDE_API_KEY")
+        if not api_key:
+            raise RuntimeError("CLAUDE_API_KEY environment variable is not set")
+        _ai_client = anthropic.Anthropic(api_key=api_key)
+    return _ai_client
+
+
+def _build_budget_context() -> str:
+    """Gather recent transaction data and budget summary for Claude's system prompt."""
+    today = date.today()
+    ninety_days_ago = today - timedelta(days=90)
+
+    # Monthly income/expense for last 6 months
+    months = []
+    y, m = today.year, today.month
+    for _ in range(6):
+        months.append((y, m))
+        y, m = _prev_month(y, m)
+    months.reverse()
+
+    lines = [f"Today's date: {today.isoformat()}", ""]
+
+    lines.append("## Monthly Income vs Expenses (last 6 months)")
+    lines.append("Month      | Income      | Expenses    | Net")
+    lines.append("-----------|-------------|-------------|------------")
+    for yy, mm in months:
+        inc = _income_total(yy, mm)
+        _, spent = _month_totals(yy, mm)
+        net = inc + spent  # spent is negative, so net = income - abs(expenses)
+        lines.append(
+            f"{yy}-{mm:02d}     | ${inc/100:>10,.2f} | ${abs(spent)/100:>10,.2f} | ${net/100:>10,.2f}"
+        )
+
+    # Category spending current month
+    cur_cats = (
+        db.session.query(Category.group_name, Category.name,
+                         func.coalesce(func.sum(Transaction.amount), 0))
+        .join(Transaction, Transaction.category_id == Category.id)
+        .filter(
+            extract("year", Transaction.date) == today.year,
+            extract("month", Transaction.date) == today.month,
+            Category.is_income.is_(False),
+        )
+        .group_by(Category.id)
+        .order_by(func.sum(Transaction.amount))
+        .all()
+    )
+    lines += ["", f"## Spending by Category ({today.year}-{today.month:02d})"]
+    for group, name, total in cur_cats:
+        lines.append(f"  {group} / {name}: ${abs(int(total))/100:,.2f}")
+
+    # Top 30 payees last 90 days (outflows only)
+    payee_rows = (
+        db.session.query(
+            Transaction.payee,
+            func.count().label("cnt"),
+            func.sum(Transaction.amount).label("tot"),
+        )
+        .filter(Transaction.date >= ninety_days_ago, Transaction.amount < 0)
+        .group_by(Transaction.payee)
+        .order_by(func.sum(Transaction.amount))
+        .limit(30)
+        .all()
+    )
+    lines += ["", "## Top Payees by Spending (last 90 days)"]
+    for payee, cnt, tot in payee_rows:
+        lines.append(f"  {payee or '(blank)'}: ${abs(int(tot))/100:,.2f} ({cnt} transactions)")
+
+    # Recent transactions (last 90 days, capped at 250)
+    recent = (
+        Transaction.query
+        .filter(Transaction.date >= ninety_days_ago)
+        .order_by(Transaction.date.desc(), Transaction.id.desc())
+        .limit(250)
+        .all()
+    )
+    lines += ["", "## Recent Transactions (last 90 days, newest first)"]
+    lines.append("Date       | Account              | Category             | Payee                          | Amount")
+    lines.append("-----------|----------------------|----------------------|--------------------------------|----------")
+    for t in recent:
+        cat = t.category.name if t.category else "(uncategorized)"
+        acct = t.account.name if t.account else ""
+        sign = "+" if t.amount > 0 else "-"
+        amt = f"{sign}${abs(t.amount)/100:,.2f}"
+        payee = (t.payee or "")[:32]
+        lines.append(f"{t.date} | {acct[:20]:<20} | {cat[:20]:<20} | {payee:<32} | {amt}")
+
+    # Active recurring items
+    recurrings = Recurring.query.filter_by(active=True).all()
+    if recurrings:
+        lines += ["", "## Recurring / Scheduled Items"]
+        for r in recurrings:
+            cat = r.category.name if r.category else "(uncategorized)"
+            sign = "+" if r.amount > 0 else "-"
+            lines.append(
+                f"  {r.payee or '(no name)'}: {sign}${abs(r.amount)/100:,.2f}/{r.frequency}, "
+                f"next: {r.next_date}, category: {cat}"
+            )
+
+    # Goals
+    goals = Goal.query.filter_by(completed=False).all()
+    if goals:
+        lines += ["", "## Savings Goals"]
+        for g in goals:
+            lines.append(
+                f"  {g.name}: ${g.saved_amount/100:,.2f} saved / "
+                f"${g.target_amount/100:,.2f} target ({g.percent_complete:.0f}%)"
+            )
+
+    return "\n".join(lines)
 
 
 # ---------- factory ----------
@@ -1604,6 +1727,176 @@ def register_routes(app: Flask):
                                "Cache-Control": "no-cache"}
         except Exception:
             return "", 502
+
+    # ---- AI analysis ----
+
+    @app.route("/ai")
+    @setup_required
+    @login_required
+    def ai_analysis():
+        pending = AiPayeeSuggestion.query.filter_by(status="pending").order_by(
+            AiPayeeSuggestion.created_at.desc()
+        ).all()
+        return render_template("ai.html", pending_suggestions=pending,
+                               pending_count=len(pending))
+
+    @app.route("/api/ai/chat", methods=["POST"])
+    @login_required
+    def api_ai_chat():
+        data = request.get_json(silent=True) or {}
+        messages = data.get("messages", [])
+        if not messages:
+            return jsonify({"error": "no messages"}), 400
+
+        # Build budget context before entering the generator so SQLAlchemy
+        # objects are fully loaded while the request context is still warm.
+        budget_context = _build_budget_context()
+        system_prompt = (
+            "You are a helpful financial advisor for a household budget. "
+            "Analyze the data below and help the household understand their spending, "
+            "find opportunities to cut expenses, and improve their financial health. "
+            "Be specific, concise, and actionable. Use dollar amounts from the data "
+            "to support your observations.\n\n"
+            "Notes on the data:\n"
+            "- Negative amounts = spending/outflows; positive = income/inflows\n"
+            "- Amounts are in USD\n\n"
+            f"{budget_context}"
+        )
+
+        def generate():
+            try:
+                client = _get_ai_client()
+                with client.messages.stream(
+                    model="claude-opus-4-8",
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=messages,
+                    thinking={"type": "adaptive"},
+                ) as stream:
+                    for chunk in stream.text_stream:
+                        yield f"data: {json.dumps({'text': chunk})}\n\n"
+                yield "data: [DONE]\n\n"
+            except Exception as exc:
+                yield f"data: {json.dumps({'error': str(exc)})}\n\n"
+                yield "data: [DONE]\n\n"
+
+        return Response(
+            stream_with_context(generate()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.route("/api/ai/suggest-payees", methods=["POST"])
+    @login_required
+    def api_ai_suggest_payees():
+        ninety_days_ago = date.today() - timedelta(days=90)
+        payee_rows = (
+            db.session.query(
+                Transaction.payee,
+                func.count().label("cnt"),
+                func.sum(Transaction.amount).label("tot"),
+            )
+            .filter(Transaction.date >= ninety_days_ago, Transaction.payee != "")
+            .group_by(Transaction.payee)
+            .having(func.count() >= 1)
+            .order_by(func.sum(Transaction.amount))
+            .all()
+        )
+
+        if not payee_rows:
+            return jsonify({"suggestions": [], "message": "No payees found in the last 90 days."})
+
+        payee_list = "\n".join(
+            f"{row.payee} ({row.cnt} transactions, ${abs(int(row.tot or 0))/100:,.2f})"
+            for row in payee_rows
+            if row.payee
+        )
+
+        prompt = (
+            "Analyze these payee names from bank/credit card transactions and identify ones "
+            "that should be normalized to a cleaner, human-readable name.\n\n"
+            "Look for:\n"
+            "1. Raw merchant codes (e.g. 'AMZN MKTP US*AB12CD3' → 'Amazon')\n"
+            "2. The same merchant with slightly different names across transactions\n"
+            "3. Truncated or abbreviated names that can be expanded\n\n"
+            f"Payee list:\n{payee_list}\n\n"
+            "Return ONLY a JSON object — no explanation text outside it:\n"
+            "{\n"
+            '  "suggestions": [\n'
+            '    {"original": "exact name as shown", "canonical": "clean readable name", "reason": "brief explanation"}\n'
+            "  ]\n"
+            "}\n\n"
+            "Only include suggestions where the improvement is clear. "
+            "Omit payees that are already clean and readable. "
+            "Return an empty array if no changes are needed."
+        )
+
+        try:
+            response = _get_ai_client().messages.create(
+                model="claude-opus-4-8",
+                max_tokens=2048,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.content[0].text
+            start, end = raw.find("{"), raw.rfind("}") + 1
+            parsed = json.loads(raw[start:end]) if start >= 0 and end > start else {}
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        suggestions = parsed.get("suggestions", [])
+
+        # Replace existing pending suggestions
+        AiPayeeSuggestion.query.filter_by(status="pending").delete()
+
+        created = []
+        for s in suggestions:
+            original = (s.get("original") or "").strip()
+            canonical = (s.get("canonical") or "").strip()
+            reason = (s.get("reason") or "").strip()
+            if not original or not canonical or original == canonical:
+                continue
+            count = Transaction.query.filter_by(payee=original).count()
+            if count == 0:
+                continue
+            db.session.add(AiPayeeSuggestion(
+                original_payee=original,
+                suggested_payee=canonical,
+                reason=reason,
+                transaction_count=count,
+                status="pending",
+            ))
+            created.append({
+                "original": original,
+                "canonical": canonical,
+                "reason": reason,
+                "count": count,
+            })
+
+        db.session.commit()
+        return jsonify({"suggestions": created, "count": len(created)})
+
+    @app.route("/api/ai/approve-payee/<int:sid>", methods=["POST"])
+    @login_required
+    def api_ai_approve_payee(sid):
+        suggestion = AiPayeeSuggestion.query.get_or_404(sid)
+        if suggestion.status != "pending":
+            return jsonify({"error": "already processed"}), 400
+        updated = (Transaction.query
+                   .filter_by(payee=suggestion.original_payee)
+                   .update({"payee": suggestion.suggested_payee}))
+        suggestion.status = "approved"
+        db.session.commit()
+        return jsonify({"ok": True, "updated_transactions": updated})
+
+    @app.route("/api/ai/reject-payee/<int:sid>", methods=["POST"])
+    @login_required
+    def api_ai_reject_payee(sid):
+        suggestion = AiPayeeSuggestion.query.get_or_404(sid)
+        if suggestion.status != "pending":
+            return jsonify({"error": "already processed"}), 400
+        suggestion.status = "rejected"
+        db.session.commit()
+        return jsonify({"ok": True})
 
     # ---- health & error pages ----
     @app.route("/healthz")

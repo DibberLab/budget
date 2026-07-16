@@ -220,3 +220,16 @@ class PlaidItem(db.Model):
     institution_name = db.Column(db.String(120))
     cursor = db.Column(db.String(200))  # transactions/sync cursor
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class AiPayeeSuggestion(db.Model):
+    """A Claude-generated suggestion to normalize a payee name across transactions."""
+    __tablename__ = "ai_payee_suggestions"
+    id = db.Column(db.Integer, primary_key=True)
+    original_payee = db.Column(db.String(200), nullable=False)
+    suggested_payee = db.Column(db.String(200), nullable=False)
+    reason = db.Column(db.String(500), default="")
+    transaction_count = db.Column(db.Integer, default=0)
+    # pending | approved | rejected
+    status = db.Column(db.String(16), nullable=False, default="pending")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

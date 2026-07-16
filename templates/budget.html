@@ -95,6 +95,18 @@
           <td class="text-end money-zero d-none d-sm-table-cell">{{ r.carryover | money }}</td>
           <td class="text-end">
             <div class="d-flex align-items-center justify-content-end gap-1">
+              {% if r.avg %}
+              <button class="btn btn-outline-secondary js-fill py-0 px-1"
+                      style="font-size:0.7rem;line-height:1.6"
+                      data-val="{{ '%.2f' % (r.avg / 100.0) }}"
+                      title="Set to average ({{ r.avg | money }}/mo)">Avg</button>
+              {% endif %}
+              {% if r.last_month %}
+              <button class="btn btn-outline-secondary js-fill py-0 px-1"
+                      style="font-size:0.7rem;line-height:1.6"
+                      data-val="{{ '%.2f' % (r.last_month / 100.0) }}"
+                      title="Set to last month ({{ r.last_month | money }})">Last</button>
+              {% endif %}
               <input class="form-control form-control-sm assign-input js-assign"
                      data-cat="{{ r.cat.id }}"
                      data-year="{{ year }}" data-month="{{ month }}"
@@ -131,6 +143,16 @@
   document.querySelectorAll('.spend-fill[data-pct]').forEach(el => {
     el.style.setProperty('--w', el.dataset.pct);
   });
+  document.querySelectorAll('.js-fill').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.preventDefault();
+      const inp = btn.closest('td').querySelector('.js-assign');
+      inp.value = btn.dataset.val;
+      inp.dispatchEvent(new Event('input'));
+      inp.focus();
+    });
+  });
+
   document.querySelectorAll('.js-assign').forEach(inp => {
     const saveBtn = inp.closest('td').querySelector('.js-save');
     const row = inp.closest('tr');
