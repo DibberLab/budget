@@ -96,10 +96,16 @@ class Account(db.Model):
 
     @property
     def balance(self) -> int:
-        """Live balance = starting balance + sum of all transactions on this account."""
+        """Live balance = starting balance + sum of all top-level transactions.
+
+        Split line-items (Transaction.parent_id set) re-slice a parent's amount
+        across categories and must NOT be added again, or splits would double
+        the account balance.
+        """
         total = self.starting_balance or 0
         for t in self.transactions:
-            total += t.amount
+            if t.parent_id is None:
+                total += t.amount
         return total
 
 
@@ -129,6 +135,14 @@ class Transaction(db.Model):
     # For transfers: links the two halves together.
     transfer_id = db.Column(db.String(36))
 
+    # Splits: a transaction can be divided across multiple categories. The
+    # parent keeps the account/date/payee/full amount but category_id=None;
+    # each split is its own Transaction row (category_id + a slice of the
+    # amount) with parent_id pointing back. Splits are excluded from account
+    # balances and register listings — only category/report aggregates see
+    # them, which is exactly where the per-category amounts should count.
+    parent_id = db.Column(db.Integer, db.ForeignKey("transactions.id"))
+
     # Provenance:
     source = db.Column(db.String(32), default="manual")  # manual | csv | plaid | recurring
     external_id = db.Column(db.String(120))  # plaid txn id or csv hash, for dedupe
@@ -145,10 +159,17 @@ class Transaction(db.Model):
     account = db.relationship("Account", back_populates="transactions")
     category = db.relationship("Category")
     owner = db.relationship("User", foreign_keys=[owner_user_id])
+    splits = db.relationship(
+        "Transaction",
+        backref=db.backref("parent", remote_side=[id]),
+        cascade="all, delete-orphan",
+        order_by=id,
+    )
 
     __table_args__ = (
         Index("ix_txn_date", "date"),
         Index("ix_txn_account_date", "account_id", "date"),
+        Index("ix_txn_parent_id", "parent_id"),
         UniqueConstraint("external_id", name="uq_txn_external_id"),
     )
 

@@ -1831,7 +1831,10 @@
         <td class="text-end ${t.amount<0?'text-danger':'text-success'}">
           <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount" value="${(t.amount/100).toFixed(2)}" style="width:90px">
         </td>
-        <td><button class="btn btn-sm btn-success txn-save-btn" style="display:none" title="Save">✓</button></td>
+        <td class="text-nowrap">
+          ${t.parent_id ? '' : `<button class="btn btn-sm btn-outline-secondary py-0 px-1 js-split-btn" data-tid="${t.id}" title="Split into multiple categories" style="font-size:.68rem">Split</button>`}
+          <button class="btn btn-sm btn-success txn-save-btn" style="display:none" title="Save">✓</button>
+        </td>
       </tr>`;
     }).join('');
   }
@@ -1846,8 +1849,18 @@
           <thead><tr><th>Date</th><th>Payee</th><th>Memo</th><th>Category</th><th>Who</th><th class="text-end">Amount</th><th></th></tr></thead>
           <tbody>${rows}</tbody></table></div>`;
       attachTxnEditHandlers();
+      attachSplitHandlers(document.getElementById('cat-txn-body'), loadFilteredTransactions);
     }
     document.getElementById('cat-transactions').style.display = '';
+  }
+
+  function attachSplitHandlers(container, onSaved) {
+    container.querySelectorAll('.js-split-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        openSplitModal(btn.dataset.tid, { onSaved });
+      });
+    });
   }
 
   // Entry points (used by URL restoration and table row clicks)
@@ -1882,7 +1895,10 @@
         <td class="text-end ${amtCls}">
           <input class="form-control form-control-sm text-end txn-edit-input" data-field="amount" value="${(t.amount/100).toFixed(2)}" style="width:80px">
         </td>
-        <td><button class="btn btn-sm btn-success txn-save-btn py-0" style="display:none" title="Save">✓</button></td>
+        <td class="text-nowrap">
+          ${t.parent_id ? '' : `<button class="btn btn-sm btn-outline-secondary py-0 px-1 js-split-btn" data-tid="${t.id}" title="Split into multiple categories" style="font-size:.68rem">Split</button>`}
+          <button class="btn btn-sm btn-success txn-save-btn py-0" style="display:none" title="Save">✓</button>
+        </td>
       </tr>`;
     }).join('');
   }
@@ -1912,6 +1928,7 @@
         <tbody>${_gutterRows(data.transactions, data.categories)}</tbody>
        </table>`;
     _attachEditHandlers(gutterEl, () => refreshAll());
+    attachSplitHandlers(gutterEl, loadGutterTransactions);
     _makeSortable(gutterEl, 'gutter-txn-table', {});
   }
 

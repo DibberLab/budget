@@ -72,6 +72,38 @@
   {% block content %}{% endblock %}
 </main>
 
+{# ---- Shared "split a transaction" modal — usable from any transactions table ---- #}
+<div class="modal fade" id="splitModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Split Transaction</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2 small text-muted" id="split-modal-summary">Loading…</div>
+        <table class="table table-sm align-middle mb-1">
+          <thead>
+            <tr><th>Category</th><th>Memo</th><th class="text-end" style="width:110px;">Amount</th><th></th></tr>
+          </thead>
+          <tbody id="split-rows"></tbody>
+        </table>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="split-add-row">+ Add split</button>
+        <div class="d-flex justify-content-end align-items-center mt-3 small">
+          <span class="text-muted me-2">Remaining to allocate</span>
+          <strong id="split-remaining">$0.00</strong>
+        </div>
+        <div id="split-modal-error" class="alert alert-danger py-1 px-2 small mt-2 mb-0 d-none"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-danger me-auto d-none" id="split-unsplit-btn">Unsplit</button>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="split-save-btn">Save split</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <script>
@@ -86,6 +118,139 @@
     }
     return _origFetch(url, opts);
   };
+</script>
+<script>
+(function() {
+  let _tid = null, _total = 0, _categories = [], _onSaved = null;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function fmtMoney(cents) {
+    const neg = cents < 0, a = Math.abs(Math.round(cents));
+    return (neg ? '-' : '') + '$' + Math.floor(a/100).toLocaleString() + '.' + String(a%100).padStart(2,'0');
+  }
+  function showError(msg) {
+    const el = document.getElementById('split-modal-error');
+    el.textContent = msg;
+    el.classList.remove('d-none');
+  }
+  function clearError() {
+    document.getElementById('split-modal-error').classList.add('d-none');
+  }
+  function catOptionsHtml(selectedId) {
+    const groups = {};
+    _categories.forEach(c => { (groups[c.group] = groups[c.group] || []).push(c); });
+    let html = '<option value="">— category —</option>';
+    Object.entries(groups).forEach(([g, cats]) => {
+      html += `<optgroup label="${esc(g)}">`;
+      cats.forEach(c => { html += `<option value="${c.id}"${c.id === selectedId ? ' selected' : ''}>${esc(c.name)}</option>`; });
+      html += '</optgroup>';
+    });
+    return html;
+  }
+  function updateRemaining() {
+    let sum = 0;
+    document.querySelectorAll('#split-rows tr').forEach(tr => {
+      const v = parseFloat(tr.querySelector('.split-row-amount').value);
+      if (!isNaN(v)) sum += Math.round(v * 100);
+    });
+    const remaining = Math.abs(_total) - sum;
+    const el = document.getElementById('split-remaining');
+    el.textContent = fmtMoney(remaining);
+    el.className = remaining === 0 ? 'text-success' : 'text-danger';
+  }
+  function addSplitRow(categoryId, amountCents, memo) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td><select class="form-select form-select-sm split-row-cat">${catOptionsHtml(categoryId)}</select></td>
+      <td><input type="text" class="form-control form-control-sm split-row-memo" value="${esc(memo)}" placeholder="Optional"></td>
+      <td><input type="text" class="form-control form-control-sm text-end split-row-amount" value="${amountCents != null ? (amountCents/100).toFixed(2) : ''}" placeholder="0.00"></td>
+      <td><button type="button" class="btn btn-sm btn-outline-secondary split-row-remove">&times;</button></td>`;
+    document.getElementById('split-rows').appendChild(tr);
+    tr.querySelector('.split-row-remove').addEventListener('click', () => { tr.remove(); updateRemaining(); });
+    tr.querySelector('.split-row-amount').addEventListener('input', updateRemaining);
+  }
+
+  // Entry point: openSplitModal(transactionId, { onSaved: () => refreshWhateverTableCalledThis() })
+  window.openSplitModal = function(tid, opts) {
+    opts = opts || {};
+    _onSaved = opts.onSaved || null;
+    clearError();
+    document.getElementById('split-rows').innerHTML = '';
+    document.getElementById('split-modal-summary').textContent = 'Loading…';
+    document.getElementById('split-unsplit-btn').classList.add('d-none');
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('splitModal')).show();
+
+    fetch(`/transactions/${tid}/split-info`).then(r => r.json()).then(data => {
+      if (data.error) { document.getElementById('split-modal-summary').textContent = ''; showError(data.error); return; }
+      _tid = tid; _total = data.amount; _categories = data.categories;
+      document.getElementById('split-modal-summary').innerHTML =
+        `${esc(data.payee) || '<span class="text-muted">(no payee)</span>'} &middot; ${esc(data.date)} &middot; Total: <strong>${fmtMoney(data.amount)}</strong>`;
+      document.getElementById('split-rows').innerHTML = '';
+      if (data.splits.length) {
+        data.splits.forEach(s => addSplitRow(s.category_id, Math.abs(s.amount), s.memo));
+        document.getElementById('split-unsplit-btn').classList.remove('d-none');
+      } else {
+        addSplitRow(data.category_id, null, '');
+        addSplitRow(null, null, '');
+      }
+      updateRemaining();
+    }).catch(() => { document.getElementById('split-modal-summary').textContent = ''; showError('Could not load this transaction.'); });
+  };
+
+  document.getElementById('split-add-row').addEventListener('click', () => { addSplitRow(null, null, ''); updateRemaining(); });
+
+  document.getElementById('split-save-btn').addEventListener('click', async () => {
+    clearError();
+    const sign = _total < 0 ? -1 : 1;
+    const splits = [];
+    let bad = false;
+    document.querySelectorAll('#split-rows tr').forEach(tr => {
+      const catId  = tr.querySelector('.split-row-cat').value;
+      const memo   = tr.querySelector('.split-row-memo').value;
+      const amtStr = tr.querySelector('.split-row-amount').value.trim();
+      if (!amtStr) return;
+      const amt = parseFloat(amtStr.replace(/[^0-9.\-]/g, ''));
+      if (isNaN(amt) || amt === 0) return;
+      if (!catId) { bad = true; return; }
+      splits.push({ category_id: parseInt(catId, 10), amount: Math.round(amt * 100) * sign, memo });
+    });
+    if (bad) { showError('Every split needs a category.'); return; }
+    if (splits.length < 2) { showError('Enter at least two splits.'); return; }
+
+    const btn = document.getElementById('split-save-btn');
+    btn.disabled = true;
+    try {
+      const r = await fetch(`/transactions/${_tid}/split`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ splits }),
+      });
+      const data = await r.json();
+      if (!data.ok) { showError(data.error || 'Could not save splits.'); btn.disabled = false; return; }
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('splitModal')).hide();
+      if (_onSaved) _onSaved();
+    } catch (e) {
+      showError('Could not save splits.');
+    }
+    btn.disabled = false;
+  });
+
+  document.getElementById('split-unsplit-btn').addEventListener('click', async () => {
+    if (!confirm('Remove the split and merge this back into one line?')) return;
+    clearError();
+    try {
+      const r = await fetch(`/transactions/${_tid}/unsplit`, { method: 'POST' });
+      const data = await r.json();
+      if (!data.ok) { showError(data.error || 'Could not unsplit.'); return; }
+      bootstrap.Modal.getOrCreateInstance(document.getElementById('splitModal')).hide();
+      if (_onSaved) _onSaved();
+    } catch (e) {
+      showError('Could not unsplit.');
+    }
+  });
+})();
 </script>
 {% block scripts %}{% endblock %}
 </body>

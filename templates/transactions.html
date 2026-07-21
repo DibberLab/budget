@@ -212,6 +212,7 @@
           data-cat-name="{{ cat_by_id.get(t.category_id, '') }}"
           data-amount="{{ t.amount }}"
           data-owner="{{ 'joint' if t.is_joint else (t.owner_user_id|string if t.owner_user_id else '') }}"
+          data-splits="{{ t.splits | map(attribute='category_id') | list | tojson }}"
           style="border-left:3px solid {{ cat_colors.get(t.category_id, '#dee2e6') }};--bs-table-bg:{{ cat_bg_colors.get(t.category_id, 'transparent') }}">
 
         {# Date #}
@@ -234,6 +235,10 @@
         {# Category #}
         <td>
           <div class="d-flex align-items-center gap-1">
+            {% if t.splits %}
+            <span class="badge text-bg-info js-split-badge" data-tid="{{ t.id }}" role="button"
+                  title="Click to view or edit this split">Split ({{ t.splits|length }})</span>
+            {% else %}
             {% if t.category_id %}
             <span class="js-tag-trigger" data-type="cat" data-value="{{ t.category_id }}"
                   style="width:8px;height:8px;border-radius:50%;flex-shrink:0;display:inline-block;
@@ -246,6 +251,12 @@
                 <option value="{{ c.id }}" {% if t.category_id == c.id %}selected{% endif %}>{{ c.group_name }} / {{ c.name }}</option>
               {% endfor %}
             </select>
+            {% if not t.transfer_id %}
+            <button type="button" class="btn btn-sm btn-outline-secondary js-split-btn py-0 px-1 flex-shrink-0"
+                    data-tid="{{ t.id }}" title="Split into multiple categories"
+                    style="font-size:.68rem;line-height:1.3;">Split</button>
+            {% endif %}
+            {% endif %}
           </div>
         </td>
 
@@ -270,12 +281,18 @@
           </select>
         </td>
 
-        {# Amount #}
+        {# Amount — locked while split; unsplit first to change the total #}
         <td class="text-end">
+          {% if t.splits %}
+          <span class="{% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}"
+                title="Unsplit this transaction to change its amount"
+                style="display:inline-block;min-width:60px;text-align:right;">{{ t.amount | money }}</span>
+          {% else %}
           <span class="js-editable {% if t.amount >= 0 %}money-pos{% else %}money-neg{% endif %}"
                 data-field="amount" data-tid="{{ t.id }}"
                 contenteditable="true" spellcheck="false"
                 style="display:inline-block;min-width:60px;text-align:right;">{{ t.amount | money }}</span>
+          {% endif %}
         </td>
 
         <td class="text-end">
@@ -300,6 +317,7 @@
 // ---- data from server ----
 const CAT_COLORS  = {{ cat_colors | tojson }};
 const CAT_GROUPS  = {{ cat_groups | tojson }};
+const CAT_NAMES   = {{ cat_by_id | tojson }};
 const INIT_CAT    = {{ initial_cat_id | tojson }};
 const INIT_PAYEE  = {{ initial_payee | tojson }};
 const USERS       = {{ users_json | tojson }};  // { "1": "Andrew", "2": "Libby" }
@@ -374,33 +392,57 @@ const allRows = Array.from(document.querySelectorAll('#txn-body tr[data-tid]')).
   catName: tr.dataset.catName || '',
   amount:  parseInt(tr.dataset.amount) || 0,
   owner:   tr.dataset.owner   || '',
+  splitCatIds: tr.dataset.splits ? JSON.parse(tr.dataset.splits).map(String) : [],
 }));
 
 // ---- build a stable ordered list of categories, groups, and payees ----
 const catIndex   = {};  // catId -> {name, color, group}
 const payeeIndex = {};  // payee -> true
+const catTotalCounts   = {};  // catId -> total transaction count
+const payeeTotalCounts = {};  // payee -> total transaction count
 
-allRows.forEach(r => {
-  if (r.catId && !catIndex[r.catId]) {
-    catIndex[r.catId] = {
-      name:  r.catName || '(uncategorized)',
-      color: CAT_COLORS[r.catId] || '#ccc',
-      group: CAT_GROUPS[r.catId] || 'Other',
+function _ensureCatIndexed(id) {
+  if (!catIndex[id]) {
+    catIndex[id] = {
+      name:  CAT_NAMES[id] || '(uncategorized)',
+      color: CAT_COLORS[id] || '#ccc',
+      group: CAT_GROUPS[id] || 'Other',
     };
   }
-  if (r.payee) payeeIndex[r.payee] = true;
+}
+
+allRows.forEach(r => {
+  if (r.catId) {
+    _ensureCatIndexed(r.catId);
+    catTotalCounts[r.catId] = (catTotalCounts[r.catId] || 0) + 1;
+  }
+  // A split transaction has no catId of its own — it belongs to every
+  // category it was split into, so it counts toward each of those.
+  r.splitCatIds.forEach(id => {
+    _ensureCatIndexed(id);
+    catTotalCounts[id] = (catTotalCounts[id] || 0) + 1;
+  });
+  if (r.payee) {
+    payeeIndex[r.payee] = true;
+    payeeTotalCounts[r.payee] = (payeeTotalCounts[r.payee] || 0) + 1;
+  }
 });
 
-const catIds   = Object.keys(catIndex).sort((a,b) => catIndex[a].name.localeCompare(catIndex[b].name));
-const payees   = Object.keys(payeeIndex).sort((a,b) => a.localeCompare(b));
+const catIds   = Object.keys(catIndex).sort((a,b) =>
+  (catTotalCounts[b] || 0) - (catTotalCounts[a] || 0) || catIndex[a].name.localeCompare(catIndex[b].name));
+const payees   = Object.keys(payeeIndex).sort((a,b) =>
+  (payeeTotalCounts[b] || 0) - (payeeTotalCounts[a] || 0) || a.localeCompare(b));
 
 // Build group index from catIndex
 const groupIndex = {};  // groupName -> {color}
+const groupTotalCounts = {};  // groupName -> total transaction count
 catIds.forEach(id => {
   const grp = catIndex[id].group;
   if (!groupIndex[grp]) groupIndex[grp] = { color: catIndex[id].color };
+  groupTotalCounts[grp] = (groupTotalCounts[grp] || 0) + catTotalCounts[id];
 });
-const groupNames = Object.keys(groupIndex).sort();
+const groupNames = Object.keys(groupIndex).sort((a,b) =>
+  (groupTotalCounts[b] || 0) - (groupTotalCounts[a] || 0) || a.localeCompare(b));
 
 // ---- apply filters and refresh display ----
 function applyFilters() {
@@ -412,11 +454,14 @@ function applyFilters() {
   const hasFilter = activeCats.size > 0 || activeGroups.size > 0 || activePayees.size > 0 || activeOwners.size > 0 || dateStart || dateEnd;
 
   allRows.forEach(r => {
-    const rGroup  = r.catId ? (catIndex[r.catId]?.group || '') : '';
-    // Cat/group filter: pass if nothing selected, or category matches, or group matches
+    // A split transaction has no catId of its own — treat it as belonging
+    // to every category (and group) it was split into.
+    const rowCatIds = r.catId ? [r.catId] : r.splitCatIds;
+    const rowGroups = rowCatIds.map(id => catIndex[id]?.group).filter(Boolean);
+    // Cat/group filter: pass if nothing selected, or any category/group matches
     const catOk   = (activeCats.size === 0 && activeGroups.size === 0)
-                  || activeCats.has(r.catId)
-                  || (rGroup && activeGroups.has(rGroup));
+                  || rowCatIds.some(id => activeCats.has(id))
+                  || rowGroups.some(g => activeGroups.has(g));
     const payeeOk = activePayees.size === 0 || activePayees.has(r.payee);
     const ownerOk = activeOwners.size === 0 || activeOwners.has(r.owner);
     const dateOk  = (!dateStart || r.date >= dateStart) && (!dateEnd || r.date <= dateEnd);
@@ -428,10 +473,14 @@ function applyFilters() {
     if (visible) {
       count++;
       if (r.amount < 0) expenses += r.amount; else income += r.amount;
-      catCounts[r.catId]   = (catCounts[r.catId]   || 0) + 1;
+      if (rowCatIds.length) {
+        rowCatIds.forEach(id => { catCounts[id] = (catCounts[id] || 0) + 1; });
+        rowGroups.forEach(g  => { groupCounts[g] = (groupCounts[g] || 0) + 1; });
+      } else {
+        catCounts[''] = (catCounts[''] || 0) + 1;
+      }
       payeeCounts[r.payee] = (payeeCounts[r.payee] || 0) + 1;
       ownerCounts[r.owner] = (ownerCounts[r.owner] || 0) + 1;
-      if (rGroup) groupCounts[rGroup] = (groupCounts[rGroup] || 0) + 1;
     }
   });
 
@@ -594,6 +643,14 @@ document.querySelectorAll('.js-tag-trigger').forEach(el => {
     e.stopPropagation();
     if (el.dataset.type === 'cat')   toggleCat(el.dataset.value);
     if (el.dataset.type === 'payee') togglePayee(el.dataset.value);
+  });
+});
+
+// ---- split a transaction / edit an existing split ----
+document.querySelectorAll('.js-split-btn, .js-split-badge').forEach(el => {
+  el.addEventListener('click', e => {
+    e.stopPropagation();
+    openSplitModal(el.dataset.tid, { onSaved: () => location.reload() });
   });
 });
 

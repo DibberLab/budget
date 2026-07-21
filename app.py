@@ -30,6 +30,7 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import extract, func
+from sqlalchemy.orm import joinedload
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 import csv_import
@@ -125,14 +126,16 @@ def _build_budget_context() -> str:
     for group, name, total in cur_cats:
         lines.append(f"  {group} / {name}: ${abs(int(total))/100:,.2f}")
 
-    # Top 30 payees last 90 days (outflows only)
+    # Top 30 payees last 90 days (outflows only). parent_id filter keeps
+    # split line-items from being double-counted alongside their parent.
     payee_rows = (
         db.session.query(
             Transaction.payee,
             func.count().label("cnt"),
             func.sum(Transaction.amount).label("tot"),
         )
-        .filter(Transaction.date >= ninety_days_ago, Transaction.amount < 0)
+        .filter(Transaction.date >= ninety_days_ago, Transaction.amount < 0,
+                Transaction.parent_id.is_(None))
         .group_by(Transaction.payee)
         .order_by(func.sum(Transaction.amount))
         .limit(30)
@@ -145,7 +148,8 @@ def _build_budget_context() -> str:
     # Recent transactions (last 90 days, capped at 250)
     recent = (
         Transaction.query
-        .filter(Transaction.date >= ninety_days_ago)
+        .filter(Transaction.date >= ninety_days_ago, Transaction.parent_id.is_(None))
+        .options(joinedload(Transaction.splits))
         .order_by(Transaction.date.desc(), Transaction.id.desc())
         .limit(250)
         .all()
@@ -154,7 +158,10 @@ def _build_budget_context() -> str:
     lines.append("Date       | Account              | Category             | Payee                          | Amount")
     lines.append("-----------|----------------------|----------------------|--------------------------------|----------")
     for t in recent:
-        cat = t.category.name if t.category else "(uncategorized)"
+        if t.splits:
+            cat = "Split (" + ", ".join(s.category.name if s.category else "?" for s in t.splits) + ")"
+        else:
+            cat = t.category.name if t.category else "(uncategorized)"
         acct = t.account.name if t.account else ""
         sign = "+" if t.amount > 0 else "-"
         amt = f"{sign}${abs(t.amount)/100:,.2f}"
@@ -221,6 +228,7 @@ def create_app():
         db.create_all()
         _seed_default_categories()
         _migrate_owner_columns()
+        _migrate_split_column()
 
     @app.before_request
     def _post_recurring():
@@ -292,6 +300,19 @@ def _migrate_owner_columns():
         if "is_joint" not in existing:
             conn.execute(_text("ALTER TABLE transactions ADD COLUMN is_joint BOOLEAN NOT NULL DEFAULT 0"))
             conn.commit()
+
+
+def _migrate_split_column():
+    """Add parent_id (split line-items) to transactions table for existing DBs."""
+    from sqlalchemy import inspect as _sa_inspect, text as _text
+    insp = _sa_inspect(db.engine)
+    existing = {c["name"] for c in insp.get_columns("transactions")}
+    with db.engine.connect() as conn:
+        if "parent_id" not in existing:
+            conn.execute(_text("ALTER TABLE transactions ADD COLUMN parent_id INTEGER REFERENCES transactions(id)"))
+            conn.commit()
+        conn.execute(_text("CREATE INDEX IF NOT EXISTS ix_txn_parent_id ON transactions(parent_id)"))
+        conn.commit()
 
 
 def _seed_default_categories():
@@ -618,10 +639,12 @@ def register_routes(app: Flask):
                                    "group_budgeted": gb, "group_spent_month": gs,
                                    "group_spent_pct": _pct(gs, gb)})
 
-        # Payee table rows
+        # Payee table rows — parent_id filter keeps split line-items from
+        # being counted alongside the parent's already-full amount.
         payee_alltime = (db.session.query(Transaction.payee,
                          func.sum(Transaction.amount), func.min(Transaction.date))
-            .filter(Transaction.amount < 0, Transaction.payee != '')
+            .filter(Transaction.amount < 0, Transaction.payee != '',
+                    Transaction.parent_id.is_(None))
             .group_by(Transaction.payee).all())
         payee_avg_map = {}
         for p, total, first_date_ in payee_alltime:
@@ -632,11 +655,13 @@ def register_routes(app: Flask):
         payee_lm_map = {p: int(abs(t or 0)) for p, t in
                         db.session.query(Transaction.payee, func.sum(Transaction.amount))
                         .filter(Transaction.amount < 0, Transaction.payee != '',
+                                Transaction.parent_id.is_(None),
                                 Transaction.date >= lm_start, Transaction.date <= lm_end)
                         .group_by(Transaction.payee).all() if p}
         payee_cm_map = {p: int(abs(t or 0)) for p, t in
                         db.session.query(Transaction.payee, func.sum(Transaction.amount))
                         .filter(Transaction.amount < 0, Transaction.payee != '',
+                                Transaction.parent_id.is_(None),
                                 Transaction.date >= cm_start, Transaction.date <= today)
                         .group_by(Transaction.payee).all() if p}
         all_payees = set(payee_avg_map) | set(payee_lm_map) | set(payee_cm_map)
@@ -738,7 +763,8 @@ def register_routes(app: Flask):
         account_id  = request.args.get("account_id", type=int)
         initial_cat_id = request.args.get("category_id", type=int)
         initial_payee  = request.args.get("payee", "").strip()
-        q = Transaction.query
+        q = Transaction.query.filter(Transaction.parent_id.is_(None)).options(
+            joinedload(Transaction.splits))
         if account_id:
             q = q.filter_by(account_id=account_id)
         txns = q.order_by(Transaction.date.desc(), Transaction.id.desc()).limit(500).all()
@@ -845,6 +871,8 @@ def register_routes(app: Flask):
     @login_required
     def transaction_categorize(tid):
         t = db.session.get(Transaction, tid) or abort(404)
+        if t.splits:
+            return jsonify({"ok": False, "error": "Unsplit this transaction before changing its category."}), 400
         cid = request.form.get("category_id") or None
         t.category_id = int(cid) if cid else None
         db.session.commit()
@@ -856,6 +884,8 @@ def register_routes(app: Flask):
         t = db.session.get(Transaction, tid) or abort(404)
         field = request.form.get("field")
         value = request.form.get("value", "").strip()
+        if t.splits and field in ("amount", "category_id"):
+            return jsonify({"ok": False, "error": "Unsplit this transaction before changing its amount or category."}), 400
         if field == "date":
             from datetime import date as _date
             try:
@@ -890,6 +920,89 @@ def register_routes(app: Flask):
                     return jsonify({"ok": False, "error": "Invalid owner"}), 400
         else:
             return jsonify({"ok": False, "error": "Unknown field"}), 400
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/transactions/<int:tid>/split-info")
+    @login_required
+    def transaction_split_info(tid):
+        """Everything the split modal needs to render, for any transaction on any page."""
+        t = db.session.get(Transaction, tid) or abort(404)
+        if t.parent_id is not None:
+            return jsonify({"error": "This is already a split line-item and can't be split further."}), 400
+        cats = (Category.query.filter_by(hidden=False)
+                .order_by(Category.group_name, Category.name).all())
+        return jsonify({
+            "id": t.id,
+            "date": t.date.isoformat(),
+            "payee": t.payee or "",
+            "memo": t.memo or "",
+            "amount": t.amount,
+            "category_id": t.category_id,
+            "is_transfer": bool(t.transfer_id),
+            "splits": [{"id": s.id, "category_id": s.category_id, "amount": s.amount,
+                        "memo": s.memo or ""} for s in t.splits],
+            "categories": [{"id": c.id, "name": c.name, "group": c.group_name} for c in cats],
+        })
+
+    @app.route("/transactions/<int:tid>/split", methods=["POST"])
+    @login_required
+    def transaction_split(tid):
+        """Divide a transaction's amount across multiple categories.
+
+        The transaction becomes a "parent" (category cleared, amount kept as
+        the total) and each split is created as its own child Transaction row
+        so all the existing per-category aggregates just work. Re-posting
+        replaces any prior splits wholesale.
+        """
+        t = db.session.get(Transaction, tid) or abort(404)
+        if t.parent_id is not None:
+            return jsonify({"ok": False, "error": "This is already a split line-item and can't be split further."}), 400
+        if t.transfer_id:
+            return jsonify({"ok": False, "error": "Transfers can't be split."}), 400
+
+        payload = request.get_json(silent=True) or {}
+        raw_splits = payload.get("splits") or []
+
+        parsed = []
+        for row in raw_splits:
+            try:
+                cat_id = int(row["category_id"]) if row.get("category_id") else None
+                cents = to_cents(row.get("amount", "0"))
+            except (KeyError, ValueError, TypeError):
+                return jsonify({"ok": False, "error": "Invalid split row."}), 400
+            if cents == 0:
+                continue
+            parsed.append((cat_id, cents, (row.get("memo") or "").strip()))
+
+        if len(parsed) < 2:
+            return jsonify({"ok": False, "error": "Enter at least two non-zero splits."}), 400
+        if sum(cents for _, cents, _ in parsed) != t.amount:
+            return jsonify({"ok": False,
+                             "error": f"Splits must add up to {fmt_money(t.amount)}."}), 400
+
+        for old in list(t.splits):
+            db.session.delete(old)
+        db.session.flush()
+
+        for cat_id, cents, memo in parsed:
+            db.session.add(Transaction(
+                account_id=t.account_id, date=t.date, amount=cents,
+                payee=t.payee, memo=memo or t.memo,
+                cleared=t.cleared, source="split",
+                owner_user_id=t.owner_user_id, is_joint=t.is_joint,
+                category_id=cat_id, parent_id=t.id,
+            ))
+        t.category_id = None
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/transactions/<int:tid>/unsplit", methods=["POST"])
+    @login_required
+    def transaction_unsplit(tid):
+        t = db.session.get(Transaction, tid) or abort(404)
+        for old in list(t.splits):
+            db.session.delete(old)
         db.session.commit()
         return jsonify({"ok": True})
 
@@ -1119,7 +1232,8 @@ def register_routes(app: Flask):
                  "amount": t.amount,
                  "account": t.account.name if t.account else "",
                  "category_id": t.category_id or "",
-                 "category_name": t.category.name if t.category else ""} for t in txns]
+                 "category_name": t.category.name if t.category else "",
+                 "parent_id": t.parent_id} for t in txns]
         total    = sum(t.amount for t in txns)
         expenses = sum(abs(t.amount) for t in txns if t.amount < 0)
         all_cats = (Category.query
@@ -1142,8 +1256,10 @@ def register_routes(app: Flask):
 
         txns = (Transaction.query
                 .filter(Transaction.payee == payee,
+                        Transaction.parent_id.is_(None),
                         Transaction.date >= start_date,
                         Transaction.date <= end_date)
+                .options(joinedload(Transaction.splits))
                 .order_by(Transaction.date.desc(), Transaction.id.desc())
                 .all())
         rows = [{"id": t.id,
@@ -1153,7 +1269,9 @@ def register_routes(app: Flask):
                  "amount": t.amount,
                  "account": t.account.name if t.account else "",
                  "category_id": t.category_id or "",
-                 "category_name": t.category.name if t.category else ""} for t in txns]
+                 "category_name": ("Split (%d)" % len(t.splits)) if t.splits
+                                   else (t.category.name if t.category else ""),
+                 "parent_id": t.parent_id} for t in txns]
         expenses = sum(abs(t.amount) for t in txns if t.amount < 0)
         all_cats = (Category.query
                     .filter_by(hidden=False)
@@ -1199,7 +1317,8 @@ def register_routes(app: Flask):
                  "group_name": t.category.group_name if t.category else "",
                  "is_joint": t.is_joint,
                  "owner_user_id": t.owner_user_id,
-                 "owner_name": t.owner.display_name if t.owner else None} for t in txns]
+                 "owner_name": t.owner.display_name if t.owner else None,
+                 "parent_id": t.parent_id} for t in txns]
         expenses = sum(abs(t.amount) for t in txns)
         return jsonify({"transactions": rows, "expenses": expenses, "categories": cat_list})
 
