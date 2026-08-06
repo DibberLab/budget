@@ -84,11 +84,18 @@ def _get_ai_client() -> anthropic.Anthropic:
 
 
 def _ai_tool_call(prompt: str, tool_name: str, tool_description: str,
-                  input_schema: dict, max_tokens: int = 2048) -> dict:
+                  input_schema: dict, max_tokens: int = 8192) -> dict:
     """Call Claude and force a structured response via tool-use, so the reply
     is schema-validated JSON straight from the API — no brittle scraping of
     free-form text for a '{...}' substring, which breaks the moment a payee
-    name or memo contains a quote/brace and desyncs the parse."""
+    name or memo contains a quote/brace and desyncs the parse.
+
+    Forced tool-use has no scratch space to spill into once max_tokens is hit
+    mid-JSON — the SDK just hands back an incomplete/empty `.input` with no
+    error. On a big household's payee/transaction list that silently looked
+    identical to "Claude found nothing," which is how this went unnoticed:
+    stop_reason is checked explicitly so a truncation surfaces as a real error
+    instead of a quiet, wrong "no suggestions."""
     response = _get_ai_client().messages.create(
         model="claude-opus-4-8",
         max_tokens=max_tokens,
@@ -100,6 +107,11 @@ def _ai_tool_call(prompt: str, tool_name: str, tool_description: str,
         tool_choice={"type": "tool", "name": tool_name},
         messages=[{"role": "user", "content": prompt}],
     )
+    if response.stop_reason == "max_tokens":
+        raise RuntimeError(
+            "Claude's response was cut off before it finished (hit the token limit). "
+            "Try again — if this keeps happening, the list may need to be analyzed in smaller batches."
+        )
     block = next((b for b in response.content if b.type == "tool_use"), None)
     return block.input if block else {}
 
@@ -2155,7 +2167,11 @@ def register_routes(app: Flask):
                     },
                     "required": ["suggestions"],
                 },
-                max_tokens=4096,
+                # Up to 150 candidates, and unlike payee cleanup every one of
+                # them can legitimately get a suggestion — give it plenty of
+                # room so a big backlog doesn't get truncated into looking
+                # like "nothing to suggest" (see _ai_tool_call).
+                max_tokens=16384,
             )
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
