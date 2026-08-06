@@ -254,3 +254,18 @@ class AiPayeeSuggestion(db.Model):
     # pending | approved | rejected
     status = db.Column(db.String(16), nullable=False, default="pending")
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class AiCategorySuggestion(db.Model):
+    """A Claude-generated suggestion to assign a category to an uncategorized transaction."""
+    __tablename__ = "ai_category_suggestions"
+    id = db.Column(db.Integer, primary_key=True)
+    transaction_id = db.Column(db.Integer, db.ForeignKey("transactions.id"), nullable=False)
+    suggested_category_id = db.Column(db.Integer, db.ForeignKey("categories.id"), nullable=False)
+    reason = db.Column(db.String(500), default="")
+    # pending | approved | rejected
+    status = db.Column(db.String(16), nullable=False, default="pending")
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    transaction = db.relationship("Transaction")
+    suggested_category = db.relationship("Category")

@@ -21,6 +21,14 @@
       {% endif %}
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="category-tab" data-bs-toggle="tab" data-bs-target="#categoryPane" type="button">
+      Categorize
+      {% if pending_category_count > 0 %}
+      <span class="badge bg-warning text-dark ms-1">{{ pending_category_count }}</span>
+      {% endif %}
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content">
@@ -130,6 +138,53 @@
         <div class="text-center text-muted py-5" id="noSuggestions">
           <p class="mb-1">No pending suggestions.</p>
           <p class="small">Click "Analyze Payees" to scan your recent transactions.</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {# ── Categorize tab ── #}
+  <div class="tab-pane fade" id="categoryPane" role="tabpanel">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <p class="text-muted mb-0">
+        Claude looks at your uncategorized transactions and suggests the best category for each,
+        using the payee, memo, amount, and how similar payees were categorized before.
+        Approve to apply the category; reject to skip.
+      </p>
+      <button class="btn btn-primary" id="analyzeCatBtn" onclick="analyzeCategories()">
+        <span id="analyzeCatBtnLabel">Analyze Uncategorized</span>
+        <span id="analyzeCatBtnSpinner" class="spinner-border spinner-border-sm ms-1 d-none" role="status"></span>
+      </button>
+    </div>
+
+    <div id="categorySuggestions">
+      {% if pending_categories %}
+        {% for s in pending_categories %}
+        <div class="card mb-2" id="cat-sugg-{{ s.id }}">
+          <div class="card-body py-2">
+            <div class="row align-items-center">
+              <div class="col">
+                <span class="text-muted">{{ s.transaction.date }}</span>
+                <span class="mx-2 fw-semibold">{{ s.transaction.payee or '(blank)' }}</span>
+                <span class="text-muted">{{ s.transaction.amount | money }}</span>
+                <span class="mx-2 text-muted">→</span>
+                <strong>{{ s.suggested_category.group_name }} &rsaquo; {{ s.suggested_category.name }}</strong>
+                <div class="small text-muted mt-1">{{ s.reason }}</div>
+              </div>
+              <div class="col-auto">
+                <button class="btn btn-success btn-sm me-1"
+                        onclick="approveCategory({{ s.id }}, this)">Approve</button>
+                <button class="btn btn-outline-secondary btn-sm"
+                        onclick="rejectCategory({{ s.id }}, this)">Reject</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="text-center text-muted py-5" id="noCategorySuggestions">
+          <p class="mb-1">No pending suggestions.</p>
+          <p class="small">Click "Analyze Uncategorized" to scan for transactions missing a category.</p>
         </div>
       {% endif %}
     </div>
@@ -396,6 +451,85 @@ async function rejectPayee(id, btn) {
 
 function updatePendingBadge(delta) {
   const badge = document.querySelector('#payee-tab .badge');
+  if (!badge) return;
+  const current = parseInt(badge.textContent, 10) || 0;
+  const next = current + delta;
+  if (next <= 0) badge.remove();
+  else badge.textContent = next;
+}
+
+// ── Category analysis ──────────────────────────────────────────────────
+async function analyzeCategories() {
+  const btn = document.getElementById('analyzeCatBtn');
+  const label = document.getElementById('analyzeCatBtnLabel');
+  const spinner = document.getElementById('analyzeCatBtnSpinner');
+  btn.disabled = true;
+  label.textContent = 'Analyzing…';
+  spinner.classList.remove('d-none');
+
+  try {
+    const resp = await fetch('/api/ai/suggest-categories', { method: 'POST' });
+    const data = await resp.json();
+
+    if (data.error) throw new Error(data.error);
+
+    if (!data.suggestions || data.suggestions.length === 0) {
+      const container = document.getElementById('categorySuggestions');
+      container.innerHTML =
+        '<div class="text-center text-muted py-5" id="noCategorySuggestions">' +
+        '<p class="mb-1">' + (data.message || 'No categorization suggestions right now.') + '</p></div>';
+      return;
+    }
+
+    // Reload so server-rendered cards (with transaction details & proper IDs) appear
+    window.location.reload();
+  } catch (err) {
+    alert('Error analyzing transactions: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    label.textContent = 'Analyze Uncategorized';
+    spinner.classList.add('d-none');
+  }
+}
+
+async function approveCategory(id, btn) {
+  btn.disabled = true;
+  btn.nextElementSibling.disabled = true;
+  try {
+    const resp = await fetch(`/api/ai/approve-category/${id}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    const card = document.getElementById(`cat-sugg-${id}`);
+    card.innerHTML = `<div class="card-body py-2 text-success">✓ Approved.</div>`;
+    card.classList.add('border-success');
+    updateCategoryPendingBadge(-1);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.nextElementSibling.disabled = false;
+  }
+}
+
+async function rejectCategory(id, btn) {
+  btn.disabled = true;
+  btn.previousElementSibling.disabled = true;
+  try {
+    const resp = await fetch(`/api/ai/reject-category/${id}`, { method: 'POST' });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    const card = document.getElementById(`cat-sugg-${id}`);
+    card.innerHTML = `<div class="card-body py-2 text-muted">✕ Rejected.</div>`;
+    card.classList.add('opacity-50');
+    updateCategoryPendingBadge(-1);
+  } catch (err) {
+    alert('Error: ' + err.message);
+    btn.disabled = false;
+    btn.previousElementSibling.disabled = false;
+  }
+}
+
+function updateCategoryPendingBadge(delta) {
+  const badge = document.querySelector('#category-tab .badge');
   if (!badge) return;
   const current = parseInt(badge.textContent, 10) || 0;
   const next = current + delta;

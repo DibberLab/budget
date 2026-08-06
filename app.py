@@ -36,9 +36,10 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import csv_import
 import plaid_client
 from auth import auth_bp, login_manager, setup_required
-from models import (MAX_USERS, Account, AiPayeeSuggestion, BudgetMonth,
-                    Category, Goal, PlaidItem, Recurring, Transaction, User,
-                    db, fmt_money, from_cents, to_cents)
+from models import (MAX_USERS, Account, AiCategorySuggestion,
+                    AiPayeeSuggestion, BudgetMonth, Category, Goal,
+                    PlaidItem, Recurring, Transaction, User, db, fmt_money,
+                    from_cents, to_cents)
 from recurring import post_due_recurring
 
 
@@ -1853,11 +1854,23 @@ def register_routes(app: Flask):
     @setup_required
     @login_required
     def ai_analysis():
-        pending = AiPayeeSuggestion.query.filter_by(status="pending").order_by(
+        pending_payees = AiPayeeSuggestion.query.filter_by(status="pending").order_by(
             AiPayeeSuggestion.created_at.desc()
         ).all()
-        return render_template("ai.html", pending_suggestions=pending,
-                               pending_count=len(pending))
+        pending_categories = (
+            AiCategorySuggestion.query
+            .join(Transaction, AiCategorySuggestion.transaction_id == Transaction.id)
+            .filter(AiCategorySuggestion.status == "pending")
+            .options(joinedload(AiCategorySuggestion.transaction),
+                    joinedload(AiCategorySuggestion.suggested_category))
+            .order_by(AiCategorySuggestion.created_at.desc())
+            .all()
+        )
+        return render_template("ai.html",
+                               pending_suggestions=pending_payees,
+                               pending_count=len(pending_payees),
+                               pending_categories=pending_categories,
+                               pending_category_count=len(pending_categories))
 
     @app.route("/api/ai/chat", methods=["POST"])
     @login_required
@@ -2011,6 +2024,154 @@ def register_routes(app: Flask):
     @login_required
     def api_ai_reject_payee(sid):
         suggestion = AiPayeeSuggestion.query.get_or_404(sid)
+        if suggestion.status != "pending":
+            return jsonify({"error": "already processed"}), 400
+        suggestion.status = "rejected"
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/ai/suggest-categories", methods=["POST"])
+    @login_required
+    def api_ai_suggest_categories():
+        # Only transactions that are actually eligible for a direct category:
+        # not a transfer (never categorized), not a split parent (splits carry
+        # the category on their line-items instead).
+        candidates = (
+            Transaction.query
+            .filter(Transaction.category_id.is_(None),
+                   Transaction.parent_id.is_(None),
+                   Transaction.transfer_id.is_(None))
+            .filter(~Transaction.splits.any())
+            .order_by(Transaction.date.desc())
+            .limit(150)
+            .all()
+        )
+
+        if not candidates:
+            return jsonify({"suggestions": [], "message": "No uncategorized transactions found."})
+
+        categories = (Category.query.filter_by(hidden=False)
+                     .order_by(Category.group_name, Category.name).all())
+        cat_lookup = {(c.group_name.strip().lower(), c.name.strip().lower()): c
+                      for c in categories}
+        cat_list_text = "\n".join(
+            f"  {c.group_name} > {c.name}" + (" (income)" if c.is_income else "")
+            for c in categories
+        )
+
+        # Give Claude a payee → category cheat-sheet from transactions that
+        # are already categorized, so it can pattern-match recurring payees
+        # instead of guessing from the name alone every time.
+        payees_needed = {t.payee for t in candidates if t.payee}
+        history_rows = (
+            db.session.query(Transaction.payee, Category.group_name, Category.name)
+            .join(Category, Category.id == Transaction.category_id)
+            .filter(Transaction.payee.in_(payees_needed))
+            .distinct()
+            .all()
+        ) if payees_needed else []
+        history_map = defaultdict(set)
+        for payee, group, name in history_rows:
+            history_map[payee].add(f"{group} > {name}")
+        history_text = "\n".join(
+            f"  {payee} → previously categorized as: {', '.join(sorted(cats))}"
+            for payee, cats in history_map.items()
+        )
+
+        txn_list_text = "\n".join(
+            f"  id={t.id} | {t.date} | {(t.payee or '(blank)')[:40]} | "
+            f"{'+' if t.amount > 0 else '-'}${abs(t.amount)/100:,.2f}"
+            + (f" | memo: {t.memo[:60]}" if t.memo else "")
+            for t in candidates
+        )
+
+        prompt = (
+            "Assign the best-fitting category to each uncategorized transaction below, "
+            "using the payee name, memo, and amount (negative = expense, positive = income). "
+            "Only choose from the category list provided — do not invent new categories.\n\n"
+            f"## Available Categories\n{cat_list_text}\n\n"
+            + (f"## Payee History (how similar payees were categorized before)\n{history_text}\n\n"
+               if history_text else "")
+            + f"## Uncategorized Transactions\n{txn_list_text}\n\n"
+            "Return ONLY a JSON object — no explanation text outside it:\n"
+            "{\n"
+            '  "suggestions": [\n'
+            '    {"transaction_id": 123, "category": "Group > Name", "reason": "brief explanation"}\n'
+            "  ]\n"
+            "}\n\n"
+            "Only include a suggestion when you're reasonably confident. "
+            "Skip transactions that are too ambiguous to categorize confidently."
+        )
+
+        try:
+            response = _get_ai_client().messages.create(
+                model="claude-opus-4-8",
+                max_tokens=4096,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = response.content[0].text
+            start, end = raw.find("{"), raw.rfind("}") + 1
+            parsed = json.loads(raw[start:end]) if start >= 0 and end > start else {}
+        except Exception as exc:
+            return jsonify({"error": str(exc)}), 500
+
+        suggestions = parsed.get("suggestions", [])
+        candidate_ids = {t.id for t in candidates}
+
+        # Replace existing pending suggestions
+        AiCategorySuggestion.query.filter_by(status="pending").delete()
+
+        created = []
+        for s in suggestions:
+            tid = s.get("transaction_id")
+            category_text = (s.get("category") or "").strip()
+            reason = (s.get("reason") or "").strip()
+            if not isinstance(tid, int) or tid not in candidate_ids or ">" not in category_text:
+                continue
+            group, name = (part.strip() for part in category_text.split(">", 1))
+            cat = cat_lookup.get((group.lower(), name.lower()))
+            if not cat:
+                continue
+            db.session.add(AiCategorySuggestion(
+                transaction_id=tid,
+                suggested_category_id=cat.id,
+                reason=reason,
+                status="pending",
+            ))
+            created.append({
+                "transaction_id": tid,
+                "category_id": cat.id,
+                "category": f"{cat.group_name} > {cat.name}",
+                "reason": reason,
+            })
+
+        db.session.commit()
+        return jsonify({"suggestions": created, "count": len(created)})
+
+    @app.route("/api/ai/approve-category/<int:sid>", methods=["POST"])
+    @login_required
+    def api_ai_approve_category(sid):
+        suggestion = AiCategorySuggestion.query.get_or_404(sid)
+        if suggestion.status != "pending":
+            return jsonify({"error": "already processed"}), 400
+        t = db.session.get(Transaction, suggestion.transaction_id)
+        if not t:
+            suggestion.status = "rejected"
+            db.session.commit()
+            return jsonify({"error": "transaction no longer exists"}), 400
+        if t.category_id is not None or t.splits:
+            suggestion.status = "rejected"
+            db.session.commit()
+            return jsonify({"error": "transaction already categorized"}), 400
+        t.category_id = suggestion.suggested_category_id
+        suggestion.status = "approved"
+        db.session.commit()
+        return jsonify({"ok": True})
+
+    @app.route("/api/ai/reject-category/<int:sid>", methods=["POST"])
+    @login_required
+    def api_ai_reject_category(sid):
+        suggestion = AiCategorySuggestion.query.get_or_404(sid)
         if suggestion.status != "pending":
             return jsonify({"error": "already processed"}), 400
         suggestion.status = "rejected"
