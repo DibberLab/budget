@@ -618,11 +618,16 @@
   // ----- Budget chart state (always this month) -----
   const _LEGEND_GROUPS = {{ legend_groups|tojson }};
 
-  // Category-level budget items
+  // Category-level budget items. Include a category once it's financially
+  // relevant — budgeted this month, spent this month, or spent last month —
+  // not only once it has this month's assignment. Otherwise every category
+  // you haven't gotten around to budgeting yet (e.g. early in a new month)
+  // just vanishes from the Budget tab even though it has real spending
+  // history to show.
   const _budgetItems = [];
   _LEGEND_GROUPS.forEach(group => {
     group.categories.forEach(cat => {
-      if (cat.budgeted > 0) {
+      if (cat.budgeted > 0 || cat.spent_month > 0 || cat.last_month > 0) {
         _budgetItems.push({ id: cat.id, name: cat.name, color: cat.color,
                             budgeted: cat.budgeted, spent: cat.spent_month || 0,
                             groupName: group.name,
@@ -631,21 +636,21 @@
       }
     });
   });
-  _budgetItems.sort((a, b) => b.budgeted - a.budgeted);
+  _budgetItems.sort((a, b) => (b.budgeted || b.spent || b.lastMonth) - (a.budgeted || a.spent || a.lastMonth));
 
-  // Group-level budget items (color from the group's first budgeted category)
+  // Group-level budget items — same relevance rule as above.
   const _budgetGroups = _LEGEND_GROUPS
-    .filter(g => g.group_budgeted > 0)
+    .filter(g => g.group_budgeted > 0 || g.group_spent_month > 0 || g.group_last_month > 0)
     .map(g => ({
       name:       g.name,
-      color:      g.categories.find(c => c.budgeted > 0)?.color || '#6c757d',
+      color:      g.categories[0]?.color || '#6c757d',
       budgeted:   g.group_budgeted,
       spent:      g.group_spent_month || 0,
       avg:        g.group_avg         || 0,
       lastMonth:  g.group_last_month  || 0,
       categories: g.categories,
     }))
-    .sort((a, b) => b.budgeted - a.budgeted);
+    .sort((a, b) => (b.budgeted || b.spent || b.lastMonth) - (a.budgeted || a.spent || a.lastMonth));
 
   // Overspend warning — re-rendered after every budget edit
   function _renderBudgetOverspendAlert() {
