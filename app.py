@@ -83,6 +83,27 @@ def _get_ai_client() -> anthropic.Anthropic:
     return _ai_client
 
 
+def _ai_tool_call(prompt: str, tool_name: str, tool_description: str,
+                  input_schema: dict, max_tokens: int = 2048) -> dict:
+    """Call Claude and force a structured response via tool-use, so the reply
+    is schema-validated JSON straight from the API — no brittle scraping of
+    free-form text for a '{...}' substring, which breaks the moment a payee
+    name or memo contains a quote/brace and desyncs the parse."""
+    response = _get_ai_client().messages.create(
+        model="claude-opus-4-8",
+        max_tokens=max_tokens,
+        tools=[{
+            "name": tool_name,
+            "description": tool_description,
+            "input_schema": input_schema,
+        }],
+        tool_choice={"type": "tool", "name": tool_name},
+        messages=[{"role": "user", "content": prompt}],
+    )
+    block = next((b for b in response.content if b.type == "tool_use"), None)
+    return block.input if block else {}
+
+
 def _build_budget_context() -> str:
     """Gather recent transaction data and budget summary for Claude's system prompt."""
     today = date.today()
@@ -1866,11 +1887,14 @@ def register_routes(app: Flask):
             .order_by(AiCategorySuggestion.created_at.desc())
             .all()
         )
+        categories = (Category.query.filter_by(hidden=False)
+                     .order_by(Category.group_name, Category.name).all())
         return render_template("ai.html",
                                pending_suggestions=pending_payees,
                                pending_count=len(pending_payees),
                                pending_categories=pending_categories,
-                               pending_category_count=len(pending_categories))
+                               pending_category_count=len(pending_categories),
+                               categories=categories)
 
     @app.route("/api/ai/chat", methods=["POST"])
     @login_required
@@ -1952,26 +1976,36 @@ def register_routes(app: Flask):
             "2. The same merchant with slightly different names across transactions\n"
             "3. Truncated or abbreviated names that can be expanded\n\n"
             f"Payee list:\n{payee_list}\n\n"
-            "Return ONLY a JSON object — no explanation text outside it:\n"
-            "{\n"
-            '  "suggestions": [\n'
-            '    {"original": "exact name as shown", "canonical": "clean readable name", "reason": "brief explanation"}\n'
-            "  ]\n"
-            "}\n\n"
+            "Call the submit_payee_suggestions tool with your suggestions. "
             "Only include suggestions where the improvement is clear. "
             "Omit payees that are already clean and readable. "
-            "Return an empty array if no changes are needed."
+            "Pass an empty array if no changes are needed."
         )
 
         try:
-            response = _get_ai_client().messages.create(
-                model="claude-opus-4-8",
-                max_tokens=2048,
-                messages=[{"role": "user", "content": prompt}],
+            parsed = _ai_tool_call(
+                prompt,
+                tool_name="submit_payee_suggestions",
+                tool_description="Submit the list of payee name normalization suggestions.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "suggestions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "original": {"type": "string", "description": "Exact original payee name as shown in the list."},
+                                    "canonical": {"type": "string", "description": "Clean, human-readable name."},
+                                    "reason": {"type": "string", "description": "Brief explanation of the change."},
+                                },
+                                "required": ["original", "canonical", "reason"],
+                            },
+                        },
+                    },
+                    "required": ["suggestions"],
+                },
             )
-            raw = response.content[0].text
-            start, end = raw.find("{"), raw.rfind("}") + 1
-            parsed = json.loads(raw[start:end]) if start >= 0 and end > start else {}
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
@@ -2093,25 +2127,36 @@ def register_routes(app: Flask):
             + (f"## Payee History (how similar payees were categorized before)\n{history_text}\n\n"
                if history_text else "")
             + f"## Uncategorized Transactions\n{txn_list_text}\n\n"
-            "Return ONLY a JSON object — no explanation text outside it:\n"
-            "{\n"
-            '  "suggestions": [\n'
-            '    {"transaction_id": 123, "category": "Group > Name", "reason": "brief explanation"}\n'
-            "  ]\n"
-            "}\n\n"
+            "Call the submit_category_suggestions tool with your suggestions. "
             "Only include a suggestion when you're reasonably confident. "
             "Skip transactions that are too ambiguous to categorize confidently."
         )
 
         try:
-            response = _get_ai_client().messages.create(
-                model="claude-opus-4-8",
+            parsed = _ai_tool_call(
+                prompt,
+                tool_name="submit_category_suggestions",
+                tool_description="Submit category suggestions for uncategorized transactions.",
+                input_schema={
+                    "type": "object",
+                    "properties": {
+                        "suggestions": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "transaction_id": {"type": "integer", "description": "The transaction's id, exactly as given."},
+                                    "category": {"type": "string", "description": "Exact 'Group > Name' from the provided category list."},
+                                    "reason": {"type": "string", "description": "Brief explanation of the choice."},
+                                },
+                                "required": ["transaction_id", "category", "reason"],
+                            },
+                        },
+                    },
+                    "required": ["suggestions"],
+                },
                 max_tokens=4096,
-                messages=[{"role": "user", "content": prompt}],
             )
-            raw = response.content[0].text
-            start, end = raw.find("{"), raw.rfind("}") + 1
-            parsed = json.loads(raw[start:end]) if start >= 0 and end > start else {}
         except Exception as exc:
             return jsonify({"error": str(exc)}), 500
 
@@ -2163,10 +2208,18 @@ def register_routes(app: Flask):
             suggestion.status = "rejected"
             db.session.commit()
             return jsonify({"error": "transaction already categorized"}), 400
-        t.category_id = suggestion.suggested_category_id
+
+        category_id = request.form.get("category_id", type=int)
+        if category_id:
+            category = db.session.get(Category, category_id)
+            if not category:
+                return jsonify({"error": "unknown category"}), 400
+            t.category_id = category.id
+        else:
+            t.category_id = suggestion.suggested_category_id
         suggestion.status = "approved"
         db.session.commit()
-        return jsonify({"ok": True})
+        return jsonify({"ok": True, "category_id": t.category_id})
 
     @app.route("/api/ai/reject-category/<int:sid>", methods=["POST"])
     @login_required
