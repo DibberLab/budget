@@ -103,7 +103,7 @@
               <button class="btn btn-sm btn-secondary active" data-btab="group">Group</button>
               <button class="btn btn-sm btn-outline-secondary" data-btab="cat">Category</button>
             </div>
-            <p class="small text-muted mb-0">This month · slices fill as budget is spent · click to view</p>
+            <p class="small text-muted mb-0" id="budget-tab-caption">This month · slices fill as budget is spent · click to view</p>
           </div>
           <div id="budget-overspend-alert"></div>
           <div id="budget-sel-badge" class="mb-2" style="min-height:22px"></div>
@@ -615,42 +615,70 @@
   };
   let currentPayeeData = {labels: {{ payee_labels|tojson }}, values: {{ payee_values|tojson }}};
 
-  // ----- Budget chart state (always this month) -----
+  // ----- Budget chart state — scoped to the selected Range, refreshed
+  // whenever it changes (see refreshAll). Arrays are mutated in place
+  // (length=0 + push) rather than reassigned, since budgetGroupChart/
+  // budgetCatChart's closures hold onto these exact array objects.
   const _LEGEND_GROUPS = {{ legend_groups|tojson }};
+  const _budgetItems = [];
+  const _budgetGroups = [];
 
   // Category-level budget items. Include a category once it's financially
-  // relevant — budgeted this month, spent this month, or spent last month —
-  // not only once it has this month's assignment. Otherwise every category
-  // you haven't gotten around to budgeting yet (e.g. early in a new month)
-  // just vanishes from the Budget tab even though it has real spending
-  // history to show.
-  const _budgetItems = [];
-  _LEGEND_GROUPS.forEach(group => {
-    group.categories.forEach(cat => {
-      if (cat.budgeted > 0 || cat.spent_month > 0 || cat.last_month > 0) {
-        _budgetItems.push({ id: cat.id, name: cat.name, color: cat.color,
-                            budgeted: cat.budgeted, spent: cat.spent_month || 0,
-                            groupName: group.name,
-                            avg: cat.avg_per_month || 0,
-                            lastMonth: cat.last_month || 0 });
-      }
+  // relevant — budgeted this period, spent this period, or spent last
+  // month — not only once it has this period's assignment. Otherwise every
+  // category you haven't gotten around to budgeting yet (e.g. early in a
+  // new month) just vanishes from the Budget tab even though it has real
+  // spending history to show.
+  function _buildBudgetArrays(legendGroups) {
+    const items = [];
+    legendGroups.forEach(group => {
+      group.categories.forEach(cat => {
+        if (cat.budgeted > 0 || cat.spent_month > 0 || cat.last_month > 0) {
+          items.push({ id: cat.id, name: cat.name, color: cat.color,
+                      budgeted: cat.budgeted, spent: cat.spent_month || 0,
+                      groupName: group.name,
+                      avg: cat.avg_per_month || 0,
+                      lastMonth: cat.last_month || 0 });
+        }
+      });
     });
-  });
-  _budgetItems.sort((a, b) => (b.budgeted || b.spent || b.lastMonth) - (a.budgeted || a.spent || a.lastMonth));
+    items.sort((a, b) => (b.budgeted || b.spent || b.lastMonth) - (a.budgeted || a.spent || a.lastMonth));
 
-  // Group-level budget items — same relevance rule as above.
-  const _budgetGroups = _LEGEND_GROUPS
-    .filter(g => g.group_budgeted > 0 || g.group_spent_month > 0 || g.group_last_month > 0)
-    .map(g => ({
-      name:       g.name,
-      color:      g.categories[0]?.color || '#6c757d',
-      budgeted:   g.group_budgeted,
-      spent:      g.group_spent_month || 0,
-      avg:        g.group_avg         || 0,
-      lastMonth:  g.group_last_month  || 0,
-      categories: g.categories,
-    }))
-    .sort((a, b) => (b.budgeted || b.spent || b.lastMonth) - (a.budgeted || a.spent || a.lastMonth));
+    const groups = legendGroups
+      .filter(g => g.group_budgeted > 0 || g.group_spent_month > 0 || g.group_last_month > 0)
+      .map(g => ({
+        name:       g.name,
+        color:      g.categories[0]?.color || '#6c757d',
+        budgeted:   g.group_budgeted,
+        spent:      g.group_spent_month || 0,
+        avg:        g.group_avg         || 0,
+        lastMonth:  g.group_last_month  || 0,
+        categories: g.categories,
+      }))
+      .sort((a, b) => (b.budgeted || b.spent || b.lastMonth) - (a.budgeted || a.spent || a.lastMonth));
+
+    return { items, groups };
+  }
+
+  {
+    const initial = _buildBudgetArrays(_LEGEND_GROUPS);
+    _budgetItems.push(...initial.items);
+    _budgetGroups.push(...initial.groups);
+  }
+
+  // Swap in fresh Budget-tab data for a new range (called from refreshAll)
+  // and re-render everything that depends on it.
+  function _refreshBudgetData(legendGroups) {
+    _LEGEND_GROUPS.length = 0; _LEGEND_GROUPS.push(...legendGroups);
+    const rebuilt = _buildBudgetArrays(_LEGEND_GROUPS);
+    _budgetItems.length = 0; _budgetItems.push(...rebuilt.items);
+    _budgetGroups.length = 0; _budgetGroups.push(...rebuilt.groups);
+    _selBudgetCatIdx = -1; _selBudgetGroupIdx = -1;
+    document.getElementById('budget-sel-badge').innerHTML = '';
+    _refreshBudgetChart(budgetGroupChart, _budgetGroups, _selBudgetGroupIdx);
+    _refreshBudgetChart(budgetCatChart, _budgetItems, _selBudgetCatIdx);
+    _renderBudgetOverspendAlert();
+  }
 
   // Overspend warning — re-rendered after every budget edit
   function _renderBudgetOverspendAlert() {
@@ -817,7 +845,12 @@
   payeeChart._centerTotal = currentPayeeData.values.reduce((s,v)=>s+v,0);
 
   let currentGroupData = buildGroupData(currentCatData);
-  _renderMonthOverview({{ month_income }}, null);
+  {
+    const _initPresetSel = document.getElementById('preset-select');
+    const _initRangeLabel = _initPresetSel && _initPresetSel.selectedOptions[0]
+      ? _initPresetSel.selectedOptions[0].textContent.trim() : null;
+    _renderMonthOverview({{ month_income }}, _initRangeLabel);
+  }
   let _groupHoverIdx = -1;
   let _catHoverIdx   = -1;
   let _payeeHoverIdx = -1;
@@ -1494,6 +1527,8 @@
     if (rangeLabel) {
       const rl = document.getElementById('month-overview-range');
       if (rl) rl.textContent = rangeLabel;
+      const bc = document.getElementById('budget-tab-caption');
+      if (bc) bc.textContent = rangeLabel + ' · slices fill as budget is spent · click to view';
     }
 
     // Group color map — same PALETTE order as donut charts
@@ -1683,6 +1718,8 @@
     const data = await _apiFetchChartData();
     if (!data) return;
 
+    if (data.budget && data.budget.groups) _refreshBudgetData(data.budget.groups);
+
     currentCatData   = data.cat;
     currentPayeeData = data.payee;
     _rebuildCatColorCache();
@@ -1732,7 +1769,10 @@
     _renderGroupChartTags();
 
     _actualIncomeByUser = data.income_by_user || {};
-    _renderMonthOverview(data.income || 0, null);
+    const _presetSel = document.getElementById('preset-select');
+    const _rangeLabel = _presetSel && _presetSel.selectedOptions[0]
+      ? _presetSel.selectedOptions[0].textContent.trim() : null;
+    _renderMonthOverview(data.income || 0, _rangeLabel);
 
     loadGutterTransactions();
 

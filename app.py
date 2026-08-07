@@ -29,7 +29,7 @@ from flask_login import current_user, login_required
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import extract, func
+from sqlalchemy import and_, extract, func, or_
 from sqlalchemy.orm import joinedload
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -525,6 +525,101 @@ def _owner_filter_clauses(owner: str) -> list:
         return []
 
 
+def _months_between(start_date, end_date) -> list:
+    """List of (year, month) pairs whose calendar month overlaps the range."""
+    months = []
+    y, m = start_date.year, start_date.month
+    while (y, m) <= (end_date.year, end_date.month):
+        months.append((y, m))
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return months
+
+
+def _compute_legend_groups(start_date, end_date, owner_clauses=None) -> list:
+    """Category/group budget-vs-spend rows for the Budget tab and its
+    Overview bar, scoped to [start_date, end_date] — so "Budgeted" reflects
+    the same period as "Spent" instead of always comparing today's
+    assignment against whatever period happens to be selected.
+
+    avg_per_month/last_month stay anchored to "today": they're reference
+    stats (all-time average, prior calendar month), not part of the
+    period being viewed.
+    """
+    owner_clauses = owner_clauses or []
+    today = date.today()
+    lm_year, lm_month = _prev_month(today.year, today.month)
+    lm_start = date(lm_year, lm_month, 1)
+    lm_end   = date(lm_year, lm_month, monthrange(lm_year, lm_month)[1])
+
+    categories = (Category.query
+                  .filter_by(is_income=False, hidden=False)
+                  .order_by(Category.group_name, Category.sort_order, Category.name)
+                  .all())
+    cat_ids_all = [c.id for c in categories]
+    if not cat_ids_all:
+        return []
+
+    alltime_rows = (db.session.query(
+            Transaction.category_id, func.sum(Transaction.amount), func.min(Transaction.date))
+        .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0)
+        .group_by(Transaction.category_id).all())
+    avg_map = {}
+    for cid, total, first_date_ in alltime_rows:
+        if first_date_:
+            months_ = max(1, (today.year - first_date_.year) * 12
+                          + (today.month - first_date_.month) + 1)
+            avg_map[cid] = int(abs(total or 0) / months_)
+
+    lm_map = {cid: int(abs(t or 0)) for cid, t in
+              db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+              .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0,
+                      Transaction.date >= lm_start, Transaction.date <= lm_end)
+              .group_by(Transaction.category_id).all()}
+
+    months = _months_between(start_date, end_date)
+    budget_map = {}
+    if months:
+        month_clause = or_(*[and_(BudgetMonth.year == y, BudgetMonth.month == m)
+                             for y, m in months])
+        for cid, a in (db.session.query(BudgetMonth.category_id, func.sum(BudgetMonth.assigned))
+                       .filter(BudgetMonth.category_id.in_(cat_ids_all), month_clause)
+                       .group_by(BudgetMonth.category_id).all()):
+            budget_map[cid] = int(a or 0)
+
+    spent_map = {cid: int(abs(t or 0)) for cid, t in
+                 db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+                 .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0,
+                         Transaction.date >= start_date, Transaction.date <= end_date,
+                         *owner_clauses)
+                 .group_by(Transaction.category_id).all()}
+
+    def _pct(spent, budgeted):
+        return round(100 * spent / budgeted) if budgeted else None
+
+    groups: dict[str, list] = {}
+    for c in categories:
+        g = c.group_name or "General"
+        groups.setdefault(g, [])
+        budgeted = budget_map.get(c.id, 0)
+        spent_mo = spent_map.get(c.id, 0)
+        groups[g].append({"id": c.id, "name": c.name,
+                          "color": _group_color(g),
+                          "avg_per_month": avg_map.get(c.id, 0),
+                          "last_month": lm_map.get(c.id, 0),
+                          "budgeted": budgeted, "spent_month": spent_mo,
+                          "spent_pct": _pct(spent_mo, budgeted)})
+    legend_groups = []
+    for gname, cats in groups.items():
+        gb = sum(c["budgeted"] for c in cats)
+        gs = sum(c["spent_month"] for c in cats)
+        legend_groups.append({"name": gname, "categories": cats,
+                              "group_avg": sum(c["avg_per_month"] for c in cats),
+                              "group_last_month": sum(c["last_month"] for c in cats),
+                              "group_budgeted": gb, "group_spent_month": gs,
+                              "group_spent_pct": _pct(gs, gb)})
+    return legend_groups
+
+
 # ---------- routes ----------
 
 def register_routes(app: Flask):
@@ -603,75 +698,16 @@ def register_routes(app: Flask):
         trend_datasets = sorted(cat_month_data.values(),
                                 key=lambda d: sum(d["data"]), reverse=True)
 
-        # ---- calendar table data (always "this month") ----
+        # ---- Budget tab data — scoped to the selected range, not hardcoded
+        # to "today", so Budgeted and Spent always compare the same period.
+        legend_groups = _compute_legend_groups(start_date, end_date)
+
+        # Reference periods for the payee table below (always "this month" /
+        # "last calendar month", independent of the selected range).
         lm_year, lm_month = _prev_month(today.year, today.month)
         lm_start = date(lm_year, lm_month, 1)
         lm_end   = date(lm_year, lm_month, monthrange(lm_year, lm_month)[1])
         cm_start = date(today.year, today.month, 1)
-
-        categories = (Category.query
-                      .filter_by(is_income=False, hidden=False)
-                      .order_by(Category.group_name, Category.sort_order, Category.name)
-                      .all())
-        cat_ids_all = [c.id for c in categories]
-
-        if cat_ids_all:
-            alltime_rows = (db.session.query(
-                    Transaction.category_id, func.sum(Transaction.amount), func.min(Transaction.date))
-                .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0)
-                .group_by(Transaction.category_id).all())
-            avg_map = {}
-            for cid, total, first_date_ in alltime_rows:
-                if first_date_:
-                    months_ = max(1, (today.year - first_date_.year) * 12
-                                  + (today.month - first_date_.month) + 1)
-                    avg_map[cid] = int(abs(total or 0) / months_)
-
-            lm_map = {cid: int(abs(t or 0)) for cid, t in
-                      db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-                      .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0,
-                              Transaction.date >= lm_start, Transaction.date <= lm_end)
-                      .group_by(Transaction.category_id).all()}
-
-            budget_map = {cid: int(a or 0) for cid, a in
-                          db.session.query(BudgetMonth.category_id, BudgetMonth.assigned)
-                          .filter(BudgetMonth.year == today.year,
-                                  BudgetMonth.month == today.month,
-                                  BudgetMonth.category_id.in_(cat_ids_all)).all()}
-
-            cm_map = {cid: int(abs(t or 0)) for cid, t in
-                      db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-                      .filter(Transaction.category_id.in_(cat_ids_all), Transaction.amount < 0,
-                              Transaction.date >= cm_start, Transaction.date <= today)
-                      .group_by(Transaction.category_id).all()}
-        else:
-            avg_map = lm_map = budget_map = cm_map = {}
-
-        def _pct(spent, budgeted):
-            return round(100 * spent / budgeted) if budgeted else None
-
-        groups: dict[str, list] = {}
-        for c in categories:
-            g = c.group_name or "General"
-            if g not in groups:
-                groups[g] = []
-            budgeted  = budget_map.get(c.id, 0)
-            spent_mo  = cm_map.get(c.id, 0)
-            groups[g].append({"id": c.id, "name": c.name,
-                               "color": _group_color(g),
-                               "avg_per_month": avg_map.get(c.id, 0),
-                               "last_month": lm_map.get(c.id, 0),
-                               "budgeted": budgeted, "spent_month": spent_mo,
-                               "spent_pct": _pct(spent_mo, budgeted)})
-        legend_groups = []
-        for gname, cats in groups.items():
-            gb = sum(c["budgeted"] for c in cats)
-            gs = sum(c["spent_month"] for c in cats)
-            legend_groups.append({"name": gname, "categories": cats,
-                                   "group_avg": sum(c["avg_per_month"] for c in cats),
-                                   "group_last_month": sum(c["last_month"] for c in cats),
-                                   "group_budgeted": gb, "group_spent_month": gs,
-                                   "group_spent_pct": _pct(gs, gb)})
 
         # Payee table rows — parent_id filter keeps split line-items from
         # being counted alongside the parent's already-full amount.
@@ -708,8 +744,16 @@ def register_routes(app: Flask):
         users = User.query.order_by(User.id).all()
         users_json = {str(u.id): u.display_name for u in users}
         month_income   = abs(int(_income_total(today.year, today.month)))
-        month_spending = sum(cm_map.values())
-        month_budgeted = sum(budget_map.values())
+        # Not referenced in home.html (superseded by the JS-side Budget tab),
+        # kept only for parity with the existing render_template context.
+        month_budgeted = int(db.session.query(func.coalesce(func.sum(BudgetMonth.assigned), 0))
+                             .filter(BudgetMonth.year == today.year,
+                                     BudgetMonth.month == today.month).scalar() or 0)
+        month_spending = int(abs(db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
+                             .join(Category, Category.id == Transaction.category_id)
+                             .filter(Transaction.date >= cm_start, Transaction.date <= today,
+                                     Transaction.amount < 0, Category.is_income.is_(False))
+                             .scalar() or 0))
 
         _ibu_rows = (db.session.query(
                 Transaction.owner_user_id,
@@ -1820,6 +1864,11 @@ def register_routes(app: Flask):
             .group_by(Transaction.owner_user_id).all())
         income_by_user_api = {str(r[0]): abs(int(r[1] or 0)) for r in _ibu if r[0] is not None}
 
+        # Budget tab data for this same range, so it updates in lockstep with
+        # everything else when Range/Who changes instead of staying pinned
+        # to whatever month the page happened to load on.
+        budget_groups = _compute_legend_groups(sd, ed, owner_clauses)
+
         return jsonify({
             "cat": {
                 "ids":         [r[0] for r in _sorted],
@@ -1831,6 +1880,9 @@ def register_routes(app: Flask):
             "payee": {
                 "labels": [r[0] for r in payee_totals],
                 "values": [abs(int(r[1] or 0)) for r in payee_totals],
+            },
+            "budget": {
+                "groups": budget_groups,
             },
             "income": income_total,
             "income_by_user": income_by_user_api,
