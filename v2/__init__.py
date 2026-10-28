@@ -116,10 +116,24 @@ def _uncategorized_query():
             .filter(~Transaction.splits.any()))
 
 
+def _find_rule(rules: dict, payee: str):
+    """Exact match first; then prefix rules, written with a trailing '*'
+    (e.g. 'camp fire minnes*'), longest prefix winning."""
+    k = _key(payee)
+    if k in rules:
+        return rules[k]
+    prefixes = [m for m in rules if m.endswith("*") and k.startswith(m[:-1])]
+    return rules[max(prefixes, key=len)] if prefixes else None
+
+
 def _apply_rule(t: Transaction, rule: "PayeeRule") -> None:
     t.payee = rule.payee
+    # An income rule (e.g. a paycheck) only ever files deposits, so a charge
+    # from the same payee isn't counted as income.
     if rule.category_id and t.category_id is None:
-        t.category_id = rule.category_id
+        cat = db.session.get(Category, rule.category_id)
+        if not (cat and cat.is_income and (t.amount or 0) <= 0):
+            t.category_id = rule.category_id
 
 
 def _history_category(payees: set) -> dict:
@@ -468,7 +482,7 @@ def review():
     rules = _rules_by_match()
     history = _history_category({g["raw"] for g in groups.values()})
     for k, g in groups.items():
-        rule = rules.get(k)
+        rule = _find_rule(rules, g["raw"])
         g["suggest_payee"] = rule.payee if rule else g["raw"]
         g["suggest_cat"] = (rule.category_id if rule and rule.category_id
                             else history.get(g["raw"]))
@@ -712,7 +726,7 @@ def review_confirm():
 
 def _add_transaction(rules, **fields) -> tuple[Transaction, bool]:
     t = Transaction(**fields)
-    rule = rules.get(_key(t.payee))
+    rule = _find_rule(rules, t.payee)
     if rule:
         _apply_rule(t, rule)
     db.session.add(t)
