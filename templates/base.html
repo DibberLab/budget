@@ -32,7 +32,7 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('ai_analysis') }}">AI Advisor</a></li>
       </ul>
       <ul class="navbar-nav">
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('v2.progress') }}">Try v2 ✨</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('v2.progress') }}">← Back to the new app</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('import_csv') }}">Import CSV</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('plaid_status') }}">Plaid</a></li>
         <li class="nav-item dropdown">
@@ -183,7 +183,7 @@
     document.getElementById('split-unsplit-btn').classList.add('d-none');
     bootstrap.Modal.getOrCreateInstance(document.getElementById('splitModal')).show();
 
-    fetch(`/transactions/${tid}/split-info`).then(r => r.json()).then(data => {
+    fetch(`/v1/transactions/${tid}/split-info`).then(r => r.json()).then(data => {
       if (data.error) { document.getElementById('split-modal-summary').textContent = ''; showError(data.error); return; }
       _tid = tid; _total = data.amount; _categories = data.categories;
       document.getElementById('split-modal-summary').innerHTML =
@@ -223,7 +223,7 @@
     const btn = document.getElementById('split-save-btn');
     btn.disabled = true;
     try {
-      const r = await fetch(`/transactions/${_tid}/split`, {
+      const r = await fetch(`/v1/transactions/${_tid}/split`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ splits }),
@@ -242,7 +242,7 @@
     if (!confirm('Remove the split and merge this back into one line?')) return;
     clearError();
     try {
-      const r = await fetch(`/transactions/${_tid}/unsplit`, { method: 'POST' });
+      const r = await fetch(`/v1/transactions/${_tid}/unsplit`, { method: 'POST' });
       const data = await r.json();
       if (!data.ok) { showError(data.error || 'Could not unsplit.'); return; }
       bootstrap.Modal.getOrCreateInstance(document.getElementById('splitModal')).hide();

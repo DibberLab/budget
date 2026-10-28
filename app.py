@@ -627,7 +627,7 @@ def _compute_legend_groups(start_date, end_date, owner_clauses=None) -> list:
 def register_routes(app: Flask):
 
     # ---- dashboard ----
-    @app.route("/")
+    @app.route("/v1/")
     @setup_required
     @login_required
     def dashboard():
@@ -790,13 +790,13 @@ def register_routes(app: Flask):
                                income_by_user=income_by_user)
 
     # ---- accounts ----
-    @app.route("/accounts")
+    @app.route("/v1/accounts")
     @login_required
     def accounts_list():
         accounts = Account.query.order_by(Account.closed, Account.name).all()
         return render_template("accounts.html", accounts=accounts)
 
-    @app.route("/accounts/new", methods=["GET", "POST"])
+    @app.route("/v1/accounts/new", methods=["GET", "POST"])
     @login_required
     def account_new():
         if request.method == "POST":
@@ -812,7 +812,7 @@ def register_routes(app: Flask):
             return redirect(url_for("accounts_list"))
         return render_template("account_form.html", account=None)
 
-    @app.route("/accounts/<int:account_id>/edit", methods=["GET", "POST"])
+    @app.route("/v1/accounts/<int:account_id>/edit", methods=["GET", "POST"])
     @login_required
     def account_edit(account_id):
         a = db.session.get(Account, account_id) or abort(404)
@@ -827,7 +827,7 @@ def register_routes(app: Flask):
             return redirect(url_for("accounts_list"))
         return render_template("account_form.html", account=a)
 
-    @app.route("/accounts/<int:account_id>/delete", methods=["POST"])
+    @app.route("/v1/accounts/<int:account_id>/delete", methods=["POST"])
     @login_required
     def account_delete(account_id):
         a = db.session.get(Account, account_id) or abort(404)
@@ -837,7 +837,7 @@ def register_routes(app: Flask):
         return redirect(url_for("accounts_list"))
 
     # ---- transactions ----
-    @app.route("/transactions")
+    @app.route("/v1/transactions")
     @login_required
     def transactions_list():
         account_id  = request.args.get("account_id", type=int)
@@ -883,7 +883,7 @@ def register_routes(app: Flask):
                                initial_cat_id=initial_cat_id,
                                initial_payee=initial_payee)
 
-    @app.route("/transactions/new", methods=["GET", "POST"])
+    @app.route("/v1/transactions/new", methods=["GET", "POST"])
     @login_required
     def transaction_new():
         accounts = Account.query.filter_by(closed=False).order_by(Account.name).all()
@@ -933,7 +933,7 @@ def register_routes(app: Flask):
                                accounts=accounts, categories=categories,
                                today=date.today().isoformat())
 
-    @app.route("/transactions/<int:tid>/delete", methods=["POST"])
+    @app.route("/v1/transactions/<int:tid>/delete", methods=["POST"])
     @login_required
     def transaction_delete(tid):
         t = db.session.get(Transaction, tid) or abort(404)
@@ -947,7 +947,7 @@ def register_routes(app: Flask):
         flash("Transaction deleted.", "warning")
         return redirect(url_for("transactions_list"))
 
-    @app.route("/transactions/<int:tid>/categorize", methods=["POST"])
+    @app.route("/v1/transactions/<int:tid>/categorize", methods=["POST"])
     @login_required
     def transaction_categorize(tid):
         t = db.session.get(Transaction, tid) or abort(404)
@@ -958,7 +958,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
-    @app.route("/transactions/<int:tid>/edit", methods=["POST"])
+    @app.route("/v1/transactions/<int:tid>/edit", methods=["POST"])
     @login_required
     def transaction_edit(tid):
         t = db.session.get(Transaction, tid) or abort(404)
@@ -1003,7 +1003,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
-    @app.route("/transactions/<int:tid>/split-info")
+    @app.route("/v1/transactions/<int:tid>/split-info")
     @login_required
     def transaction_split_info(tid):
         """Everything the split modal needs to render, for any transaction on any page."""
@@ -1025,7 +1025,7 @@ def register_routes(app: Flask):
             "categories": [{"id": c.id, "name": c.name, "group": c.group_name} for c in cats],
         })
 
-    @app.route("/transactions/<int:tid>/split", methods=["POST"])
+    @app.route("/v1/transactions/<int:tid>/split", methods=["POST"])
     @login_required
     def transaction_split(tid):
         """Divide a transaction's amount across multiple categories.
@@ -1077,7 +1077,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
-    @app.route("/transactions/<int:tid>/unsplit", methods=["POST"])
+    @app.route("/v1/transactions/<int:tid>/unsplit", methods=["POST"])
     @login_required
     def transaction_unsplit(tid):
         t = db.session.get(Transaction, tid) or abort(404)
@@ -1087,7 +1087,7 @@ def register_routes(app: Flask):
         return jsonify({"ok": True})
 
     # ---- import CSV ----
-    @app.route("/import", methods=["GET", "POST"])
+    @app.route("/v1/import", methods=["GET", "POST"])
     @login_required
     def import_csv():
         accounts = Account.query.filter_by(closed=False).order_by(Account.name).all()
@@ -1129,7 +1129,7 @@ def register_routes(app: Flask):
         return render_template("import.html", accounts=accounts)
 
     # ---- budget (envelope) ----
-    @app.route("/budget")
+    @app.route("/v1/budget")
     @login_required
     def budget_view():
         y = request.args.get("year", type=int) or date.today().year
@@ -1204,7 +1204,7 @@ def register_routes(app: Flask):
                                prev_month=_prev_month(y, m),
                                next_month=_next_month(y, m))
 
-    @app.route("/budget/assign", methods=["POST"])
+    @app.route("/v1/budget/assign", methods=["POST"])
     @login_required
     def budget_assign():
         y = int(request.form["year"])
@@ -1221,7 +1221,7 @@ def register_routes(app: Flask):
         return jsonify({"ok": True, "assigned": cents})
 
     # ---- categories ----
-    @app.route("/categories", methods=["GET", "POST"])
+    @app.route("/v1/categories", methods=["GET", "POST"])
     @login_required
     def categories_list():
         if request.method == "POST":
@@ -1242,7 +1242,7 @@ def register_routes(app: Flask):
             groups[c.group_name].append(c)
         return render_template("categories.html", groups=groups)
 
-    @app.route("/categories/<int:cid>/edit", methods=["POST"])
+    @app.route("/v1/categories/<int:cid>/edit", methods=["POST"])
     @login_required
     def category_edit(cid):
         c = db.session.get(Category, cid) or abort(404)
@@ -1259,7 +1259,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
-    @app.route("/categories/group/rename", methods=["POST"])
+    @app.route("/v1/categories/group/rename", methods=["POST"])
     @login_required
     def category_group_rename():
         old = request.form.get("old_name", "").strip()
@@ -1270,7 +1270,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
-    @app.route("/categories/<int:cid>/delete", methods=["POST"])
+    @app.route("/v1/categories/<int:cid>/delete", methods=["POST"])
     @login_required
     def category_delete(cid):
         c = db.session.get(Category, cid) or abort(404)
@@ -1282,13 +1282,13 @@ def register_routes(app: Flask):
         return redirect(url_for("categories_list"))
 
     # ---- reports (now merged into home) ----
-    @app.route("/reports")
+    @app.route("/v1/reports")
     @login_required
     def reports():
         qs = request.query_string.decode()
         return redirect(url_for("dashboard") + (f"?{qs}" if qs else ""))
 
-    @app.route("/reports/category-transactions")
+    @app.route("/v1/reports/category-transactions")
     @login_required
     def reports_category_transactions():
         try:
@@ -1324,7 +1324,7 @@ def register_routes(app: Flask):
         return jsonify({"name": cat.name, "transactions": rows, "total": total,
                         "expenses": expenses, "categories": cat_list})
 
-    @app.route("/reports/payee-transactions")
+    @app.route("/v1/reports/payee-transactions")
     @login_required
     def reports_payee_transactions():
         try:
@@ -1361,7 +1361,7 @@ def register_routes(app: Flask):
         return jsonify({"payee": payee, "transactions": rows,
                         "expenses": expenses, "categories": cat_list})
 
-    @app.route("/reports/filtered-transactions")
+    @app.route("/v1/reports/filtered-transactions")
     @login_required
     def reports_filtered_transactions():
         """Transactions matching the intersection of category + payee + owner filters."""
@@ -1403,7 +1403,7 @@ def register_routes(app: Flask):
         return jsonify({"transactions": rows, "expenses": expenses, "categories": cat_list})
 
     # ---- goals ----
-    @app.route("/goals", methods=["GET", "POST"])
+    @app.route("/v1/goals", methods=["GET", "POST"])
     @login_required
     def goals_list():
         if request.method == "POST":
@@ -1425,7 +1425,7 @@ def register_routes(app: Flask):
             Category.group_name, Category.name).all()
         return render_template("goals.html", goals=goals, categories=categories)
 
-    @app.route("/goals/<int:gid>/contribute", methods=["POST"])
+    @app.route("/v1/goals/<int:gid>/contribute", methods=["POST"])
     @login_required
     def goal_contribute(gid):
         g = db.session.get(Goal, gid) or abort(404)
@@ -1437,7 +1437,7 @@ def register_routes(app: Flask):
         flash("Contribution logged.", "success")
         return redirect(url_for("goals_list"))
 
-    @app.route("/goals/<int:gid>/delete", methods=["POST"])
+    @app.route("/v1/goals/<int:gid>/delete", methods=["POST"])
     @login_required
     def goal_delete(gid):
         g = db.session.get(Goal, gid) or abort(404)
@@ -1447,7 +1447,7 @@ def register_routes(app: Flask):
         return redirect(url_for("goals_list"))
 
     # ---- recurring ----
-    @app.route("/recurring", methods=["GET", "POST"])
+    @app.route("/v1/recurring", methods=["GET", "POST"])
     @login_required
     def recurring_list():
         accounts = Account.query.filter_by(closed=False).order_by(Account.name).all()
@@ -1480,7 +1480,7 @@ def register_routes(app: Flask):
                                categories=categories,
                                today=date.today().isoformat())
 
-    @app.route("/recurring/<int:rid>/toggle", methods=["POST"])
+    @app.route("/v1/recurring/<int:rid>/toggle", methods=["POST"])
     @login_required
     def recurring_toggle(rid):
         r = db.session.get(Recurring, rid) or abort(404)
@@ -1488,7 +1488,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return redirect(url_for("recurring_list"))
 
-    @app.route("/recurring/<int:rid>/delete", methods=["POST"])
+    @app.route("/v1/recurring/<int:rid>/delete", methods=["POST"])
     @login_required
     def recurring_delete(rid):
         r = db.session.get(Recurring, rid) or abort(404)
@@ -1498,7 +1498,7 @@ def register_routes(app: Flask):
         return redirect(url_for("recurring_list"))
 
     # ---- plaid ----
-    @app.route("/plaid")
+    @app.route("/v1/plaid")
     @login_required
     def plaid_status():
         items = PlaidItem.query.all()
@@ -1507,7 +1507,7 @@ def register_routes(app: Flask):
                                env=plaid_client.PLAID_ENV,
                                items=items)
 
-    @app.route("/plaid/link_token", methods=["POST"])
+    @app.route("/v1/plaid/link_token", methods=["POST"])
     @login_required
     def plaid_link_token():
         if not plaid_client.is_configured():
@@ -1518,7 +1518,7 @@ def register_routes(app: Flask):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/plaid/exchange", methods=["POST"])
+    @app.route("/v1/plaid/exchange", methods=["POST"])
     @login_required
     def plaid_exchange():
         if not plaid_client.is_configured():
@@ -1550,7 +1550,7 @@ def register_routes(app: Flask):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    @app.route("/plaid/sync/<int:item_id>", methods=["POST"])
+    @app.route("/v1/plaid/sync/<int:item_id>", methods=["POST"])
     @login_required
     def plaid_sync(item_id):
         item = db.session.get(PlaidItem, item_id) or abort(404)
@@ -1593,7 +1593,7 @@ def register_routes(app: Flask):
         "#36a2eb", "#9966ff", "#c9cbcf",
     ]
 
-    @app.route("/api/calendar/transactions")
+    @app.route("/v1/api/calendar/transactions")
     @login_required
     def api_calendar_transactions():
         """Return budget transactions as FullCalendar-compatible JSON events.
@@ -1640,12 +1640,12 @@ def register_routes(app: Flask):
             })
         return jsonify(events)
 
-    @app.route("/calendar")
+    @app.route("/v1/calendar")
     @login_required
     def calendar_view():
         return redirect(url_for("dashboard"))
 
-    @app.route("/calendar-old")
+    @app.route("/v1/calendar-old")
     @login_required
     def calendar_view_old():
         """Kept for reference — calendar is now merged into home."""
@@ -1793,14 +1793,14 @@ def register_routes(app: Flask):
         return render_template("calendar.html", legend_groups=legend_groups,
                                payee_rows=payee_rows)
 
-    @app.route("/api/date-range")
+    @app.route("/v1/api/date-range")
     @login_required
     def api_date_range():
         """Return computed start/end dates for a given preset (or custom range)."""
         start, end, preset = _parse_report_range(request)
         return jsonify({"start_date": start.isoformat(), "end_date": end.isoformat(), "preset": preset})
 
-    @app.route("/api/dashboard-chart-data")
+    @app.route("/v1/api/dashboard-chart-data")
     @login_required
     def api_dashboard_chart_data():
         """Return category + payee aggregates for the spending donut charts.
@@ -1890,7 +1890,7 @@ def register_routes(app: Flask):
             "income_by_user": income_by_user_api,
         })
 
-    @app.route("/api/category/recent-transactions")
+    @app.route("/v1/api/category/recent-transactions")
     @login_required
     def api_category_recent_transactions():
         try:
@@ -1907,7 +1907,7 @@ def register_routes(app: Flask):
             for t in txns
         ]})
 
-    @app.route("/api/payee/recent-transactions")
+    @app.route("/v1/api/payee/recent-transactions")
     @login_required
     def api_payee_recent_transactions():
         payee = request.args.get("payee", "")
@@ -1922,7 +1922,7 @@ def register_routes(app: Flask):
             for t in txns
         ]})
 
-    @app.route("/api/calendar/google-proxy")
+    @app.route("/v1/api/calendar/google-proxy")
     @login_required
     def api_calendar_google_proxy():
         """Proxy the public Google Calendar ICS feed to avoid browser CORS issues."""
@@ -1937,7 +1937,7 @@ def register_routes(app: Flask):
 
     # ---- AI analysis ----
 
-    @app.route("/ai")
+    @app.route("/v1/ai")
     @setup_required
     @login_required
     def ai_analysis():
@@ -1962,7 +1962,7 @@ def register_routes(app: Flask):
                                pending_category_count=len(pending_categories),
                                categories=categories)
 
-    @app.route("/api/ai/chat", methods=["POST"])
+    @app.route("/v1/api/ai/chat", methods=["POST"])
     @login_required
     def api_ai_chat():
         data = request.get_json(silent=True) or {}
@@ -2008,7 +2008,7 @@ def register_routes(app: Flask):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    @app.route("/api/ai/suggest-payees", methods=["POST"])
+    @app.route("/v1/api/ai/suggest-payees", methods=["POST"])
     @login_required
     def api_ai_suggest_payees():
         ninety_days_ago = date.today() - timedelta(days=90)
@@ -2107,7 +2107,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"suggestions": created, "count": len(created)})
 
-    @app.route("/api/ai/approve-payee/<int:sid>", methods=["POST"])
+    @app.route("/v1/api/ai/approve-payee/<int:sid>", methods=["POST"])
     @login_required
     def api_ai_approve_payee(sid):
         suggestion = AiPayeeSuggestion.query.get_or_404(sid)
@@ -2120,7 +2120,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True, "updated_transactions": updated})
 
-    @app.route("/api/ai/reject-payee/<int:sid>", methods=["POST"])
+    @app.route("/v1/api/ai/reject-payee/<int:sid>", methods=["POST"])
     @login_required
     def api_ai_reject_payee(sid):
         suggestion = AiPayeeSuggestion.query.get_or_404(sid)
@@ -2130,7 +2130,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True})
 
-    @app.route("/api/ai/suggest-categories", methods=["POST"])
+    @app.route("/v1/api/ai/suggest-categories", methods=["POST"])
     @login_required
     def api_ai_suggest_categories():
         # Only transactions that are actually eligible for a direct category:
@@ -2263,7 +2263,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"suggestions": created, "count": len(created)})
 
-    @app.route("/api/ai/approve-category/<int:sid>", methods=["POST"])
+    @app.route("/v1/api/ai/approve-category/<int:sid>", methods=["POST"])
     @login_required
     def api_ai_approve_category(sid):
         suggestion = AiCategorySuggestion.query.get_or_404(sid)
@@ -2291,7 +2291,7 @@ def register_routes(app: Flask):
         db.session.commit()
         return jsonify({"ok": True, "category_id": t.category_id})
 
-    @app.route("/api/ai/reject-category/<int:sid>", methods=["POST"])
+    @app.route("/v1/api/ai/reject-category/<int:sid>", methods=["POST"])
     @login_required
     def api_ai_reject_category(sid):
         suggestion = AiCategorySuggestion.query.get_or_404(sid)

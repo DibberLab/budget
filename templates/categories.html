@@ -142,7 +142,7 @@ async function saveCatField(cid, field, value) {
   const fd = new FormData();
   fd.append('field', field);
   fd.append('value', value);
-  const r = await fetch(`/categories/${cid}/edit`, { method: 'POST', body: fd });
+  const r = await fetch(`/v1/categories/${cid}/edit`, { method: 'POST', body: fd });
   return r.ok;
 }
 
@@ -179,7 +179,7 @@ document.querySelectorAll('.group-name-edit').forEach(el => {
     const fd = new FormData();
     fd.append('old_name', original);
     fd.append('new_name', newName);
-    const r = await fetch('/categories/group/rename', { method: 'POST', body: fd });
+    const r = await fetch('/v1/categories/group/rename', { method: 'POST', body: fd });
     if (!r.ok) { el.textContent = original; return; }
 
     // Update all group selects on the page to reflect the rename
@@ -283,7 +283,7 @@ function wireGroupEdit(el) {
     const fd = new FormData();
     fd.append('old_name', original);
     fd.append('new_name', newName);
-    const r = await fetch('/categories/group/rename', { method: 'POST', body: fd });
+    const r = await fetch('/v1/categories/group/rename', { method: 'POST', body: fd });
     if (!r.ok) { el.textContent = original; return; }
     document.querySelectorAll('.cat-group-select').forEach(sel => {
       Array.from(sel.options).forEach(opt => {

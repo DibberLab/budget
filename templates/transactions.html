@@ -691,7 +691,7 @@ async function saveField(tid, field, value) {
   const fd = new FormData();
   fd.append('field', field);
   fd.append('value', value);
-  const r = await fetch(`/transactions/${tid}/edit`, { method: 'POST', body: fd });
+  const r = await fetch(`/v1/transactions/${tid}/edit`, { method: 'POST', body: fd });
   return r.ok;
 }
 
@@ -700,7 +700,7 @@ document.querySelectorAll('.js-cat').forEach(sel => {
   sel.addEventListener('change', async () => {
     const fd = new FormData();
     fd.append('category_id', sel.value);
-    await fetch(`/transactions/${sel.dataset.tid}/categorize`, { method: 'POST', body: fd });
+    await fetch(`/v1/transactions/${sel.dataset.tid}/categorize`, { method: 'POST', body: fd });
     // Update row data attribute so filtering still works
     const row = sel.closest('tr');
     if (row) {

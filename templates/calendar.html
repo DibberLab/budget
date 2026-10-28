@@ -78,7 +78,7 @@
                 {% set pct   = item.spent_pct or 0 %}
                 {% set clamp = [pct, 100] | min %}
                 {% set color = 'over' if pct > 100 else ('warn' if pct > 75 else 'ok') %}
-                <tr data-tip-url="/api/category/recent-transactions?category_id={{ item.id }}"
+                <tr data-tip-url="/v1/api/category/recent-transactions?category_id={{ item.id }}"
                     data-tip-label="{{ item.name }}">
                   <td class="ps-3">
                     <a href="{{ url_for('reports', preset='last_30d', open_cat=item.id, open_cat_name=item.name) }}"
@@ -117,7 +117,7 @@
             </thead>
             <tbody>
             {% for item in payee_rows %}
-              <tr data-tip-url="/api/payee/recent-transactions?payee={{ item.name | urlencode }}"
+              <tr data-tip-url="/v1/api/payee/recent-transactions?payee={{ item.name | urlencode }}"
                   data-tip-label="{{ item.name }}">
                 <td>
                   <a href="{{ url_for('reports', preset='last_30d', open_payee=item.name) }}"

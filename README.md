@@ -64,15 +64,18 @@ The home page combines a spending reports view and a calendar in one place:
 
 ---
 
-## v2 (at `/v2`)
+## The app (v2) and Classic (v1)
 
-A deliberately small front-end over the **same database and logins** as v1, for occasional check-ins:
+The main app at `/` is "v2": a deliberately small front-end for occasional check-ins. The original app ("Classic") is archived at `/v1/` and shares the same database and logins, so anything not in v2 (accounts, transaction editing/splits, categories, recurring, goals, AI advisor, user management) is still there.
 
-- **Progress** (`/v2/`) — this month's spending vs. budget, one bar per category, with a "how far through the month" marker. Tap a category to see its transactions. If a category has no budget set this month, the most recent earlier amount is used, so budgets only need setting once.
-- **Review** (`/v2/review`) — uncategorized transactions grouped by payee. Rename the payee, pick a category, save. Each choice is stored as a `PayeeRule` (new `payee_rules` table, auto-created) and applied automatically on future imports. "Auto-fill with AI" pre-fills names and categories (needs `CLAUDE_API_KEY`); nothing is saved until you hit Save.
-- **Import** (`/v2/import`) — "Sync & categorize" pulls from every Plaid-linked bank (pending transactions are skipped to avoid duplicates), applies payee rules, then has Claude categorize the rest in batches of 25 payees. Only picks the AI is sure about are applied (tracked in `auto_categorized` until confirmed on Review); the rest are pre-filled for review. CSV upload is still available.
+- **Progress** (`/`) — this month as a dashboard: left-to-spend ring, spending-pace chart, daily allowance, income vs spending, over-budget list, and category groups with tap-to-edit budgets. **Plan vs actual** (`/plan`) compares your plan with average actuals over 1–12 months.
+- **Review** (`/review`) — uncategorized transactions grouped by payee, plus "AI picks to check" from imports. Choices are remembered as `PayeeRule`s.
+- **Budgets** (`/budgets`) — monthly budgets and planned income (`income_plans`), with averages for reference. Budgets carry forward until changed.
+- **Import** (`/import`) — "Sync & categorize" pulls from every Plaid-linked bank (pending transactions skipped to avoid duplicates), applies payee rules, then has Claude categorize the rest in batches of 25 payees. Only confident picks are applied (tracked in `auto_categorized` until confirmed). CSV upload is at `/import/csv`.
 
-Code lives in `v2/` as a Flask blueprint. To make v2 the default later, point `/` at `v2.progress` (and the post-login redirect in `auth.py`).
+Old `/v2/...` links redirect to `/...`. `/healthz` stays at the root.
+
+Code lives in `v2/` as a Flask blueprint mounted at the root; v1's routes in `app.py` are all under `/v1`.
 
 ---
 

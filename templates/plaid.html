@@ -54,13 +54,13 @@ python run.py</pre>
 <script src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"></script>
 <script>
   document.getElementById('link-btn').addEventListener('click', async () => {
-    const r = await fetch('/plaid/link_token', { method: 'POST' });
+    const r = await fetch('/v1/plaid/link_token', { method: 'POST' });
     const j = await r.json();
     if (j.error) { alert('Error: ' + j.error); return; }
     const handler = Plaid.create({
       token: j.link_token,
       onSuccess: async (public_token, metadata) => {
-        await fetch('/plaid/exchange', {
+        await fetch('/v1/plaid/exchange', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

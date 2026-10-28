@@ -87,7 +87,7 @@
         {% set pct = ((r.spent | abs) / r.assigned * 100) if r.assigned > 0 else 0 %}
         {% set clamped = pct if pct <= 100 else 100 %}
         {% set color = 'over' if pct > 100 else ('warn' if pct > 75 else 'ok') %}
-        <tr data-tip-url="/api/category/recent-transactions?category_id={{ r.cat.id }}"
+        <tr data-tip-url="/v1/api/category/recent-transactions?category_id={{ r.cat.id }}"
             data-tip-label="{{ r.cat.name }}">
           <td class="ps-3">{{ r.cat.name }}</td>
           <td class="text-end text-muted d-none d-md-table-cell">{{ r.avg | money if r.avg else '—' }}</td>
@@ -172,7 +172,7 @@
       fd.append('category_id', inp.dataset.cat);
       fd.append('amount', inp.value || '0');
       try {
-        const r = await fetch('/budget/assign', { method: 'POST', body: fd });
+        const r = await fetch('/v1/budget/assign', { method: 'POST', body: fd });
         if (r.ok) setTimeout(() => location.reload(), 300);
         else location.reload();
       } catch (_) { location.reload(); }

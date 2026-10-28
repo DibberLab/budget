@@ -281,7 +281,7 @@ async function sendMessage() {
   let fullText = '';
 
   try {
-    const resp = await fetch('/api/ai/chat', {
+    const resp = await fetch('/v1/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: conversationHistory }),
@@ -368,7 +368,7 @@ async function analyzePayees() {
   spinner.classList.remove('d-none');
 
   try {
-    const resp = await fetch('/api/ai/suggest-payees', { method: 'POST' });
+    const resp = await fetch('/v1/api/ai/suggest-payees', { method: 'POST' });
     const data = await resp.json();
 
     if (data.error) throw new Error(data.error);
@@ -426,7 +426,7 @@ async function approvePayee(id, btn) {
   btn.disabled = true;
   btn.nextElementSibling.disabled = true;
   try {
-    const resp = await fetch(`/api/ai/approve-payee/${id}`, { method: 'POST' });
+    const resp = await fetch(`/v1/api/ai/approve-payee/${id}`, { method: 'POST' });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     const card = document.getElementById(`sugg-${id}`);
@@ -447,7 +447,7 @@ async function rejectPayee(id, btn) {
   btn.disabled = true;
   btn.previousElementSibling.disabled = true;
   try {
-    const resp = await fetch(`/api/ai/reject-payee/${id}`, { method: 'POST' });
+    const resp = await fetch(`/v1/api/ai/reject-payee/${id}`, { method: 'POST' });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     const card = document.getElementById(`sugg-${id}`);
@@ -481,7 +481,7 @@ async function analyzeCategories() {
   spinner.classList.remove('d-none');
 
   try {
-    const resp = await fetch('/api/ai/suggest-categories', { method: 'POST' });
+    const resp = await fetch('/v1/api/ai/suggest-categories', { method: 'POST' });
     const data = await resp.json();
 
     if (data.error) throw new Error(data.error);
@@ -511,7 +511,7 @@ async function approveCategory(id, btn) {
   const select = document.getElementById(`cat-select-${id}`);
   if (select) select.disabled = true;
   try {
-    const resp = await fetch(`/api/ai/approve-category/${id}`, {
+    const resp = await fetch(`/v1/api/ai/approve-category/${id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ category_id: select ? select.value : '' }),
@@ -534,7 +534,7 @@ async function rejectCategory(id, btn) {
   btn.disabled = true;
   btn.previousElementSibling.disabled = true;
   try {
-    const resp = await fetch(`/api/ai/reject-category/${id}`, { method: 'POST' });
+    const resp = await fetch(`/v1/api/ai/reject-category/${id}`, { method: 'POST' });
     const data = await resp.json();
     if (data.error) throw new Error(data.error);
     const card = document.getElementById(`cat-sugg-${id}`);

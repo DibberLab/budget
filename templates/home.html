@@ -236,7 +236,7 @@
   async function _applyDateRange(preset, startDate, endDate) {
     const params = new URLSearchParams({ preset });
     if (preset === 'custom') { params.set('start_date', startDate); params.set('end_date', endDate); }
-    const data = await fetch(`/api/date-range?${params}`).then(r => r.json()).catch(() => null);
+    const data = await fetch(`/v1/api/date-range?${params}`).then(r => r.json()).catch(() => null);
     if (!data) return;
     _sd = data.start_date; _ed = data.end_date;
     // Sync custom-range inputs and URL without reloading
@@ -1161,7 +1161,7 @@
     if (mode === 'group') {
       const grp = _budgetGroups[idx];
       grp.categories.forEach(c => params.append('category_ids', c.id));
-      const data = await fetch('/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
+      const data = await fetch('/v1/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
       if (!data) return;
       const avail = grp.budgeted - grp.spent;
       summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0 gutter-budget-table" style="font-size:.78rem">'
@@ -1209,7 +1209,7 @@
     } else {
       const item = _budgetItems[idx];
       params.append('category_ids', item.id);
-      const data = await fetch('/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
+      const data = await fetch('/v1/reports/filtered-transactions?' + params).then(r => r.json()).catch(() => null);
       if (!data) return;
       const avail = item.budgeted - item.spent;
       summaryHtml = '<div class="mb-2"><table class="table table-sm mb-0 gutter-budget-table" style="font-size:.78rem">'
@@ -1320,7 +1320,7 @@
         const fd = new FormData();
         fd.append('year', yr); fd.append('month', mo);
         fd.append('category_id', catId); fd.append('amount', num.toFixed(2));
-        const r = await fetch('/budget/assign', { method: 'POST', body: fd });
+        const r = await fetch('/v1/budget/assign', { method: 'POST', body: fd });
         if (!r.ok) { el.textContent = original; return; }
         // Update this cell's display
         el.textContent = num === 0 ? '—'
@@ -1517,7 +1517,7 @@
     const params = new URLSearchParams({ start_date: _sd, end_date: _ed, owner: activeOwner });
     selectedCatIds.forEach(id   => params.append('category_ids', id));
     selectedPayeeNames.forEach(n => params.append('payees', n));
-    return fetch(`/api/dashboard-chart-data?${params}`).then(r => r.json()).catch(() => null);
+    return fetch(`/v1/api/dashboard-chart-data?${params}`).then(r => r.json()).catch(() => null);
   }
 
   // ---- Monthly overview bar chart ----
@@ -1825,7 +1825,7 @@
         try {
           for (const {field,value} of changes) {
             const fd = new FormData(); fd.append('field',field); fd.append('value',value);
-            const r = await fetch(`/transactions/${tid}/edit`,{method:'POST',body:fd}); if(!r.ok) throw new Error();
+            const r = await fetch(`/v1/transactions/${tid}/edit`,{method:'POST',body:fd}); if(!r.ok) throw new Error();
           }
           inputs.forEach(i => { i.dataset.original = i.value; });
           const a = row.querySelector('[data-field="amount"]');
@@ -1952,7 +1952,7 @@
     const params = new URLSearchParams({ start_date: _sd, end_date: _ed, owner: activeOwner });
     selectedCatIds.forEach(id => params.append('category_ids', id));
     selectedPayeeNames.forEach(n => params.append('payees', n));
-    const data = await fetch(`/reports/filtered-transactions?${params}`).then(r => r.json()).catch(() => null);
+    const data = await fetch(`/v1/reports/filtered-transactions?${params}`).then(r => r.json()).catch(() => null);
     if (!data) return;
     document.getElementById('gutter-summary').textContent = `${data.transactions.length} txns — ${fmtMoney(data.expenses)}`;
     const gutterEl = document.getElementById('gutter-txn-body');
@@ -1982,7 +1982,7 @@
     selectedCatIds.forEach(id   => params.append('category_ids', id));
     selectedPayeeNames.forEach(n => params.append('payees', n));
 
-    const data = await fetch(`/reports/filtered-transactions?${params}`).then(r => r.json()).catch(() => null);
+    const data = await fetch(`/v1/reports/filtered-transactions?${params}`).then(r => r.json()).catch(() => null);
     if (!data) return;
 
     const catNames   = [...selectedCatIds].map(id => _catLabelCache.get(id) || `#${id}`);

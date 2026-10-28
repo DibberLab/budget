@@ -24,7 +24,15 @@ import csv_import
 import plaid_client
 from models import Account, BudgetMonth, Category, PlaidItem, Transaction, db
 
-v2_bp = Blueprint("v2", __name__, url_prefix="/v2", template_folder="templates")
+v2_bp = Blueprint("v2", __name__, template_folder="templates")
+
+
+@v2_bp.route("/v2/", defaults={"path": ""})
+@v2_bp.route("/v2/<path:path>")
+def legacy_v2(path):
+    """v2 used to live under /v2 while v1 was the main app; keep old links working."""
+    qs = request.query_string.decode()
+    return redirect("/" + path + (f"?{qs}" if qs else ""), code=301)
 
 
 class PayeeRule(db.Model):
@@ -396,6 +404,8 @@ def budgets():
     for c in cats:
         groups[c.group_name].append({"cat": c, "budget": current.get(c.id, 0),
                                      "avg": avg.get(c.id, 0), "last": last_month.get(c.id, 0)})
+    for items in groups.values():
+        items.sort(key=lambda it: (-it["budget"], -it["avg"], it["cat"].name.lower()))
     return render_template(
         "v2/budgets.html", groups=list(groups.items()),
         n_months=n_months, span=span, last_label=lm_end.strftime("%b"),

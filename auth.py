@@ -84,14 +84,14 @@ def setup():
             db.session.commit()
             login_user(user, remember=True)
             flash("Welcome! Your household budget is ready. Add your second user from the Users page.", "success")
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("v2.progress"))
     return render_template("setup.html")
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for("dashboard"))
+        return redirect(url_for("v2.progress"))
     if User.query.count() == 0:
         return redirect(url_for("auth.setup"))
 
@@ -107,10 +107,10 @@ def login():
         login_user(user, remember=bool(request.form.get("remember")))
         user.last_login_at = datetime.utcnow()
         db.session.commit()
-        nxt = request.args.get("next") or url_for("dashboard")
+        nxt = request.args.get("next") or url_for("v2.progress")
         # Avoid open-redirect: only allow same-host relative paths.
         if not nxt.startswith("/"):
-            nxt = url_for("dashboard")
+            nxt = url_for("v2.progress")
         return redirect(nxt)
 
     return render_template("login.html")

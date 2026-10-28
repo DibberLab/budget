@@ -209,7 +209,7 @@
             const fd = new FormData();
             fd.append('field', field);
             fd.append('value', value);
-            const r = await fetch(`/transactions/${tid}/edit`, { method: 'POST', body: fd });
+            const r = await fetch(`/v1/transactions/${tid}/edit`, { method: 'POST', body: fd });
             if (!r.ok) throw new Error();
           }
           inputs.forEach(i => { i.dataset.original = i.value; });
@@ -235,7 +235,7 @@
     // Payee clicks don't use the URL-filter system — just open the panel directly
     const startDate = {{ start_date | tojson }};
     const endDate   = {{ end_date   | tojson }};
-    const url = `/reports/payee-transactions?payee=${encodeURIComponent(payeeName)}&start_date=${startDate}&end_date=${endDate}`;
+    const url = `/v1/reports/payee-transactions?payee=${encodeURIComponent(payeeName)}&start_date=${startDate}&end_date=${endDate}`;
 
     document.getElementById('cat-txn-title').textContent = `${payeeName} — loading…`;
     const section = document.getElementById('cat-transactions');
@@ -348,7 +348,7 @@
 
     const startDate = {{ start_date | tojson }};
     const endDate   = {{ end_date   | tojson }};
-    const url = `/reports/category-transactions?category_id=${catId}&start_date=${startDate}&end_date=${endDate}`;
+    const url = `/v1/reports/category-transactions?category_id=${catId}&start_date=${startDate}&end_date=${endDate}`;
 
     fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
       .then(r => r.json())
