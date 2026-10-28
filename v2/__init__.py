@@ -13,7 +13,7 @@ so both versions can run side by side until v1 is retired.
 """
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import (Blueprint, abort, flash, jsonify, redirect, render_template,
                    request, url_for)
@@ -21,7 +21,8 @@ from flask_login import login_required
 from sqlalchemy import extract, func
 
 import csv_import
-from models import Account, BudgetMonth, Category, Transaction, db
+import plaid_client
+from models import Account, BudgetMonth, Category, PlaidItem, Transaction, db
 
 v2_bp = Blueprint("v2", __name__, url_prefix="/v2", template_folder="templates")
 
@@ -48,6 +49,19 @@ class IncomePlan(db.Model):
     __tablename__ = "income_plans"
     category_id = db.Column(db.Integer, db.ForeignKey("categories.id"), primary_key=True)
     amount = db.Column(db.Integer, nullable=False, default=0)  # cents per month
+
+
+class AutoCat(db.Model):
+    """A transaction the AI categorized on its own during import. Stays here
+    until someone confirms (or corrects) it on the Review page, at which point
+    the choice becomes a PayeeRule and this row is removed."""
+    __tablename__ = "auto_categorized"
+    transaction_id = db.Column(db.Integer, db.ForeignKey("transactions.id", ondelete="CASCADE"),
+                               primary_key=True)
+    raw_payee = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    transaction = db.relationship("Transaction")
 
 
 def _window(months: int):
@@ -157,7 +171,8 @@ def _inject_counts():
     # Only the v2 templates use this; cheap enough to compute per request.
     if request.blueprint != "v2":
         return {}
-    return {"v2_uncategorized": _uncategorized_query().count()}
+    return {"v2_uncategorized": _uncategorized_query().count(),
+            "v2_to_review": _uncategorized_query().count() + AutoCat.query.count()}
 
 
 # ---------- progress ----------
@@ -216,12 +231,23 @@ def progress():
     nxt = (y + 1, 1) if m == 12 else (y, m + 1)
     is_current = (y, m) == (today.year, today.month)
 
+    # Spending per day of the month, for the pace chart.
+    daily = [0] * days_in_month
+    for d, total in (db.session.query(Transaction.date, func.sum(Transaction.amount))
+                     .filter(Transaction.category_id.in_(cat_ids),
+                             extract("year", Transaction.date) == y,
+                             extract("month", Transaction.date) == m)
+                     .group_by(Transaction.date)):
+        daily[d.day - 1] -= int(total or 0)
+    days_elapsed = today.day if is_current else (days_in_month if (y, m) < (today.year, today.month) else 0)
+
     return render_template(
         "v2/progress.html",
         y=y, m=m, month_label=date(y, m, 1).strftime("%B %Y"),
         prev=prev, nxt=nxt, is_current=is_current, editable=is_current,
         groups=sorted(groups.items(), key=lambda kv: kv[0] == "Retired"),
-        pace=pace, income=int(income),
+        pace=pace, income=int(income), daily=daily, days_in_month=days_in_month,
+        days_elapsed=days_elapsed,
     )
 
 
@@ -402,7 +428,20 @@ def review():
         g["key"] = k
 
     ordered = sorted(groups.values(), key=lambda g: (-len(g["txns"]), g["raw"].lower()))
-    return render_template("v2/review.html", groups=ordered,
+
+    picks = {}
+    for ac in (AutoCat.query.join(Transaction, Transaction.id == AutoCat.transaction_id)
+               .order_by(Transaction.date.desc())):
+        t = ac.transaction
+        p = picks.setdefault(_key(t.payee), {"key": _key(t.payee), "payee": t.payee,
+                                             "category_id": t.category_id, "txns": [],
+                                             "total": 0, "raws": set()})
+        p["txns"].append(t)
+        p["total"] += t.amount
+        p["raws"].add(ac.raw_payee)
+    picks = sorted(picks.values(), key=lambda p: (-len(p["txns"]), p["payee"].lower()))
+
+    return render_template("v2/review.html", groups=ordered, picks=picks,
                            category_groups=_category_options())
 
 
@@ -452,24 +491,29 @@ def review_save():
     return jsonify({"ok": True, "renamed": renamed, "categorized": categorized})
 
 
-@v2_bp.route("/review/ai", methods=["POST"])
-@login_required
-def review_ai():
-    """Ask Claude for a clean name + category for each uncategorized payee group.
-    Returns suggestions only; nothing is saved until the user hits Save."""
-    from app import _ai_tool_call  # late import: app.py imports this module
+# ---------- AI categorization ----------
 
-    txns = _uncategorized_query().order_by(Transaction.date.desc()).limit(400).all()
-    if not txns:
-        return jsonify({"suggestions": []})
+AI_BATCH = 25  # payee groups per Claude call — keeps each request well under gunicorn's timeout
 
+
+def _uncategorized_groups(skip=()) -> dict:
+    """Uncategorized transactions grouped by raw payee, most frequent first."""
     groups = {}
-    for t in txns:
-        g = groups.setdefault(_key(t.payee), {"raw": t.payee, "n": 0, "total": 0, "memo": ""})
-        g["n"] += 1
+    for t in _uncategorized_query().order_by(Transaction.date.desc()):
+        k = _key(t.payee)
+        if k in skip:
+            continue
+        g = groups.setdefault(k, {"raw": t.payee, "txns": [], "total": 0, "memo": ""})
+        g["txns"].append(t)
         g["total"] += t.amount
         g["memo"] = g["memo"] or (t.memo or "")
-    groups = dict(list(groups.items())[:150])
+    return dict(sorted(groups.items(), key=lambda kv: -len(kv[1]["txns"])))
+
+
+def _ai_suggest(groups: dict) -> list[dict]:
+    """Ask Claude for a clean payee name, a category, and whether it's sure,
+    for each payee group. Returns [{key, payee, category_id, sure}]."""
+    from app import _ai_tool_call  # late import: app.py imports this module
 
     cats = Category.query.filter_by(hidden=False).order_by(Category.group_name, Category.name).all()
     lookup = {(c.group_name.strip().lower(), c.name.strip().lower()): c.id for c in cats}
@@ -478,83 +522,229 @@ def review_ai():
 
     known = (db.session.query(Transaction.payee, Category.group_name, Category.name)
              .join(Category, Category.id == Transaction.category_id)
+             .filter(Category.hidden.is_(False))
              .group_by(Transaction.payee, Category.group_name, Category.name)
              .order_by(func.count().desc()).limit(200).all())
     known_text = "\n".join(f"  {p} → {g} > {n}" for p, g, n in known)
 
     payee_text = "\n".join(
-        f"  {g['raw']} | {g['n']} txn | {'+' if g['total'] > 0 else '-'}${abs(g['total'])/100:,.2f}"
+        f"  {g['raw']} | {len(g['txns'])} txn | {'+' if g['total'] > 0 else '-'}${abs(g['total'])/100:,.2f}"
         + (f" | memo: {g['memo'][:60]}" if g["memo"] else "")
         for g in groups.values())
 
     prompt = (
-        "These are raw payee strings from bank/credit-card transactions that still need "
+        "These are raw payee strings from a household's bank transactions that still need "
         "a category. For each one, give a short clean human-readable payee name "
         "(e.g. 'AMZN MKTP US*AB12CD3' → 'Amazon', 'SQ *JOES COFFEE 0423' → \"Joe's Coffee\") "
         "and the best category from the list. Reuse the exact clean names from the "
         "already-categorized examples when it's the same merchant. Negative = spending, "
-        "positive = income. Leave category empty if genuinely unclear.\n\n"
+        "positive = income.\n\n"
+        "Set sure=true only when the merchant is clearly identifiable AND the category is "
+        "obvious (e.g. a grocery chain → Groceries, or the same merchant appears in the "
+        "examples). Set sure=false for ambiguous cases — person-to-person payments (Venmo, "
+        "Zelle, checks), generic retailers that sell many kinds of things, or unfamiliar "
+        "names. Leave category empty if you can't make a reasonable guess.\n\n"
         f"## Categories\n{cat_text}\n\n"
         + (f"## Already-categorized examples\n{known_text}\n\n" if known_text else "")
         + f"## Payees to clean up\n{payee_text}"
     )
 
-    try:
-        parsed = _ai_tool_call(
-            prompt,
-            tool_name="submit",
-            tool_description="Submit a clean payee name and category for each raw payee.",
-            input_schema={
+    parsed = _ai_tool_call(
+        prompt,
+        tool_name="submit",
+        tool_description="Submit a clean payee name and category for each raw payee.",
+        input_schema={
+            "type": "object",
+            "properties": {"suggestions": {"type": "array", "items": {
                 "type": "object",
-                "properties": {"suggestions": {"type": "array", "items": {
-                    "type": "object",
-                    "properties": {
-                        "raw": {"type": "string", "description": "Raw payee exactly as given."},
-                        "payee": {"type": "string", "description": "Clean payee name."},
-                        "category": {"type": "string",
-                                     "description": "Exact 'Group > Name' from the list, or empty."},
-                    },
-                    "required": ["raw", "payee", "category"],
-                }}},
-                "required": ["suggestions"],
-            },
-            max_tokens=16384,
-        )
-    except Exception as exc:
-        return jsonify({"error": str(exc)}), 500
+                "properties": {
+                    "raw": {"type": "string", "description": "Raw payee exactly as given."},
+                    "payee": {"type": "string", "description": "Clean payee name."},
+                    "category": {"type": "string",
+                                 "description": "Exact 'Group > Name' from the list, or empty."},
+                    "sure": {"type": "boolean",
+                             "description": "True only if both the merchant and category are clear."},
+                },
+                "required": ["raw", "payee", "category", "sure"],
+            }}},
+            "required": ["suggestions"],
+        },
+        max_tokens=8192,
+    )
 
     out = []
-    for s in parsed.get("suggestions", []):
-        k = _key(s.get("raw"))
+    for sug in parsed.get("suggestions", []):
+        k = _key(sug.get("raw"))
         if k not in groups:
             continue
         cid = None
-        if ">" in (s.get("category") or ""):
-            g, n = (p.strip().lower() for p in s["category"].split(">", 1))
+        if ">" in (sug.get("category") or ""):
+            g, n = (p.strip().lower() for p in sug["category"].split(">", 1))
             cid = lookup.get((g, n))
-        out.append({"key": k, "payee": (s.get("payee") or "").strip(), "category_id": cid})
-    return jsonify({"suggestions": out})
+        out.append({"key": k, "payee": (sug.get("payee") or "").strip(),
+                    "category_id": cid, "sure": bool(sug.get("sure")) and cid is not None})
+    return out
+
+
+@v2_bp.route("/review/ai", methods=["POST"])
+@login_required
+def review_ai():
+    """Run one batch of AI suggestions over uncategorized payee groups.
+
+    Body: {"skip": [keys already processed this run], "apply": bool}
+    With apply, suggestions the AI is sure about are saved immediately (and
+    recorded as AutoCat for later confirmation); the rest come back as
+    suggestions for the Review page to pre-fill. The client calls this
+    repeatedly until `remaining` is 0."""
+    body = request.get_json(silent=True) or {}
+    skip = set(body.get("skip") or [])
+    apply = bool(body.get("apply"))
+
+    pending = _uncategorized_groups(skip)
+    batch = dict(list(pending.items())[:AI_BATCH])
+    if not batch:
+        return jsonify({"suggestions": [], "keys": [], "remaining": 0, "applied": 0})
+
+    try:
+        suggestions = _ai_suggest(batch)
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    applied, out = 0, []
+    for sug in suggestions:
+        g = batch[sug["key"]]
+        if apply and sug["sure"]:
+            for t in g["txns"]:
+                db.session.add(AutoCat(transaction_id=t.id, raw_payee=t.payee))
+                if sug["payee"]:
+                    t.payee = sug["payee"]
+                t.category_id = sug["category_id"]
+                applied += 1
+        else:
+            out.append(sug)
+    db.session.commit()
+    return jsonify({"suggestions": out, "keys": list(batch), "applied": applied,
+                    "remaining": max(0, len(pending) - len(batch))})
+
+
+@v2_bp.route("/review/confirm", methods=["POST"])
+@login_required
+def review_confirm():
+    """Confirm or correct AI picks. Body: {"items": [{"key": current payee key,
+    "payee": str, "category_id": int}]}. Updates those transactions, remembers
+    the choice as PayeeRules, and clears them from the AI-picks list."""
+    valid_cats = {c.id for c in Category.query.all()}
+    confirmed = 0
+    for item in (request.get_json(silent=True) or {}).get("items", []):
+        key = _key(item.get("key"))
+        payee = (item.get("payee") or "").strip()
+        cid = item.get("category_id")
+        if cid not in valid_cats or not key:
+            continue
+        rows = (AutoCat.query.join(Transaction, Transaction.id == AutoCat.transaction_id)
+                .filter(func.lower(func.trim(Transaction.payee)) == key).all())
+        raws = set()
+        for ac in rows:
+            t = ac.transaction
+            if payee:
+                t.payee = payee
+            t.category_id = cid
+            raws.add(_key(ac.raw_payee))
+            db.session.delete(ac)
+            confirmed += 1
+        for match in raws | {_key(payee or key)}:
+            rule = PayeeRule.query.filter_by(match=match).first() or PayeeRule(match=match)
+            rule.payee = payee or rule.payee or key
+            rule.category_id = cid
+            db.session.add(rule)
+    db.session.commit()
+    return jsonify({"ok": True, "confirmed": confirmed})
 
 
 # ---------- import ----------
 
-@v2_bp.route("/import", methods=["GET", "POST"])
+def _add_transaction(rules, **fields) -> tuple[Transaction, bool]:
+    t = Transaction(**fields)
+    rule = rules.get(_key(t.payee))
+    if rule:
+        _apply_rule(t, rule)
+    db.session.add(t)
+    return t, bool(rule and t.category_id)
+
+
+@v2_bp.route("/import")
+@login_required
+def import_page():
+    items = PlaidItem.query.order_by(PlaidItem.id).all()
+    last_sync = {}
+    for item in items:
+        acct_ids = [a.id for a in Account.query.filter_by(plaid_item_id=item.item_id)]
+        last_sync[item.id] = (db.session.query(func.max(Transaction.created_at))
+                              .filter(Transaction.account_id.in_(acct_ids),
+                                      Transaction.source == "plaid").scalar()) if acct_ids else None
+    return render_template(
+        "v2/import.html", items=items, last_sync=last_sync,
+        plaid_ready=plaid_client.is_configured(),
+        accounts=Account.query.filter_by(closed=False).order_by(Account.name).all(),
+        autorun=request.args.get("ai") == "1")
+
+
+@v2_bp.route("/import/sync", methods=["POST"])
+@login_required
+def import_sync():
+    """Pull new transactions from every linked bank via Plaid, applying saved
+    payee rules on the way in. AI categorization runs afterwards in batches
+    (see review_ai) so this request stays fast."""
+    if not plaid_client.is_configured():
+        return jsonify({"error": "Plaid isn't configured on the server."}), 400
+    rules = _rules_by_match()
+    existing = {x[0] for x in db.session.query(Transaction.external_id)
+                .filter(Transaction.external_id.isnot(None))}
+    added = by_rule = 0
+    errors = []
+    for item in PlaidItem.query.all():
+        try:
+            result = plaid_client.sync_transactions(item.access_token, item.cursor)
+        except Exception as exc:
+            errors.append(f"{item.institution_name or 'Bank'}: {exc}")
+            continue
+        account_map = {a.plaid_account_id: a.id for a in
+                       Account.query.filter(Account.plaid_item_id == item.item_id)}
+        for t in result["added"]:
+            # Skip pending: once it posts, Plaid sends it again as a new
+            # transaction, so importing pending ones creates duplicates.
+            if t.get("pending"):
+                continue
+            acct = account_map.get(t["account_id"])
+            if not acct or t["transaction_id"] in existing:
+                continue
+            _, ruled = _add_transaction(
+                rules, account_id=acct, date=t["date"],
+                amount=-int(round(float(t["amount"]) * 100)),
+                payee=t.get("name") or t.get("merchant_name") or "(bank)",
+                memo="", source="plaid", external_id=t["transaction_id"])
+            existing.add(t["transaction_id"])
+            added += 1
+            by_rule += ruled
+        item.cursor = result["next_cursor"]
+        db.session.commit()
+    return jsonify({"added": added, "by_rule": by_rule, "errors": errors,
+                    "to_categorize": len(_uncategorized_groups())})
+
+
+@v2_bp.route("/import/csv", methods=["POST"])
 @login_required
 def import_csv():
-    accounts = Account.query.filter_by(closed=False).order_by(Account.name).all()
-    if request.method == "GET":
-        return render_template("v2/import.html", accounts=accounts)
-
     account = db.session.get(Account, request.form.get("account_id", type=int) or 0)
     f = request.files.get("file")
     if not account or not f:
         flash("Pick an account and a CSV file.", "error")
-        return redirect(url_for("v2.import_csv"))
+        return redirect(url_for("v2.import_page"))
 
     rows, _ = csv_import.parse_csv(f)
     if not rows:
         flash("Couldn't read any transactions from that file. Is it a bank CSV export?", "error")
-        return redirect(url_for("v2.import_csv"))
+        return redirect(url_for("v2.import_page"))
 
     # Same de-dupe key as v1, so importing a file in either version is safe.
     existing = {x[0] for x in db.session.query(Transaction.external_id)
@@ -564,24 +754,19 @@ def import_csv():
     for r in rows:
         if r["hash"] in existing:
             continue
-        t = Transaction(account_id=account.id, date=r["date"], amount=r["amount"],
-                        payee=r["payee"] or "(imported)", memo=r["memo"],
-                        source="csv", external_id=r["hash"])
-        rule = rules.get(_key(t.payee))
-        if rule:
-            _apply_rule(t, rule)
-            if t.category_id:
-                auto += 1
-        db.session.add(t)
+        _, ruled = _add_transaction(rules, account_id=account.id, date=r["date"], amount=r["amount"],
+                                    payee=r["payee"] or "(imported)", memo=r["memo"],
+                                    source="csv", external_id=r["hash"])
         existing.add(r["hash"])
         added += 1
+        auto += ruled
     db.session.commit()
 
     skipped = len(rows) - added
     msg = f"Imported {added} transaction{'s' if added != 1 else ''} into {account.name}"
     if auto:
-        msg += f" — {auto} categorized automatically from your saved payees"
+        msg += f" — {auto} filed from your saved payees"
     if skipped:
-        msg += f" ({skipped} already imported, skipped)"
+        msg += f" ({skipped} already imported)"
     flash(msg + ".", "ok")
-    return redirect(url_for("v2.review"))
+    return redirect(url_for("v2.import_page", ai=1))

@@ -29,8 +29,21 @@
   .g .txn { display: grid; grid-template-columns: 56px 1fr 90px 150px; gap: 8px; align-items: center; padding: 3px 0; }
   .g .txn .memo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .g .txn select { padding: 4px 6px; font-size: 13px; }
+  h2.sec { font-size: 15px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  h2.sec .count { font-size: 12px; font-weight: 600; background: var(--track); border-radius: 999px; padding: 1px 8px; color: var(--muted); }
+  .picks-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 10px; }
+  .pk { padding: 12px 18px; }
+  .pk + .pk { border-top: 1px solid var(--line); }
+  .pk .meta { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  .pk .raw { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; }
+  .pk .fields { display: grid; grid-template-columns: 1fr 1fr 40px; gap: 8px; }
+  .pk .ok { border: 0; border-radius: 8px; background: color-mix(in srgb, var(--ok) 15%, transparent); color: var(--ok); font-weight: 700; cursor: pointer; }
+  .pk .ok:hover { background: var(--ok); color: #fff; }
+  .pk.done { opacity: .35; pointer-events: none; }
   .ai-tag { font-size: 11px; color: var(--accent); margin-left: 6px; }
   @media (max-width: 560px) {
+    .pk .fields { grid-template-columns: 1fr 40px; }
+    .pk .fields select { grid-column: 1; }
     .g .fields { grid-template-columns: 1fr; }
     .g .txn { grid-template-columns: 50px 1fr 80px; }
     .g .txn select { grid-column: 1 / -1; }
@@ -43,7 +56,33 @@
   {% if groups %}<button class="btn ghost" id="ai">✨ Auto-fill with AI</button>{% endif %}
 </div>
 
+{% if picks %}
+<div class="picks-head">
+  <div>
+    <h2 class="sec">AI picks to check <span class="count">{{ picks|length }}</span></h2>
+    <p class="muted small" style="margin:2px 0 0">Already filed during import. Fix anything that's off, then confirm — confirmed choices are remembered for next time.</p>
+  </div>
+  <button class="btn" id="confirm-all">Confirm all</button>
+</div>
+<div class="card" style="padding:0;margin-bottom:22px">
+  {% for p in picks %}
+  <div class="pk" data-key="{{ p.key }}">
+    <div class="meta">
+      <span class="raw" title="{{ p.raws|join(', ') }}">{{ p.raws|first }}{% if p.raws|length > 1 %} +{{ p.raws|length - 1 }}{% endif %}</span>
+      <span class="num" style="white-space:nowrap">{{ p.txns|length }} × · {% if p.total > 0 %}+{{ p.total|money }}{% else %}{{ (-p.total)|money }}{% endif %}</span>
+    </div>
+    <div class="fields">
+      <input class="payee" value="{{ p.payee }}" aria-label="Payee name">
+      {{ cat_select(p.category_id, 'Choose category…') }}
+      <button type="button" class="ok" title="Confirm">✓</button>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+
 {% if groups %}
+<h2 class="sec">Needs a category <span class="count">{{ groups|length }}</span></h2>
 <p class="muted" style="margin-top:0">Grouped by payee. Clean up the name, pick a category, and save — it'll be remembered for future imports.</p>
 
 <div class="card" style="padding:0">
@@ -78,7 +117,7 @@
   <span class="muted small" id="status"><span id="ready">0</span> of {{ groups|length }} ready</span>
   <button class="btn" id="save" disabled>Save</button>
 </div>
-{% else %}
+{% elif not picks %}
 <div class="card empty">
   <p style="font-size:28px;margin:0">✓</p>
   <p><b>All caught up.</b> Every transaction has a category.</p>
@@ -134,20 +173,26 @@
   const aiBtn = document.getElementById('ai');
   aiBtn && aiBtn.addEventListener('click', async () => {
     aiBtn.disabled = true; aiBtn.textContent = 'Thinking…';
+    const byKey = Object.fromEntries(groups.map(g => [g.dataset.key, g]));
+    const skip = []; let filled = 0;
     try {
-      const r = await postJSON('{{ url_for("v2.review_ai") }}');
-      const byKey = Object.fromEntries(groups.map(g => [g.dataset.key, g]));
-      let filled = 0;
-      for (const s of r.suggestions) {
-        const g = byKey[s.key];
-        if (!g) continue;
-        const sel = g.querySelector('.fields .cat');
-        if (s.payee) g.querySelector('.payee').value = s.payee;
-        if (s.category_id && !sel.value) { sel.value = String(s.category_id); filled++; }
-        if (!g.querySelector('.ai-tag')) {
-          const tag = document.createElement('span'); tag.className = 'ai-tag'; tag.textContent = 'AI';
-          g.querySelector('.meta .raw').after(tag);
+      while (true) {
+        const r = await postJSON('{{ url_for("v2.review_ai") }}', {skip, apply: false});
+        skip.push(...r.keys);
+        for (const s of r.suggestions) {
+          const g = byKey[s.key];
+          if (!g) continue;
+          const sel = g.querySelector('.fields .cat');
+          if (s.payee) g.querySelector('.payee').value = s.payee;
+          if (s.category_id && !sel.value) { sel.value = String(s.category_id); filled++; }
+          if (!g.querySelector('.ai-tag')) {
+            const tag = document.createElement('span'); tag.className = 'ai-tag'; tag.textContent = 'AI';
+            g.querySelector('.meta .raw').after(tag);
+          }
         }
+        refresh();
+        aiBtn.textContent = `Thinking… ${skip.length}/${skip.length + r.remaining}`;
+        if (!r.remaining || !r.keys.length) break;
       }
       aiBtn.textContent = `✨ Filled ${filled} — check & save`;
     } catch (e) {
@@ -156,5 +201,24 @@
     }
     refresh();
   });
+
+  // ---- AI picks: confirm one or all ----
+  async function confirmPicks(rows) {
+    const items = rows.map(p => ({key: p.dataset.key, payee: p.querySelector('.payee').value.trim(),
+                                  category_id: +p.querySelector('.cat').value || null}))
+                      .filter(i => i.category_id);
+    if (!items.length) return;
+    rows.forEach(p => p.classList.add('done'));
+    try {
+      await postJSON('{{ url_for("v2.review_confirm") }}', {items});
+      rows.forEach(p => p.remove());
+      if (!document.querySelector('.pk')) location.reload();
+    } catch (e) {
+      rows.forEach(p => p.classList.remove('done'));
+      alert('Confirm failed: ' + e.message);
+    }
+  }
+  document.querySelectorAll('.pk .ok').forEach(b => b.addEventListener('click', () => confirmPicks([b.closest('.pk')])));
+  document.getElementById('confirm-all')?.addEventListener('click', () => confirmPicks([...document.querySelectorAll('.pk')]));
 </script>
 {% endblock %}

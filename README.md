@@ -70,7 +70,7 @@ A deliberately small front-end over the **same database and logins** as v1, for 
 
 - **Progress** (`/v2/`) — this month's spending vs. budget, one bar per category, with a "how far through the month" marker. Tap a category to see its transactions. If a category has no budget set this month, the most recent earlier amount is used, so budgets only need setting once.
 - **Review** (`/v2/review`) — uncategorized transactions grouped by payee. Rename the payee, pick a category, save. Each choice is stored as a `PayeeRule` (new `payee_rules` table, auto-created) and applied automatically on future imports. "Auto-fill with AI" pre-fills names and categories (needs `CLAUDE_API_KEY`); nothing is saved until you hit Save.
-- **Import** (`/v2/import`) — CSV upload; same de-dupe as v1, plus payee rules.
+- **Import** (`/v2/import`) — "Sync & categorize" pulls from every Plaid-linked bank (pending transactions are skipped to avoid duplicates), applies payee rules, then has Claude categorize the rest in batches of 25 payees. Only picks the AI is sure about are applied (tracked in `auto_categorized` until confirmed on Review); the rest are pre-filled for review. CSV upload is still available.
 
 Code lives in `v2/` as a Flask blueprint. To make v2 the default later, point `/` at `v2.progress` (and the post-login redirect in `auth.py`).
 

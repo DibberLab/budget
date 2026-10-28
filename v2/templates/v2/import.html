@@ -1,21 +1,174 @@
 {% extends "v2/base.html" %}
 {% block title %}Import · Budget{% endblock %}
+{% block head %}
+<style>
+  .sync { padding: 22px; }
+  .banks { display: grid; gap: 8px; margin: 14px 0 18px; }
+  .bank { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--bg); }
+  .bank .dot { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; font-weight: 700;
+               background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent); }
+  .bank .when { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .go { width: 100%; justify-content: center; padding: 13px; font-size: 16px; border-radius: 12px; }
+  .steps { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+  .steps li { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--muted); }
+  .steps li.active, .steps li.done { color: var(--ink); }
+  .steps .ic { width: 20px; height: 20px; border-radius: 999px; flex: none; box-shadow: inset 0 0 0 2px var(--line); display: grid; place-items: center; font-size: 11px; }
+  .steps li.done .ic { background: var(--ok); box-shadow: none; color: #fff; }
+  .steps li.active .ic { box-shadow: inset 0 0 0 2px var(--accent); border-top-color: transparent; animation: spin .9s linear infinite;
+                         background: conic-gradient(var(--accent) 0 25%, transparent 0); -webkit-mask: radial-gradient(circle, transparent 6px, #000 6.5px); mask: radial-gradient(circle, transparent 6px, #000 6.5px); }
+  .steps li.err { color: var(--bad); }
+  .steps li.err .ic { background: var(--bad); box-shadow: none; color: #fff; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .result { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .tile { background: var(--bg); border-radius: 12px; padding: 12px; }
+  .tile .n { font-size: 24px; font-weight: 680; letter-spacing: -.02em; }
+  .tile .l { font-size: 12px; color: var(--muted); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  details { margin-top: 14px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 14px; padding: 6px 2px; }
+  .linkbtn { background: none; border: 0; padding: 0; font: inherit; font-size: 14px; color: var(--muted); text-decoration: underline; cursor: pointer; }
+</style>
+{% endblock %}
 {% block content %}
-<h1 style="margin-bottom:6px">Import transactions</h1>
-<p class="muted" style="margin-top:0">Download a CSV from your bank and drop it here. Anything already imported is skipped, and payees you've cleaned up before are renamed and categorized for you.</p>
+<h1 style="margin-bottom:6px">Import</h1>
+<p class="muted" style="margin-top:0">Pulls new transactions from your bank, files the ones it recognizes, and has AI sort the rest. Anything it isn't sure about waits for you in Review.</p>
 
-<form class="card" method="post" enctype="multipart/form-data" style="display:grid;gap:14px">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-  <label>
-    <div class="small muted" style="margin-bottom:4px">Account</div>
-    <select name="account_id" required>
-      {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
-    </select>
-  </label>
-  <label>
-    <div class="small muted" style="margin-bottom:4px">CSV file</div>
-    <input type="file" name="file" accept=".csv,text/csv" required>
-  </label>
-  <div><button class="btn">Import</button></div>
-</form>
+<div class="card sync">
+  {% if not plaid_ready %}
+    <p class="muted" style="margin:0">Bank sync (Plaid) isn't configured on the server — use a CSV below.</p>
+  {% else %}
+    {% if items %}
+    <div class="banks">
+      {% for i in items %}
+      <div class="bank">
+        <span class="dot">{{ (i.institution_name or 'B')[:1] }}</span>
+        <span>{{ i.institution_name or 'Bank' }}</span>
+        <span class="when">{% if last_sync[i.id] %}last new txn {{ last_sync[i.id].strftime('%b %-d') }}{% else %}not synced yet{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    <button class="btn go" id="go">Sync &amp; categorize</button>
+    {% else %}
+    <p class="muted">No bank connected yet.</p>
+    {% endif %}
+    <p style="margin:12px 0 0"><button type="button" class="linkbtn" id="link">Connect {{ 'another' if items else 'a' }} bank</button></p>
+  {% endif %}
+
+  <ul class="steps" id="steps" hidden>
+    <li data-step="sync"><span class="ic"></span><span class="t">Fetching new transactions</span></li>
+    <li data-step="ai"><span class="ic"></span><span class="t">Categorizing with AI</span></li>
+  </ul>
+
+  <div class="result" id="result" hidden>
+    <div class="tiles">
+      <div class="tile"><div class="n num" id="r-new">0</div><div class="l">new transactions</div></div>
+      <div class="tile"><div class="n num" id="r-rule">0</div><div class="l">filed from saved payees</div></div>
+      <div class="tile"><div class="n num" id="r-ai">0</div><div class="l">filed by AI</div></div>
+      <div class="tile"><div class="n num" id="r-left">0</div><div class="l">payees need you</div></div>
+    </div>
+    <div class="actions">
+      <a class="btn" href="{{ url_for('v2.review') }}" id="r-review">Review</a>
+      <a class="btn ghost" href="{{ url_for('v2.progress') }}">See progress</a>
+    </div>
+  </div>
+</div>
+
+<details>
+  <summary>Upload a CSV instead</summary>
+  <form class="card" method="post" action="{{ url_for('v2.import_csv') }}" enctype="multipart/form-data" style="display:grid;gap:14px;margin-top:8px">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>
+      <div class="small muted" style="margin-bottom:4px">Account</div>
+      <select name="account_id" required>
+        {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+      </select>
+    </label>
+    <label>
+      <div class="small muted" style="margin-bottom:4px">CSV file</div>
+      <input type="file" name="file" accept=".csv,text/csv" required>
+    </label>
+    <div><button class="btn">Import CSV</button></div>
+  </form>
+</details>
+{% endblock %}
+{% block scripts %}
+<script>
+  const steps = document.getElementById('steps');
+  const step = (name, state, text) => {
+    const li = steps.querySelector(`[data-step="${name}"]`);
+    li.className = state;
+    li.querySelector('.ic').textContent = state === 'done' ? '✓' : state === 'err' ? '!' : '';
+    if (text) li.querySelector('.t').textContent = text;
+  };
+  const set = (id, v) => document.getElementById(id).textContent = v;
+
+  async function categorize(stats) {
+    step('ai', 'active', 'Categorizing with AI…');
+    const skip = [];
+    let total = null;
+    while (true) {
+      const r = await postJSON('{{ url_for("v2.review_ai") }}', {skip, apply: true});
+      skip.push(...r.keys);
+      stats.ai += r.applied;
+      total = total ?? (r.keys.length + r.remaining);
+      if (total) step('ai', 'active', `Categorizing with AI… ${skip.length} of ${total} payees`);
+      set('r-ai', stats.ai);
+      if (!r.remaining || !r.keys.length) break;
+    }
+    step('ai', 'done', total ? `AI looked at ${total} payee${total === 1 ? '' : 's'}` : 'Nothing left to categorize');
+  }
+
+  async function finish() {
+    // Count what's still waiting (uncategorized + AI picks to confirm) from the nav badge source.
+    const html = await (await fetch('{{ url_for("v2.review") }}')).text();
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const pill = doc.querySelector('nav .pill');
+    const left = doc.querySelectorAll('.g').length;
+    set('r-left', left);
+    document.getElementById('r-review').textContent = pill ? `Review ${pill.textContent}` : 'Review';
+    document.getElementById('result').hidden = false;
+  }
+
+  async function run({sync}) {
+    const stats = {ai: 0};
+    steps.hidden = false;
+    const go = document.getElementById('go'); if (go) { go.disabled = true; go.textContent = 'Working…'; }
+    try {
+      if (sync) {
+        step('sync', 'active');
+        const r = await postJSON('{{ url_for("v2.import_sync") }}');
+        set('r-new', r.added); set('r-rule', r.by_rule);
+        step('sync', r.errors.length ? 'err' : 'done',
+             r.errors.length ? r.errors.join(' · ') : `${r.added} new transaction${r.added === 1 ? '' : 's'}`);
+      } else {
+        step('sync', 'done', 'CSV imported');
+      }
+      await categorize(stats);
+    } catch (e) {
+      step(steps.querySelector('.active')?.dataset.step || 'ai', 'err', 'Stopped: ' + e.message);
+    }
+    await finish();
+    if (go) { go.disabled = false; go.textContent = 'Sync & categorize'; }
+  }
+
+  document.getElementById('go')?.addEventListener('click', () => run({sync: true}));
+  {% if autorun %}run({sync: false});{% endif %}
+
+  document.getElementById('link')?.addEventListener('click', async () => {
+    if (!window.Plaid) {
+      await new Promise((ok, bad) => { const s = document.createElement('script');
+        s.src = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js'; s.onload = ok; s.onerror = bad; document.head.append(s); });
+    }
+    const t = await postJSON('{{ url_for("plaid_link_token") }}').catch(e => ({error: e.message}));
+    if (t.error) { alert('Could not start bank connection: ' + t.error); return; }
+    Plaid.create({
+      token: t.link_token,
+      onSuccess: async (public_token, metadata) => {
+        await postJSON('{{ url_for("plaid_exchange") }}', {public_token, institution_name: metadata.institution?.name || ''});
+        location.reload();
+      },
+    }).open();
+  });
+</script>
 {% endblock %}
