@@ -134,8 +134,12 @@
   .saved { color: var(--ok); font-size: 12px; transition: opacity .6s; margin-left: 4px; }
   .detail { grid-area: detail; display: none; font-size: 13px; padding: 4px 0 2px; }
   .row.open .detail { display: block; }
-  .detail div { display: flex; gap: 12px; padding: 2px 0; color: var(--muted); }
-  .detail div span:nth-child(2) { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .detail .tx { display: flex; gap: 12px; padding: 2px 0; color: var(--muted); }
+  .detail .tx span:first-child { width: 48px; flex: none; }
+  .detail .tx span:nth-child(2) { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sorter { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--track); margin: 2px 0 6px; }
+  .sorter button { font: inherit; font-size: 12px; border: 0; background: none; color: var(--muted); padding: 2px 9px; border-radius: 6px; cursor: pointer; }
+  .sorter button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   .flash-row { animation: flash 1.6s ease-out; }
   @keyframes flash { from { background: color-mix(in srgb, var(--warn) 28%, transparent); } to { background: transparent; } }
 
@@ -261,7 +265,13 @@
   const whole = c => (c < 0 ? '-' : '') + '$' + Math.round(Math.abs(c) / 100).toLocaleString();
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   // Two frames: lets the browser paint the starting state so CSS transitions actually run.
-  const later = fn => requestAnimationFrame(() => requestAnimationFrame(fn));
+  // Falls back to a timer because browsers pause animation frames in hidden/background tabs.
+  const later = fn => {
+    let done = false;
+    const run = () => { if (!done) { done = true; fn(); } };
+    requestAnimationFrame(() => requestAnimationFrame(run));
+    setTimeout(run, 120);
+  };
 
   function status(spent, budget) {
     if (!budget) return spent > 0 ? 'unbudgeted' : 'idle';
@@ -310,6 +320,7 @@
       if (k < 1) requestAnimationFrame(step);
     };
     requestAnimationFrame(step);
+    setTimeout(() => { if (+el.dataset.v === cents) el.textContent = fmt(cents); }, dur + 150);
   }
 
   function drawChart(budget) {
@@ -493,22 +504,53 @@
     input.addEventListener('blur', () => finish(true));
   }));
 
-  // ---- drill-down ----
+  // ---- drill-down: a category's transactions, sortable by date or amount ----
+  // Shared across rows on this page; date (newest first) is the default.
+  const txSort = {key: 'date', dir: 'desc'};
+  const SORT_LABEL = {date: {desc: 'Newest', asc: 'Oldest'}, amount: {desc: 'Highest', asc: 'Lowest'}};
+
+  function renderTx(d) {
+    const list = [...d._list];
+    const sign = txSort.dir === 'desc' ? -1 : 1;
+    list.sort((a, b) => txSort.key === 'amount'
+      ? sign * (a.amount - b.amount) || b.iso.localeCompare(a.iso)
+      : sign * a.iso.localeCompare(b.iso) || b.id - a.id);
+    d.innerHTML = '';
+    if (!list.length) { d.textContent = 'No transactions this month.'; return; }
+    if (list.length > 1) {
+      const bar = document.createElement('div'); bar.className = 'sorter';
+      for (const key of ['date', 'amount']) {
+        const b = document.createElement('button'); b.type = 'button';
+        const on = txSort.key === key;
+        b.className = on ? 'on' : '';
+        b.textContent = (key === 'date' ? 'Date' : 'Amount') + (on ? ' · ' + SORT_LABEL[key][txSort.dir] : '');
+        b.setAttribute('aria-pressed', on);
+        b.addEventListener('click', ev => {
+          ev.stopPropagation();  // re-rendering detaches this button; don't let the row read it as a fold
+          if (txSort.key === key) txSort.dir = txSort.dir === 'desc' ? 'asc' : 'desc';
+          else { txSort.key = key; txSort.dir = 'desc'; }
+          $$('.detail').forEach(x => { if (x._list) renderTx(x); });
+        });
+        bar.append(b);
+      }
+      d.append(bar);
+    }
+    for (const t of list) {
+      const div = document.createElement('div'); div.className = 'tx';
+      for (const v of [t.date, t.payee, money(t.amount)]) { const s = document.createElement('span'); s.textContent = v; div.appendChild(s); }
+      d.appendChild(div);
+    }
+  }
+
   $$('.row[data-cid]').forEach(row => row.addEventListener('click', async e => {
     if (e.target.closest('.detail')) return;
     row.classList.toggle('open');
     const d = row.querySelector('.detail');
-    if (!row.classList.contains('open') || d.dataset.loaded) return;
+    if (!row.classList.contains('open') || d._list) return;
     d.textContent = 'Loading…';
     const r = await fetch(`{{ url_for('v2.category_detail', cid=0) }}`.replace('/0', '/' + row.dataset.cid) + '?y={{ y }}&m={{ m }}');
-    const list = await r.json();
-    d.dataset.loaded = 1; d.innerHTML = '';
-    if (!list.length) { d.textContent = 'No transactions this month.'; return; }
-    for (const t of list) {
-      const div = document.createElement('div');
-      for (const v of [t.date, t.payee, money(t.amount)]) { const s = document.createElement('span'); s.textContent = v; div.appendChild(s); }
-      d.appendChild(div);
-    }
+    d._list = await r.json();
+    renderTx(d);
   }));
 </script>
 {% endblock %}

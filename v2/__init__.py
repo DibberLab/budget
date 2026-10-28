@@ -245,7 +245,8 @@ def progress():
         "v2/progress.html",
         y=y, m=m, month_label=date(y, m, 1).strftime("%B %Y"),
         prev=prev, nxt=nxt, is_current=is_current, editable=is_current,
-        groups=sorted(groups.items(), key=lambda kv: kv[0] == "Retired"),
+        groups=sorted(((name, sorted(rows, key=lambda r: (-r["budget"], -r["spent"], r["cat"].name.lower())))
+                       for name, rows in groups.items()), key=lambda kv: kv[0] == "Retired"),
         pace=pace, income=int(income), daily=daily, days_in_month=days_in_month,
         days_elapsed=days_elapsed,
     )
@@ -263,8 +264,8 @@ def category_detail(cid):
                     extract("year", Transaction.date) == y,
                     extract("month", Transaction.date) == m)
             .order_by(Transaction.date.desc()).all())
-    return jsonify([{"date": t.date.strftime("%b %-d"), "payee": t.payee,
-                     "amount": -t.amount} for t in txns])
+    return jsonify([{"date": t.date.strftime("%b %-d"), "iso": t.date.isoformat(), "id": t.id,
+                     "payee": t.payee, "amount": -t.amount} for t in txns])
 
 
 # ---------- plan vs actual ----------
