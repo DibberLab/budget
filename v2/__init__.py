@@ -112,7 +112,10 @@ def progress():
     except ValueError:
         y, m = today.year, today.month
 
-    cats = Category.query.filter_by(hidden=False, is_income=False).all()
+    # Hidden (retired/merged) categories are included so their past spending
+    # still shows up when browsing older months; with no budget and no spend
+    # they simply don't appear.
+    cats = Category.query.filter_by(is_income=False).all()
     cat_ids = [c.id for c in cats]
 
     spent_rows = (db.session.query(Transaction.category_id,
@@ -123,14 +126,14 @@ def progress():
                   .group_by(Transaction.category_id).all())
     spent = {cid: -int(total) for cid, total in spent_rows}  # outflow as positive
 
-    # Budget = this month's assignment. If a category has nothing assigned this
-    # month, fall back to its most recent earlier assignment so a budget that
-    # was set once keeps working without re-entering it every month.
+    # Budget = this month's assignment. If a category has no row this month,
+    # fall back to its most recent earlier row so a budget that was set once
+    # keeps working without re-entering it every month. An explicit $0 row
+    # ends the carry-forward.
     ym = y * 12 + m
     budget_rows = (BudgetMonth.query
                    .filter(BudgetMonth.category_id.in_(cat_ids),
-                           (BudgetMonth.year * 12 + BudgetMonth.month) <= ym,
-                           BudgetMonth.assigned > 0)
+                           (BudgetMonth.year * 12 + BudgetMonth.month) <= ym)
                    .order_by(BudgetMonth.year, BudgetMonth.month).all())
     budget, budget_from = {}, {}
     for b in budget_rows:  # ascending, so the latest wins
