@@ -13,7 +13,7 @@ so both versions can run side by side until v1 is retired.
 """
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 
 from flask import (Blueprint, abort, flash, jsonify, redirect, render_template,
                    request, url_for)
@@ -91,6 +91,34 @@ def _category_options():
     return list(groups.items())
 
 
+def _budgets_as_of(y: int, m: int, cat_ids) -> tuple[dict, dict]:
+    """Budget in effect for each category in month (y, m), and the month it was
+    set in. If a category has no row this month, its most recent earlier row
+    carries forward, so a budget only has to be set once. An explicit $0 row
+    ends the carry-forward."""
+    rows = (BudgetMonth.query
+            .filter(BudgetMonth.category_id.in_(cat_ids),
+                    (BudgetMonth.year * 12 + BudgetMonth.month) <= y * 12 + m)
+            .order_by(BudgetMonth.year, BudgetMonth.month).all())
+    budget, budget_from = {}, {}
+    for b in rows:  # ascending, so the latest wins
+        budget[b.category_id] = b.assigned
+        budget_from[b.category_id] = (b.year, b.month)
+    return budget, budget_from
+
+
+def _full_months():
+    """(first, last) of the complete calendar months covered by transaction
+    history: skips a partial first month and the current month."""
+    first = db.session.query(func.min(Transaction.date)).scalar()
+    today = date.today()
+    if not first:
+        return None
+    start = first if first.day == 1 else (date(first.year + (first.month == 12), first.month % 12 + 1, 1))
+    end = date(today.year, today.month, 1) - timedelta(days=1)
+    return (start, end) if start <= end else None
+
+
 @v2_bp.app_context_processor
 def _inject_counts():
     # Only the v2 templates use this; cheap enough to compute per request.
@@ -126,19 +154,7 @@ def progress():
                   .group_by(Transaction.category_id).all())
     spent = {cid: -int(total) for cid, total in spent_rows}  # outflow as positive
 
-    # Budget = this month's assignment. If a category has no row this month,
-    # fall back to its most recent earlier row so a budget that was set once
-    # keeps working without re-entering it every month. An explicit $0 row
-    # ends the carry-forward.
-    ym = y * 12 + m
-    budget_rows = (BudgetMonth.query
-                   .filter(BudgetMonth.category_id.in_(cat_ids),
-                           (BudgetMonth.year * 12 + BudgetMonth.month) <= ym)
-                   .order_by(BudgetMonth.year, BudgetMonth.month).all())
-    budget, budget_from = {}, {}
-    for b in budget_rows:  # ascending, so the latest wins
-        budget[b.category_id] = b.assigned
-        budget_from[b.category_id] = (b.year, b.month)
+    budget, budget_from = _budgets_as_of(y, m, cat_ids)
 
     rows, unbudgeted = [], []
     for c in cats:
@@ -198,6 +214,85 @@ def category_detail(cid):
             .order_by(Transaction.date.desc()).all())
     return jsonify([{"date": t.date.strftime("%b %-d"), "payee": t.payee,
                      "amount": -t.amount} for t in txns])
+
+
+# ---------- budgets ----------
+
+@v2_bp.route("/budgets")
+@login_required
+def budgets():
+    today = date.today()
+    cats = (Category.query.filter_by(hidden=False, is_income=False)
+            .order_by(Category.sort_order, Category.group_name, Category.name).all())
+    cat_ids = [c.id for c in cats]
+    current, _ = _budgets_as_of(today.year, today.month, cat_ids)
+
+    # Average monthly spend over complete months only, so a partial first
+    # month or the in-progress current month doesn't drag the average down.
+    avg, n_months, span = {}, 0, _full_months()
+    if span:
+        start, end = span
+        n_months = (end.year - start.year) * 12 + end.month - start.month + 1
+        for cid, total in (db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+                           .filter(Transaction.category_id.in_(cat_ids),
+                                   Transaction.date >= start, Transaction.date <= end)
+                           .group_by(Transaction.category_id)):
+            avg[cid] = max(0, round(-int(total or 0) / n_months))
+        income_avg = round(int(db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
+                               .join(Category, Category.id == Transaction.category_id)
+                               .filter(Category.is_income.is_(True),
+                                       Transaction.date >= start, Transaction.date <= end)
+                               .scalar() or 0) / n_months)
+    else:
+        income_avg = 0
+
+    lm_end = date(today.year, today.month, 1) - timedelta(days=1)
+    last_month = {cid: max(0, -int(total or 0)) for cid, total in
+                  (db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+                   .filter(Transaction.category_id.in_(cat_ids),
+                           extract("year", Transaction.date) == lm_end.year,
+                           extract("month", Transaction.date) == lm_end.month)
+                   .group_by(Transaction.category_id))}
+
+    groups = defaultdict(list)
+    for c in cats:
+        groups[c.group_name].append({"cat": c, "budget": current.get(c.id, 0),
+                                     "avg": avg.get(c.id, 0), "last": last_month.get(c.id, 0)})
+    return render_template(
+        "v2/budgets.html", groups=list(groups.items()),
+        n_months=n_months, span=span, last_label=lm_end.strftime("%b"),
+        income_avg=income_avg, total_avg=sum(avg.values()),
+        month_label=today.strftime("%B"))
+
+
+@v2_bp.route("/budgets/save", methods=["POST"])
+@login_required
+def budgets_save():
+    """Body: {"budgets": {category_id: cents}}. Sets the budget from the current
+    month onward; earlier months keep the budget they had at the time."""
+    data = (request.get_json(silent=True) or {}).get("budgets", {})
+    valid = {c.id for c in Category.query.filter_by(is_income=False)}
+    today = date.today()
+    changed = 0
+    for cid, cents in data.items():
+        try:
+            cid, cents = int(cid), int(cents)
+        except (TypeError, ValueError):
+            continue
+        if cid not in valid or cents < 0:
+            continue
+        row = (BudgetMonth.query.filter_by(year=today.year, month=today.month, category_id=cid).first()
+               or BudgetMonth(year=today.year, month=today.month, category_id=cid))
+        row.assigned = cents
+        db.session.add(row)
+        # Drop any budgets already set for future months so this one carries forward.
+        (BudgetMonth.query
+         .filter(BudgetMonth.category_id == cid,
+                 (BudgetMonth.year * 12 + BudgetMonth.month) > today.year * 12 + today.month)
+         .delete(synchronize_session=False))
+        changed += 1
+    db.session.commit()
+    return jsonify({"ok": True, "changed": changed})
 
 
 # ---------- review ----------

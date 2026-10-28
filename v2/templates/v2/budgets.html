@@ -1,0 +1,125 @@
+{% extends "v2/base.html" %}
+{% block title %}Budgets · Budget{% endblock %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .head h1 { margin-right: auto; }
+  .totals { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 14px; }
+  .totals .v { font-size: 22px; font-weight: 650; letter-spacing: -.01em; }
+  .totals .over { color: var(--bad); }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 22px 0 8px; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: minmax(0,1fr) 84px 84px 132px; gap: 10px; align-items: center; }
+  .colhead { font-size: 12px; color: var(--muted); padding: 0 18px 6px; }
+  .colhead span:nth-child(n+2) { text-align: right; }
+  .r { padding: 10px 18px; }
+  .r > span:first-child { overflow-wrap: anywhere; padding-right: 4px; }
+  .r + .r { border-top: 1px solid var(--line); }
+  .r.dirty { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .r .ref { text-align: right; color: var(--muted); font-size: 13px; }
+  .r .ref button { background: none; border: 0; padding: 0; font: inherit; color: inherit; cursor: pointer;
+                   text-decoration: underline dotted; text-underline-offset: 3px; }
+  .r .ref button:hover { color: var(--accent); }
+  .money { position: relative; display: block; min-width: 0; }
+  .money::before { content: '$'; position: absolute; left: 9px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+  .money input { padding-left: 20px; text-align: right; }
+  .bar-sticky { position: sticky; bottom: 12px; display: flex; justify-content: space-between; align-items: center;
+                gap: 12px; margin-top: 16px; padding: 12px 16px; }
+  @media (max-width: 560px) {
+    .totals { grid-template-columns: 1fr 1fr; } .totals > :last-child { grid-column: 1 / -1; }
+    .grid { grid-template-columns: minmax(0,1fr) 52px 52px 96px; gap: 6px; }
+    .money input { padding-right: 6px; }
+    .r, .colhead { padding-left: 12px; padding-right: 12px; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Budgets</h1>
+  {% if n_months %}<button class="btn ghost" id="use-all" type="button">Use averages for all</button>{% endif %}
+</div>
+<p class="muted" style="margin-top:0">Monthly amounts, starting {{ month_label }} and carrying forward until you change them.
+  {% if n_months %}Averages cover {{ n_months }} full month{{ 's' if n_months != 1 }} ({% if span[0].month != span[1].month or span[0].year != span[1].year %}{{ span[0].strftime('%b') }}–{% endif %}{{ span[1].strftime('%b %Y') }}). Tap an average or last month's amount to use it.{% endif %}</p>
+
+<div class="card totals">
+  <div><div class="muted small">Total budget</div><div class="v num" id="total">$0</div></div>
+  <div><div class="muted small">Avg spending</div><div class="v num">{{ total_avg|money }}</div></div>
+  <div><div class="muted small">Avg income</div><div class="v num">{{ income_avg|money }}</div><div class="small" id="room"></div></div>
+</div>
+
+{% for group, items in groups %}
+<h2>{{ group }}</h2>
+<div class="card" style="padding:8px 0">
+  <div class="grid colhead"><span></span><span>Avg/mo</span><span>{{ last_label }}</span><span style="text-align:right">Budget</span></div>
+  {% for it in items %}
+  <div class="grid r" data-cid="{{ it.cat.id }}" data-orig="{{ it.budget }}" data-avg="{{ it.avg }}">
+    <span>{{ it.cat.name }}</span>
+    <span class="ref num"><button type="button" data-v="{{ it.avg }}" title="Use average">${{ '{:,.0f}'.format(it.avg / 100) }}</button></span>
+    <span class="ref num"><button type="button" data-v="{{ it.last }}" title="Use last month">${{ '{:,.0f}'.format(it.last / 100) }}</button></span>
+    <label class="money"><input inputmode="decimal" value="{{ '%.2f'|format(it.budget / 100) }}" aria-label="{{ it.cat.name }} budget"></label>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<div class="card bar-sticky">
+  <span class="muted small" id="status">No changes</span>
+  <span style="display:flex;gap:8px">
+    <button class="btn ghost" id="undo" type="button" hidden>Undo</button>
+    <button class="btn" id="save" disabled>Save</button>
+  </span>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const rows = [...document.querySelectorAll('.r')];
+  const INCOME = {{ income_avg }};
+  const toCents = v => { const n = parseFloat(String(v).replace(/[$,\s]/g, '')); return isNaN(n) || n < 0 ? null : Math.round(n * 100); };
+  const setVal = (r, cents) => { r.querySelector('input').value = (cents / 100).toFixed(2); };
+  const changed = () => rows.filter(r => { const c = toCents(r.querySelector('input').value); return c !== null && c !== +r.dataset.orig; });
+
+  function refresh() {
+    let total = 0;
+    rows.forEach(r => {
+      const c = toCents(r.querySelector('input').value);
+      total += c || 0;
+      r.classList.toggle('dirty', c !== null && c !== +r.dataset.orig);
+      r.querySelector('input').style.borderColor = c === null ? 'var(--bad)' : '';
+    });
+    document.getElementById('total').textContent = money(total);
+    const room = document.getElementById('room');
+    if (INCOME) {
+      const left = INCOME - total;
+      room.textContent = left >= 0 ? money(left) + ' unbudgeted' : money(-left) + ' more than income';
+      room.style.color = left >= 0 ? 'var(--muted)' : 'var(--bad)';
+    }
+    const n = changed().length;
+    document.getElementById('status').textContent = n ? `${n} change${n > 1 ? 's' : ''}` : 'No changes';
+    document.getElementById('save').disabled = !n;
+    document.getElementById('undo').hidden = !n;
+  }
+
+  rows.forEach(r => {
+    r.querySelector('input').addEventListener('input', refresh);
+    r.querySelector('input').addEventListener('blur', e => { const c = toCents(e.target.value); if (c !== null) setVal(r, c); });
+    r.querySelectorAll('.ref button').forEach(b => b.addEventListener('click', () => { setVal(r, +b.dataset.v); refresh(); }));
+  });
+  document.getElementById('use-all')?.addEventListener('click', () => { rows.forEach(r => setVal(r, +r.dataset.avg)); refresh(); });
+  document.getElementById('undo').addEventListener('click', () => { rows.forEach(r => setVal(r, +r.dataset.orig)); refresh(); });
+
+  document.getElementById('save').addEventListener('click', async e => {
+    const btn = e.currentTarget, list = changed();
+    const budgets = Object.fromEntries(list.map(r => [r.dataset.cid, toCents(r.querySelector('input').value)]));
+    btn.disabled = true; btn.textContent = 'Saving…';
+    try {
+      await postJSON('{{ url_for("v2.budgets_save") }}', {budgets});
+      list.forEach(r => { r.dataset.orig = toCents(r.querySelector('input').value); });
+      btn.textContent = 'Save'; refresh();
+      document.getElementById('status').textContent = `Saved ${list.length} budget${list.length > 1 ? 's' : ''}`;
+    } catch (err) {
+      alert('Save failed: ' + err.message); btn.textContent = 'Save'; refresh();
+    }
+  });
+  window.addEventListener('beforeunload', e => { if (changed().length) e.preventDefault(); });
+  refresh();
+</script>
+{% endblock %}

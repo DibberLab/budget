@@ -19,6 +19,7 @@
       }
     }
     * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body { margin: 0; background: var(--bg); color: var(--ink);
            font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
     a { color: inherit; }
@@ -46,7 +47,7 @@
              border: 1px solid var(--line); border-left: 4px solid var(--ok); }
     .flash.error { border-left-color: var(--bad); }
     .empty { text-align: center; padding: 48px 16px; }
-    @media (max-width: 560px) { nav .brand { display: none; } nav { gap: 0; } nav .v1 { margin-left: auto; } }
+    @media (max-width: 560px) { nav .brand { display: none; } nav { gap: 0; flex-wrap: nowrap; } nav a.tab { padding: 6px 7px; white-space: nowrap; } nav .v1 { white-space: nowrap; } nav .v1 { margin-left: auto; } }
   </style>
   {% block head %}{% endblock %}
 </head>
@@ -56,6 +57,7 @@
     <a class="brand" href="{{ url_for('v2.progress') }}">Budget</a>
     <a class="tab {% if request.endpoint == 'v2.progress' %}on{% endif %}" href="{{ url_for('v2.progress') }}">Progress</a>
     <a class="tab {% if request.endpoint == 'v2.review' %}on{% endif %}" href="{{ url_for('v2.review') }}">Review{% if v2_uncategorized %}<span class="pill">{{ v2_uncategorized }}</span>{% endif %}</a>
+    <a class="tab {% if request.endpoint == 'v2.budgets' %}on{% endif %}" href="{{ url_for('v2.budgets') }}">Budgets</a>
     <a class="tab {% if request.endpoint == 'v2.import_csv' %}on{% endif %}" href="{{ url_for('v2.import_csv') }}">Import</a>
     <a class="v1" href="{{ url_for('dashboard') }}" title="Open the full v1 app">v1 ↗</a>
   </nav>

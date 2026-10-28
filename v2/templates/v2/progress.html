@@ -87,7 +87,7 @@
 {% else %}
 <div class="card empty">
   <p><b>No budgets set yet.</b></p>
-  <p class="muted">Set category budget amounts in <a href="{{ url_for('budget_view') }}">v1 → Budget</a> once; v2 carries the latest amount forward each month.</p>
+  <p class="muted">Set monthly amounts on the <a href="{{ url_for('v2.budgets') }}">Budgets</a> tab; they carry forward each month.</p>
 </div>
 {% endif %}
 
