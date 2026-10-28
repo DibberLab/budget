@@ -117,12 +117,14 @@ def _uncategorized_query():
 
 
 def _find_rule(rules: dict, payee: str):
-    """Exact match first; then prefix rules, written with a trailing '*'
-    (e.g. 'camp fire minnes*'), longest prefix winning."""
+    """Exact match first; then prefix rules, written with a single trailing
+    '*' (e.g. 'camp fire minnes*'), longest prefix winning. Bank strings with
+    masked card numbers ('*******#*******') contain other asterisks and stay
+    exact-match only."""
     k = _key(payee)
     if k in rules:
         return rules[k]
-    prefixes = [m for m in rules if m.endswith("*") and k.startswith(m[:-1])]
+    prefixes = [m for m in rules if m.endswith("*") and "*" not in m[:-1] and k.startswith(m[:-1])]
     return rules[max(prefixes, key=len)] if prefixes else None
 
 
