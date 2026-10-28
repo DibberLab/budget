@@ -41,6 +41,7 @@ from models import (MAX_USERS, Account, AiCategorySuggestion,
                     PlaidItem, Recurring, Transaction, User, db, fmt_money,
                     from_cents, to_cents)
 from recurring import post_due_recurring
+from v2 import v2_bp
 
 
 csrf = CSRFProtect()
@@ -248,6 +249,7 @@ def create_app():
     app.jinja_env.globals["today"] = date.today
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(v2_bp)
 
     # Rate-limit the login POST to slow down credential stuffing: 10 attempts
     # per 5 minutes per IP. We attach AFTER blueprint registration so the

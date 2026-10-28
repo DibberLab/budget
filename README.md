@@ -64,6 +64,18 @@ The home page combines a spending reports view and a calendar in one place:
 
 ---
 
+## v2 (at `/v2`)
+
+A deliberately small front-end over the **same database and logins** as v1, for occasional check-ins:
+
+- **Progress** (`/v2/`) — this month's spending vs. budget, one bar per category, with a "how far through the month" marker. Tap a category to see its transactions. If a category has no budget set this month, the most recent earlier amount is used, so budgets only need setting once.
+- **Review** (`/v2/review`) — uncategorized transactions grouped by payee. Rename the payee, pick a category, save. Each choice is stored as a `PayeeRule` (new `payee_rules` table, auto-created) and applied automatically on future imports. "Auto-fill with AI" pre-fills names and categories (needs `CLAUDE_API_KEY`); nothing is saved until you hit Save.
+- **Import** (`/v2/import`) — CSV upload; same de-dupe as v1, plus payee rules.
+
+Code lives in `v2/` as a Flask blueprint. To make v2 the default later, point `/` at `v2.progress` (and the post-login redirect in `auth.py`).
+
+---
+
 ## Setup
 
 ### Requirements

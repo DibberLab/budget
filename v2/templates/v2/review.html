@@ -1,0 +1,160 @@
+{% extends "v2/base.html" %}
+{% block title %}Review · Budget{% endblock %}
+{% macro cat_select(selected, placeholder) -%}
+<select class="cat">
+  <option value="">{{ placeholder }}</option>
+  {% for group, cats in category_groups %}
+  <optgroup label="{{ group }}">
+    {% for c in cats %}<option value="{{ c.id }}" {% if c.id == selected %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+  </optgroup>
+  {% endfor %}
+</select>
+{%- endmacro %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+  .head h1 { margin-right: auto; }
+  .bar-sticky { position: sticky; bottom: 12px; display: flex; justify-content: space-between; align-items: center;
+                gap: 12px; margin-top: 16px; padding: 12px 16px; }
+  .g { padding: 14px 18px; }
+  .g + .g { border-top: 1px solid var(--line); }
+  .g .meta { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; color: var(--muted); margin-bottom: 8px; }
+  .g .raw { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  .g .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .g.dirty { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .g.done { opacity: .4; pointer-events: none; }
+  .g .toggle { background: none; border: 0; color: var(--muted); font: inherit; font-size: 13px; cursor: pointer; padding: 0; text-decoration: underline; }
+  .g .txns { display: none; margin-top: 10px; font-size: 13px; }
+  .g.open .txns { display: block; }
+  .g .txn { display: grid; grid-template-columns: 56px 1fr 90px 150px; gap: 8px; align-items: center; padding: 3px 0; }
+  .g .txn .memo { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .g .txn select { padding: 4px 6px; font-size: 13px; }
+  .ai-tag { font-size: 11px; color: var(--accent); margin-left: 6px; }
+  @media (max-width: 560px) {
+    .g .fields { grid-template-columns: 1fr; }
+    .g .txn { grid-template-columns: 50px 1fr 80px; }
+    .g .txn select { grid-column: 1 / -1; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Review</h1>
+  {% if groups %}<button class="btn ghost" id="ai">✨ Auto-fill with AI</button>{% endif %}
+</div>
+
+{% if groups %}
+<p class="muted" style="margin-top:0">Grouped by payee. Clean up the name, pick a category, and save — it'll be remembered for future imports.</p>
+
+<div class="card" style="padding:0">
+  {% for g in groups %}
+  <div class="g" data-raw="{{ g.raw }}" data-key="{{ g.key }}">
+    <div class="meta">
+      <span class="raw" title="{{ g.raw }}">{{ g.raw }}</span>
+      <span class="num" style="white-space:nowrap">{{ g.txns|length }} × · {% if g.total > 0 %}+{{ g.total|money }}{% else %}{{ (-g.total)|money }}{% endif %}</span>
+    </div>
+    <div class="fields">
+      <input class="payee" value="{{ g.suggest_payee }}" placeholder="Payee name" aria-label="Payee name">
+      {{ cat_select(g.suggest_cat, 'Choose category…') }}
+    </div>
+    {% if g.txns|length > 1 or g.txns[0].memo %}
+    <div style="margin-top:8px"><button type="button" class="toggle">{{ 'Show ' ~ g.txns|length ~ ' transactions' if g.txns|length > 1 else 'Show details' }}</button></div>
+    <div class="txns">
+      {% for t in g.txns %}
+      <div class="txn" data-id="{{ t.id }}">
+        <span class="muted">{{ t.date.strftime('%b %-d') }}</span>
+        <span class="memo" title="{{ t.memo }}">{{ t.memo or '' }}</span>
+        <span class="num" style="text-align:right">{% if t.amount > 0 %}+{{ t.amount|money }}{% else %}{{ (-t.amount)|money }}{% endif %}</span>
+        {{ cat_select(None, 'Same as above') }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card bar-sticky">
+  <span class="muted small" id="status"><span id="ready">0</span> of {{ groups|length }} ready</span>
+  <button class="btn" id="save" disabled>Save</button>
+</div>
+{% else %}
+<div class="card empty">
+  <p style="font-size:28px;margin:0">✓</p>
+  <p><b>All caught up.</b> Every transaction has a category.</p>
+  <p><a class="btn ghost" href="{{ url_for('v2.progress') }}">See progress</a></p>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  const groups = [...document.querySelectorAll('.g')];
+  const saveBtn = document.getElementById('save');
+  const status = document.getElementById('status');
+
+  function isReady(g) {
+    const payeeChanged = g.querySelector('.payee').value.trim() !== g.dataset.raw.trim();
+    return !g.classList.contains('done') && (g.querySelector('.fields .cat').value || payeeChanged);
+  }
+  function refresh() {
+    let n = 0;
+    groups.forEach(g => { const r = isReady(g); g.classList.toggle('dirty', !!r); if (r) n++; });
+    document.getElementById('ready') && (document.getElementById('ready').textContent = n);
+    if (saveBtn) saveBtn.disabled = n === 0;
+  }
+  groups.forEach(g => {
+    g.addEventListener('input', refresh);
+    g.addEventListener('change', refresh);
+    const t = g.querySelector('.toggle');
+    if (t) t.addEventListener('click', () => g.classList.toggle('open'));
+  });
+  refresh();
+
+  saveBtn && saveBtn.addEventListener('click', async () => {
+    const ready = groups.filter(isReady);
+    const items = ready.map(g => {
+      const overrides = {};
+      g.querySelectorAll('.txn').forEach(t => { const v = t.querySelector('select').value; if (v) overrides[t.dataset.id] = +v; });
+      const cid = g.querySelector('.fields .cat').value;
+      return {raw: g.dataset.raw, payee: g.querySelector('.payee').value.trim(),
+              category_id: cid ? +cid : null, overrides, remember: true};
+    });
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try {
+      const r = await postJSON('{{ url_for("v2.review_save") }}', {items});
+      ready.forEach(g => { if (g.querySelector('.fields .cat').value) g.classList.add('done'); else g.dataset.raw = g.querySelector('.payee').value.trim(); });
+      status.textContent = `Saved — ${r.categorized} categorized, ${r.renamed} renamed.`;
+      setTimeout(() => location.reload(), 900);
+    } catch (e) {
+      alert('Save failed: ' + e.message);
+      saveBtn.textContent = 'Save'; refresh();
+    }
+  });
+
+  const aiBtn = document.getElementById('ai');
+  aiBtn && aiBtn.addEventListener('click', async () => {
+    aiBtn.disabled = true; aiBtn.textContent = 'Thinking…';
+    try {
+      const r = await postJSON('{{ url_for("v2.review_ai") }}');
+      const byKey = Object.fromEntries(groups.map(g => [g.dataset.key, g]));
+      let filled = 0;
+      for (const s of r.suggestions) {
+        const g = byKey[s.key];
+        if (!g) continue;
+        const sel = g.querySelector('.fields .cat');
+        if (s.payee) g.querySelector('.payee').value = s.payee;
+        if (s.category_id && !sel.value) { sel.value = String(s.category_id); filled++; }
+        if (!g.querySelector('.ai-tag')) {
+          const tag = document.createElement('span'); tag.className = 'ai-tag'; tag.textContent = 'AI';
+          g.querySelector('.meta .raw').after(tag);
+        }
+      }
+      aiBtn.textContent = `✨ Filled ${filled} — check & save`;
+    } catch (e) {
+      alert('AI fill failed: ' + e.message);
+      aiBtn.textContent = '✨ Auto-fill with AI'; aiBtn.disabled = false;
+    }
+    refresh();
+  });
+</script>
+{% endblock %}

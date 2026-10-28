@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}Budget{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #75736d; --line: #e7e5df;
+      --accent: #2f6f5e; --accent-ink: #ffffff; --ok: #3f8f5a; --warn: #c98a1b; --bad: #c4473a;
+      --track: #ecebe6; --pace: #1d1d1b;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #161615; --card: #1f1f1d; --ink: #ecebe6; --muted: #9a988f; --line: #2e2d2a;
+        --accent: #5fb39a; --accent-ink: #10201b; --ok: #5fb37a; --warn: #e0a640; --bad: #e0675a;
+        --track: #2c2b28; --pace: #ecebe6;
+      }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink);
+           font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    a { color: inherit; }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 0 16px 64px; }
+    nav { display: flex; align-items: center; gap: 4px; padding: 18px 0 22px; flex-wrap: wrap; }
+    nav .brand { font-weight: 650; margin-right: auto; text-decoration: none; letter-spacing: -.01em; }
+    nav a.tab { text-decoration: none; padding: 6px 12px; border-radius: 999px; color: var(--muted); }
+    nav a.tab.on { background: var(--card); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+    nav .pill { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 999px;
+                background: var(--warn); color: #fff; font-size: 12px; text-align: center; font-weight: 600; }
+    nav .v1 { font-size: 13px; color: var(--muted); margin-left: 8px; }
+    h1 { font-size: 26px; letter-spacing: -.02em; margin: 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+    .muted { color: var(--muted); }
+    .small { font-size: 13px; }
+    .num { font-variant-numeric: tabular-nums; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 10px; padding: 9px 16px;
+           background: var(--accent); color: var(--accent-ink); font: inherit; font-weight: 600; cursor: pointer;
+           text-decoration: none; }
+    .btn.ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--line); }
+    .btn:disabled { opacity: .5; cursor: default; }
+    input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                    border-radius: 8px; padding: 7px 9px; width: 100%; min-width: 0; }
+    .flash { padding: 12px 14px; border-radius: 10px; margin-bottom: 16px; background: var(--card);
+             border: 1px solid var(--line); border-left: 4px solid var(--ok); }
+    .flash.error { border-left-color: var(--bad); }
+    .empty { text-align: center; padding: 48px 16px; }
+    @media (max-width: 560px) { nav .brand { display: none; } nav { gap: 0; } nav .v1 { margin-left: auto; } }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="brand" href="{{ url_for('v2.progress') }}">Budget</a>
+    <a class="tab {% if request.endpoint == 'v2.progress' %}on{% endif %}" href="{{ url_for('v2.progress') }}">Progress</a>
+    <a class="tab {% if request.endpoint == 'v2.review' %}on{% endif %}" href="{{ url_for('v2.review') }}">Review{% if v2_uncategorized %}<span class="pill">{{ v2_uncategorized }}</span>{% endif %}</a>
+    <a class="tab {% if request.endpoint == 'v2.import_csv' %}on{% endif %}" href="{{ url_for('v2.import_csv') }}">Import</a>
+    <a class="v1" href="{{ url_for('dashboard') }}" title="Open the full v1 app">v1 ↗</a>
+  </nav>
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in msgs %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
+  {% endwith %}
+  {% block content %}{% endblock %}
+</div>
+<script>
+  const CSRF = document.querySelector('meta[name=csrf-token]').content;
+  const money = c => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  async function postJSON(url, body) {
+    const r = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF}, body: JSON.stringify(body || {})});
+    const j = await r.json().catch(() => ({error: 'Server error (' + r.status + ')'}));
+    if (!r.ok || j.error) throw new Error(j.error || ('HTTP ' + r.status));
+    return j;
+  }
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

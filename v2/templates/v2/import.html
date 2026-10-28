@@ -1,0 +1,21 @@
+{% extends "v2/base.html" %}
+{% block title %}Import · Budget{% endblock %}
+{% block content %}
+<h1 style="margin-bottom:6px">Import transactions</h1>
+<p class="muted" style="margin-top:0">Download a CSV from your bank and drop it here. Anything already imported is skipped, and payees you've cleaned up before are renamed and categorized for you.</p>
+
+<form class="card" method="post" enctype="multipart/form-data" style="display:grid;gap:14px">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label>
+    <div class="small muted" style="margin-bottom:4px">Account</div>
+    <select name="account_id" required>
+      {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>
+    <div class="small muted" style="margin-bottom:4px">CSV file</div>
+    <input type="file" name="file" accept=".csv,text/csv" required>
+  </label>
+  <div><button class="btn">Import</button></div>
+</form>
+{% endblock %}

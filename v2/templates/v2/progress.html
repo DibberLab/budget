@@ -1,0 +1,130 @@
+{% extends "v2/base.html" %}
+{% block title %}{{ month_label }} · Budget{% endblock %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .head h1 { margin-right: auto; }
+  .arrow { text-decoration: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px;
+           box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+  .summary { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: end; margin-bottom: 14px; }
+  .summary .big { font-size: 34px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
+  .summary .right { text-align: right; }
+  .nudge { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;
+           border-left: 4px solid var(--warn); }
+  .bar { position: relative; height: 10px; border-radius: 999px; background: var(--track); overflow: visible; }
+  .bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--ok); max-width: 100%; }
+  .bar > i.warn { background: var(--warn); } .bar > i.bad { background: var(--bad); }
+  .bar > b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--pace); opacity: .35; border-radius: 2px; }
+  .bar.lg { height: 14px; }
+  .list { padding: 6px 0; }
+  .row { padding: 12px 18px; cursor: pointer; }
+  .row + .row { border-top: 1px solid var(--line); }
+  .row .top { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 7px; }
+  .row .name { font-weight: 550; }
+  .row .group { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .row .left.over { color: var(--bad); font-weight: 600; }
+  .row .detail { display: none; margin-top: 10px; font-size: 13px; }
+  .row.open .detail { display: block; }
+  .row .detail div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; color: var(--muted); }
+  .row .detail div span:nth-child(2) { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 560px) { .row .top { flex-direction: column; gap: 2px; } .row .group { display: none; } }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 26px 0 8px; font-weight: 600; }
+  .legend { font-size: 12px; color: var(--muted); margin-top: 10px; }
+  .legend i { display: inline-block; width: 2px; height: 10px; background: var(--pace); opacity: .35; vertical-align: -1px; margin-right: 4px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>{{ month_label }}</h1>
+  <a class="arrow" href="{{ url_for('v2.progress', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
+  {% if not is_current %}<a class="arrow" href="{{ url_for('v2.progress', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% endif %}
+</div>
+
+{% if v2_uncategorized %}
+<div class="card nudge">
+  <div><b>{{ v2_uncategorized }} transaction{{ 's' if v2_uncategorized != 1 }}</b> still need a category — numbers below won't include them.</div>
+  <a class="btn" href="{{ url_for('v2.review') }}">Review</a>
+</div>
+{% endif %}
+
+{% if rows %}
+<div class="card" style="margin-bottom:14px">
+  <div class="summary">
+    <div>
+      <div class="muted small">Spent of budget</div>
+      <div class="big num">{{ total_spent_budgeted|money }}</div>
+    </div>
+    <div class="right">
+      <div class="muted small">{{ 'Left' if total_budget >= total_spent_budgeted else 'Over' }}</div>
+      <div class="num" style="font-size:20px;font-weight:600;{% if total_budget < total_spent_budgeted %}color:var(--bad){% endif %}">{{ (total_budget - total_spent_budgeted)|abs|money }}</div>
+    </div>
+  </div>
+  {% set cls = 'bad' if total_pct > 100 else ('warn' if total_pct > pace + 10 else '') %}
+  <div class="bar lg"><i class="{{ cls }}" style="width:{{ [total_pct,100]|min }}%"></i>{% if 0 < pace < 100 %}<b style="left:{{ pace }}%"></b>{% endif %}</div>
+  <div class="legend">
+    {{ total_pct }}% of {{ total_budget|money }} budgeted
+    {% if 0 < pace < 100 %} · <i></i>{{ pace }}% of the month gone{% endif %}
+    {% if income %} · {{ income|money }} income{% endif %}
+  </div>
+</div>
+
+<div class="card list">
+  {% for r in rows %}
+  {% set cls = 'bad' if r.pct > 100 else ('warn' if pace + 10 < r.pct < 100 else '') %}
+  <div class="row" data-cid="{{ r.cat.id }}">
+    <div class="top">
+      <div><span class="name">{{ r.cat.name }}</span><span class="group">{{ r.cat.group_name }}</span></div>
+      <div class="num small">
+        <span class="muted">{{ r.spent|money }} / {{ r.budget|money }}</span>
+        &nbsp;<span class="left {% if r.left < 0 %}over{% endif %}">{{ r.left|abs|money }} {{ 'left' if r.left >= 0 else 'over' }}</span>
+      </div>
+    </div>
+    <div class="bar"><i class="{{ cls }}" style="width:{{ [r.pct,100]|min }}%"></i>{% if 0 < pace < 100 %}<b style="left:{{ pace }}%"></b>{% endif %}</div>
+    <div class="detail"></div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<div class="card empty">
+  <p><b>No budgets set yet.</b></p>
+  <p class="muted">Set category budget amounts in <a href="{{ url_for('budget_view') }}">v1 → Budget</a> once; v2 carries the latest amount forward each month.</p>
+</div>
+{% endif %}
+
+{% if unbudgeted %}
+<h2>No budget set · {{ total_unbudgeted|money }}</h2>
+<div class="card list">
+  {% for r in unbudgeted %}
+  <div class="row" data-cid="{{ r.cat.id }}">
+    <div class="top" style="margin-bottom:0">
+      <div><span class="name">{{ r.cat.name }}</span><span class="group">{{ r.cat.group_name }}</span></div>
+      <div class="num small">{{ r.spent|money }}</div>
+    </div>
+    <div class="detail"></div>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+  document.querySelectorAll('.row[data-cid]').forEach(row => row.addEventListener('click', async () => {
+    row.classList.toggle('open');
+    const d = row.querySelector('.detail');
+    if (!row.classList.contains('open') || d.dataset.loaded) return;
+    d.textContent = 'Loading…';
+    const r = await fetch(`{{ url_for('v2.category_detail', cid=0) }}`.replace('/0', '/' + row.dataset.cid) + '?y={{ y }}&m={{ m }}');
+    const list = await r.json();
+    d.dataset.loaded = 1;
+    d.innerHTML = '';
+    if (!list.length) { d.textContent = 'No transactions.'; return; }
+    for (const t of list) {
+      const div = document.createElement('div');
+      for (const v of [t.date, t.payee, money(t.amount)]) {
+        const s = document.createElement('span'); s.textContent = v; div.appendChild(s);
+      }
+      d.appendChild(div);
+    }
+  }));
+</script>
+{% endblock %}
