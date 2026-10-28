@@ -1,0 +1,4 @@
+<div class="views">
+  <a class="{{ 'on' if request.endpoint == 'v2.progress' }}" href="{{ url_for('v2.progress') }}">This month</a>
+  <a class="{{ 'on' if request.endpoint == 'v2.plan' }}" href="{{ url_for('v2.plan') }}">Plan vs actual</a>
+</div>

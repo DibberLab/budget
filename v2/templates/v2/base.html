@@ -47,6 +47,9 @@
              border: 1px solid var(--line); border-left: 4px solid var(--ok); }
     .flash.error { border-left-color: var(--bad); }
     .empty { text-align: center; padding: 48px 16px; }
+    .views { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--track); margin-bottom: 14px; }
+    .views a { text-decoration: none; padding: 5px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); }
+    .views a.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
     @media (max-width: 560px) { nav .brand { display: none; } nav { gap: 0; flex-wrap: nowrap; } nav a.tab { padding: 6px 7px; white-space: nowrap; } nav .v1 { white-space: nowrap; } nav .v1 { margin-left: auto; } }
   </style>
   {% block head %}{% endblock %}
@@ -55,7 +58,7 @@
 <div class="wrap">
   <nav>
     <a class="brand" href="{{ url_for('v2.progress') }}">Budget</a>
-    <a class="tab {% if request.endpoint == 'v2.progress' %}on{% endif %}" href="{{ url_for('v2.progress') }}">Progress</a>
+    <a class="tab {% if request.endpoint in ('v2.progress', 'v2.plan') %}on{% endif %}" href="{{ url_for('v2.progress') }}">Progress</a>
     <a class="tab {% if request.endpoint == 'v2.review' %}on{% endif %}" href="{{ url_for('v2.review') }}">Review{% if v2_uncategorized %}<span class="pill">{{ v2_uncategorized }}</span>{% endif %}</a>
     <a class="tab {% if request.endpoint == 'v2.budgets' %}on{% endif %}" href="{{ url_for('v2.budgets') }}">Budgets</a>
     <a class="tab {% if request.endpoint == 'v2.import_csv' %}on{% endif %}" href="{{ url_for('v2.import_csv') }}">Import</a>

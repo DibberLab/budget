@@ -34,6 +34,7 @@
 </style>
 {% endblock %}
 {% block content %}
+{% include "v2/_views.html" %}
 <div class="head">
   <h1>{{ month_label }}</h1>
   <a class="arrow" href="{{ url_for('v2.progress', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>

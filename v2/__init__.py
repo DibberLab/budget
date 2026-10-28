@@ -41,6 +41,39 @@ class PayeeRule(db.Model):
     category = db.relationship("Category")
 
 
+class IncomePlan(db.Model):
+    """Planned monthly income per income category. Kept separate from
+    BudgetMonth because v1 treats every BudgetMonth row as money assigned
+    out of income, so planned income there would skew v1's "To Be Budgeted"."""
+    __tablename__ = "income_plans"
+    category_id = db.Column(db.Integer, db.ForeignKey("categories.id"), primary_key=True)
+    amount = db.Column(db.Integer, nullable=False, default=0)  # cents per month
+
+
+def _window(months: int):
+    """(start, end, n) for the last `months` complete calendar months, clipped
+    to where transaction history begins (skipping a partial first month)."""
+    span = _full_months()
+    if not span:
+        return None
+    start, end = span
+    want = date(end.year, end.month, 1)
+    for _ in range(months - 1):
+        want = date(want.year - (want.month == 1), (want.month - 2) % 12 + 1, 1)
+    start = max(start, want)
+    n = (end.year - start.year) * 12 + end.month - start.month + 1
+    return start, end, n
+
+
+def _avg_by_category(start, end, n, cat_ids) -> dict:
+    """Average monthly net amount per category (signed cents: spending negative)."""
+    return {cid: round(int(total or 0) / n) for cid, total in
+            (db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+             .filter(Transaction.category_id.in_(cat_ids),
+                     Transaction.date >= start, Transaction.date <= end)
+             .group_by(Transaction.category_id))}
+
+
 # ---------- helpers ----------
 
 def _key(payee: str) -> str:
@@ -216,16 +249,72 @@ def category_detail(cid):
                      "amount": -t.amount} for t in txns])
 
 
+# ---------- plan vs actual ----------
+
+@v2_bp.route("/plan")
+@login_required
+def plan():
+    today = date.today()
+    months = request.args.get("months", 3, type=int)
+    months = months if months in (1, 3, 6, 12) else 3
+    win = _window(months)
+
+    cats = (Category.query.order_by(Category.is_income.desc(), Category.sort_order,
+                                    Category.group_name, Category.name).all())
+    cat_ids = [c.id for c in cats]
+    budget, _ = _budgets_as_of(today.year, today.month, cat_ids)
+    incplan = {p.category_id: p.amount for p in IncomePlan.query}
+    actual = _avg_by_category(*win, cat_ids) if win else {}
+
+    groups = defaultdict(lambda: {"rows": [], "plan": 0, "actual": 0})
+    retired = 0
+    inc = {"plan": 0, "actual": 0}
+    for c in cats:
+        a = actual.get(c.id, 0)
+        if c.is_income:
+            p = incplan.get(c.id, 0)
+            inc["plan"] += p
+            inc["actual"] += a
+            if p or a:
+                groups["Income"]["rows"].append({"cat": c, "plan": p, "actual": a, "diff": a - p})
+            continue
+        a = -a  # spending as positive
+        if c.hidden:
+            retired += a
+            continue
+        p = budget.get(c.id, 0)
+        g = groups[c.group_name]
+        g["rows"].append({"cat": c, "plan": p, "actual": a, "diff": a - p})
+        g["plan"] += p
+        g["actual"] += a
+    for k in ("Income",):
+        if k in groups:
+            groups[k]["plan"], groups[k]["actual"] = inc["plan"], inc["actual"]
+
+    spend = {"plan": sum(g["plan"] for k, g in groups.items() if k != "Income"),
+             "actual": sum(g["actual"] for k, g in groups.items() if k != "Income") + retired}
+    biggest = max([abs(r["diff"]) for g in groups.values() for r in g["rows"]] + [1])
+    uncategorized = (_uncategorized_query()
+                     .filter(Transaction.date >= win[0], Transaction.date <= win[1]).count()) if win else 0
+
+    return render_template(
+        "v2/plan.html", months=months, win=win, groups=list(groups.items()),
+        inc=inc, spend=spend, retired=retired, biggest=biggest, uncategorized=uncategorized)
+
+
 # ---------- budgets ----------
 
 @v2_bp.route("/budgets")
 @login_required
 def budgets():
     today = date.today()
-    cats = (Category.query.filter_by(hidden=False, is_income=False)
-            .order_by(Category.sort_order, Category.group_name, Category.name).all())
+    cats = (Category.query.filter_by(hidden=False)
+            .order_by(Category.is_income.desc(), Category.sort_order,
+                      Category.group_name, Category.name).all())
     cat_ids = [c.id for c in cats]
     current, _ = _budgets_as_of(today.year, today.month, cat_ids)
+    current.update({p.category_id: p.amount for p in IncomePlan.query})
+    income_ids = {c.id for c in cats if c.is_income}
 
     # Average monthly spend over complete months only, so a partial first
     # month or the in-progress current month doesn't drag the average down.
@@ -237,17 +326,11 @@ def budgets():
                            .filter(Transaction.category_id.in_(cat_ids),
                                    Transaction.date >= start, Transaction.date <= end)
                            .group_by(Transaction.category_id)):
-            avg[cid] = max(0, round(-int(total or 0) / n_months))
-        income_avg = round(int(db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
-                               .join(Category, Category.id == Transaction.category_id)
-                               .filter(Category.is_income.is_(True),
-                                       Transaction.date >= start, Transaction.date <= end)
-                               .scalar() or 0) / n_months)
-    else:
-        income_avg = 0
+            sign = 1 if cid in income_ids else -1
+            avg[cid] = max(0, round(sign * int(total or 0) / n_months))
 
     lm_end = date(today.year, today.month, 1) - timedelta(days=1)
-    last_month = {cid: max(0, -int(total or 0)) for cid, total in
+    last_month = {cid: max(0, (1 if cid in income_ids else -1) * int(total or 0)) for cid, total in
                   (db.session.query(Transaction.category_id, func.sum(Transaction.amount))
                    .filter(Transaction.category_id.in_(cat_ids),
                            extract("year", Transaction.date) == lm_end.year,
@@ -261,7 +344,8 @@ def budgets():
     return render_template(
         "v2/budgets.html", groups=list(groups.items()),
         n_months=n_months, span=span, last_label=lm_end.strftime("%b"),
-        income_avg=income_avg, total_avg=sum(avg.values()),
+        income_avg=sum(v for k, v in avg.items() if k in income_ids),
+        total_avg=sum(v for k, v in avg.items() if k not in income_ids),
         month_label=today.strftime("%B"))
 
 
@@ -271,7 +355,8 @@ def budgets_save():
     """Body: {"budgets": {category_id: cents}}. Sets the budget from the current
     month onward; earlier months keep the budget they had at the time."""
     data = (request.get_json(silent=True) or {}).get("budgets", {})
-    valid = {c.id for c in Category.query.filter_by(is_income=False)}
+    income = {c.id for c in Category.query.filter_by(is_income=True)}
+    valid = {c.id for c in Category.query}
     today = date.today()
     changed = 0
     for cid, cents in data.items():
@@ -280,6 +365,12 @@ def budgets_save():
         except (TypeError, ValueError):
             continue
         if cid not in valid or cents < 0:
+            continue
+        if cid in income:
+            plan = db.session.get(IncomePlan, cid) or IncomePlan(category_id=cid)
+            plan.amount = cents
+            db.session.add(plan)
+            changed += 1
             continue
         row = (BudgetMonth.query.filter_by(year=today.year, month=today.month, category_id=cid).first()
                or BudgetMonth(year=today.year, month=today.month, category_id=cid))
