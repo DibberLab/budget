@@ -1,115 +1,288 @@
 {% extends "v2/base.html" %}
 {% block title %}Plan vs actual · Budget{% endblock %}
+{% block wrap_class %}wide{% endblock %}
 {% macro usd(c) -%}{{ '-' if c < 0 }}${{ '{:,.0f}'.format((c|abs) / 100) }}{%- endmacro %}
-{% macro signed(c) -%}{{ '+' if c > 0 else ('−' if c < 0 else '') }}{{ usd(c|abs) }}{%- endmacro %}
+{% macro signed(c) -%}{% if (c|abs) < 50 %}on plan{% else %}{{ '+' if c > 0 else '−' }}{{ usd(c|abs) }}{% endif %}{%- endmacro %}
 {% block head %}
 <style>
-  .periods { display: flex; gap: 6px; flex-wrap: wrap; margin: 12px 0 6px; }
-  .periods a { text-decoration: none; padding: 5px 12px; border-radius: 999px; font-size: 13px; color: var(--muted);
-               box-shadow: inset 0 0 0 1px var(--line); }
-  .periods a.on { background: var(--ink); color: var(--bg); box-shadow: none; }
-  .sum { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; padding: 0; margin: 14px 0; }
-  .sum > div { padding: 14px 18px; }
-  .sum > div + div { border-left: 1px solid var(--line); }
-  .sum .lbl { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
-  .sum .line { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-  .sum .line b { font-weight: 600; }
-  .sum .d { font-size: 20px; font-weight: 650; margin-top: 6px; letter-spacing: -.01em; }
+  .head { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+  .head h1 { margin-right: auto; font-size: 30px; letter-spacing: -.03em; font-weight: 700; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--track); }
+  .seg a { text-decoration: none; padding: 5px 12px; border-radius: 8px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .seg a.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  .nudge { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;
+           padding: 12px 16px; border-left: 3px solid var(--warn); font-size: 14px; }
   .good { color: var(--ok); } .bad { color: var(--bad); }
-  .grp { margin-top: 18px; }
-  .gh { display: flex; justify-content: space-between; align-items: baseline; margin: 0 2px 8px; }
-  .gh h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; font-weight: 600; }
-  .grid { display: grid; grid-template-columns: minmax(0, 1.3fr) 76px 76px minmax(0, 1fr) 82px; gap: 10px; align-items: center; }
-  .colhead { font-size: 12px; color: var(--muted); padding: 8px 18px 4px; }
-  .colhead span:nth-child(2), .colhead span:nth-child(3), .colhead span:nth-child(5) { text-align: right; }
-  .r { padding: 9px 18px; font-size: 14px; }
-  .r + .r { border-top: 1px solid var(--line); }
-  .r .n { text-align: right; white-space: nowrap; }
-  .r .muted.n { font-size: 13px; }
-  .div { position: relative; height: 10px; }
-  .div::before { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; width: 1px; background: var(--line); }
-  .div i { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
-  .div i.good { background: var(--ok); } .div i.bad { background: var(--bad); }
-  .note { font-size: 13px; color: var(--muted); margin-top: 14px; }
-  @media (max-width: 560px) {
-    .sum { grid-template-columns: 1fr; } .sum > div + div { border-left: 0; border-top: 1px solid var(--line); }
-    .grid { grid-template-columns: minmax(0, 1fr) 58px 58px 64px; gap: 6px; }
-    .grid > :nth-child(4) { display: none; }
-    .r, .colhead { padding-left: 12px; padding-right: 12px; }
-    .r { font-size: 13px; }
+
+  .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px; overflow: hidden;
+          animation: rise .6s cubic-bezier(.2,.8,.2,1) both; }
+  .tile h3 { margin: 0 0 14px; font-size: 13px; font-weight: 550; color: var(--muted); }
+  .t-glance { grid-column: span 5; }
+  .t-trend { grid-column: span 7; animation-delay: .06s; display: flex; flex-direction: column; }
+  .t-gaps { grid-column: span 12; animation-delay: .12s; }
+
+  /* at a glance: plan (outline) vs actual (solid) */
+  .cmp { display: grid; gap: 16px; }
+  .cmp .top { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+  .cmp .lbl { font-weight: 600; font-size: 14px; }
+  .cmp .diff { font-size: 22px; font-weight: 750; letter-spacing: -.03em; }
+  .cmp .bars { display: grid; gap: 4px; }
+  .cmp .b { position: relative; height: 10px; border-radius: 999px; }
+  .cmp .b.plan { box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--muted) 55%, transparent);
+                 background: repeating-linear-gradient(-45deg, transparent 0 4px, color-mix(in srgb, var(--muted) 12%, transparent) 4px 6px); }
+  .cmp .b.act { background: var(--accent); }
+  .cmp .b.act.bad { background: var(--bad); } .cmp .b.act.warn { background: var(--warn); }
+  .cmp .b { width: var(--w); animation: grow 1s cubic-bezier(.2,.8,.2,1) both; }
+  .cmp .vals { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .cmp .vals b { color: var(--ink); font-weight: 600; }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin: -6px 0 12px; flex-wrap: wrap; }
+  .legend i { display: inline-block; width: 14px; height: 8px; border-radius: 3px; vertical-align: middle; margin-right: 5px; }
+  .legend i.plan { box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .legend i.act { background: var(--accent); }
+  .legend i.line { height: 0; border-top: 2px solid var(--ink); border-radius: 0; opacity: .6; }
+  .legend i.dash { height: 0; border-top: 1.5px dashed var(--muted); border-radius: 0; }
+
+  /* trend chart */
+  .chart { flex: 1; display: flex; align-items: flex-end; }
+  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .chart .grid line { stroke: var(--line); }
+  .chart text { fill: var(--muted); font-size: 11px; font-family: inherit; }
+  .chart .bar-s { fill: var(--accent); }
+  .chart .bar-s.over { fill: var(--bad); }
+  .chart .bar-s.out { opacity: .35; }
+  .chart .plan { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 5; }
+  .chart .inc { stroke: var(--ink); stroke-width: 2; fill: none; opacity: .55; stroke-linejoin: round; }
+  .chart .inc-dot { fill: var(--card); stroke: var(--ink); stroke-width: 2; opacity: .7; }
+  .chart .val { font-size: 10.5px; fill: var(--ink); opacity: .7; }
+  .chart rect.bar-s { transform-box: fill-box; transform-origin: bottom; animation: rise-bar .9s cubic-bezier(.2,.8,.2,1) both; }
+  @keyframes rise-bar { from { transform: scaleY(0); } }
+
+  /* biggest gaps */
+  .gaps { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .gaps h4 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+  .gl { display: grid; gap: 9px; }
+  .gi { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 10px; font-size: 14px; }
+  .gi .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gi .a { font-weight: 600; font-size: 13px; }
+  .gi .t { grid-column: 1 / -1; height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .gi .t i { display: block; height: 100%; border-radius: 999px; width: var(--w); animation: grow .9s cubic-bezier(.2,.8,.2,1) both; }
+  .gi.over .a { color: var(--bad); } .gi.over .t i { background: var(--bad); }
+  .gi.under .a { color: var(--ok); } .gi.under .t i { background: var(--ok); }
+  .calm { font-size: 14px; color: var(--muted); }
+
+  /* groups */
+  .groups-h { display: flex; justify-content: space-between; align-items: baseline; margin: 26px 2px 10px; gap: 12px; }
+  .groups-h h2 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+  .groups-h .hint { font-size: 12px; color: var(--muted); }
+  .groups { columns: 2 360px; column-gap: 12px; }
+  .gt { break-inside: avoid; margin-bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 18px;
+        overflow: hidden; display: inline-block; width: 100%; }
+  .gh { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 14px 16px 12px; border-bottom: 1px solid var(--line); }
+  .gh .gname { font-weight: 650; font-size: 15px; }
+  .gh .gd { font-weight: 650; font-size: 15px; text-align: right; }
+  .gh .gs { font-size: 12px; color: var(--muted); }
+  .rows { padding: 6px 0 8px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name diff" "bullet bullet" "vals vals";
+         gap: 4px 12px; padding: 8px 16px; font-size: 14px; }
+  .row .name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .diff { grid-area: diff; font-size: 13px; font-weight: 600; text-align: right; white-space: nowrap; }
+  .row .diff.zero, .gh .gd.zero { color: var(--muted); font-weight: 400; }
+  .row .vals { grid-area: vals; display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .bullet { grid-area: bullet; position: relative; height: 8px; border-radius: 999px; background: var(--track); }
+  .bullet .fill, .bullet .over { position: absolute; top: 0; bottom: 0; border-radius: 999px; animation: grow .9s cubic-bezier(.2,.8,.2,1) both; }
+  .bullet .fill { left: 0; width: var(--w); background: var(--accent); }
+  .bullet .fill.warn { background: var(--warn); }
+  .bullet .over { left: var(--l); width: var(--w); background: var(--bad); border-radius: 0 999px 999px 0; animation-delay: .35s; }
+  .bullet .mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; left: var(--l); background: var(--ink); border-radius: 2px; opacity: .65; }
+  .note { font-size: 12px; color: var(--muted); margin: 6px 4px 0; }
+
+  @keyframes rise { from { opacity: 0; transform: translateY(14px) scale(.985); } }
+  @keyframes grow { from { width: 0; } }
+  @supports (animation-timeline: view()) {
+    .gt { animation: rise linear both; animation-timeline: view(); animation-range: entry 0% entry 35%; }
+  }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+  @media (max-width: 760px) {
+    .bento { grid-template-columns: 1fr; gap: 10px; }
+    .t-glance, .t-trend, .t-gaps { grid-column: auto; }
+    .tile { padding: 16px; border-radius: 18px; }
+    .gaps { grid-template-columns: 1fr; gap: 20px; }
+    .head h1 { font-size: 26px; }
   }
 </style>
 {% endblock %}
 {% block content %}
 {% include "v2/_views.html" %}
-<h1>Plan vs actual</h1>
-<div class="periods">
-  {% for n, label in [(1, 'Last month'), (3, '3 months'), (6, '6 months'), (12, '12 months')] %}
-  <a class="{{ 'on' if n == months }}" href="{{ url_for('v2.plan', months=n) }}">{{ label }}</a>
-  {% endfor %}
+<div class="head">
+  <h1>Plan vs actual</h1>
+  <div class="seg">
+    {% for n, label in [(1, 'Last month'), (3, '3 mo'), (6, '6 mo'), (12, '12 mo')] %}
+    <a class="{{ 'on' if n == months }}" href="{{ url_for('v2.plan', months=n) }}">{{ label }}</a>
+    {% endfor %}
+  </div>
 </div>
 
 {% if not win %}
 <div class="card empty"><p>Not enough history yet — check back after the first full month.</p></div>
 {% else %}
-<p class="muted small" style="margin:4px 0 0">
+<p class="sub">
   Actual = average per month over {{ win[2] }} full month{{ 's' if win[2] != 1 }}
   ({% if win[2] > 1 %}{{ win[0].strftime('%b') }}–{% endif %}{{ win[1].strftime('%b %Y') }}){% if win[2] < months %}, all the history there is{% endif %}.
   Plan = your current <a href="{{ url_for('v2.budgets') }}">budgets</a>.
 </p>
 
+{% if uncategorized %}
+<div class="card nudge">
+  <div><b>{{ uncategorized }} uncategorized transaction{{ 's' if uncategorized != 1 }}</b> in this period aren't counted.</div>
+  <a class="btn" href="{{ url_for('v2.review') }}" style="padding:6px 12px;font-size:14px">Review</a>
+</div>
+{% endif %}
+
 {% set left_plan = inc.plan - spend.plan %}
 {% set left_actual = inc.actual - spend.actual %}
-<div class="card sum">
-  <div>
-    <div class="lbl">Income</div>
-    <div class="line"><span>Plan</span><b class="num">{{ usd(inc.plan) }}</b></div>
-    <div class="line"><span>Actual</span><b class="num">{{ usd(inc.actual) }}</b></div>
-    <div class="d num {{ 'good' if inc.actual >= inc.plan else 'bad' }}">{{ signed(inc.actual - inc.plan) }}</div>
-  </div>
-  <div>
-    <div class="lbl">Spending</div>
-    <div class="line"><span>Plan</span><b class="num">{{ usd(spend.plan) }}</b></div>
-    <div class="line"><span>Actual</span><b class="num">{{ usd(spend.actual) }}</b></div>
-    <div class="d num {{ 'good' if spend.actual <= spend.plan else 'bad' }}">{{ signed(spend.actual - spend.plan) }}</div>
-  </div>
-  <div>
-    <div class="lbl">Left over each month</div>
-    <div class="line"><span>Plan</span><b class="num">{{ usd(left_plan) }}</b></div>
-    <div class="line"><span>Actual</span><b class="num">{{ usd(left_actual) }}</b></div>
-    <div class="d num {{ 'good' if left_actual >= left_plan else 'bad' }}">{{ signed(left_actual - left_plan) }}</div>
-  </div>
-</div>
+{% set scale = [inc.plan, inc.actual, spend.plan, spend.actual, left_plan|abs, left_actual|abs, 1]|max %}
 
-{% for name, g in groups %}
-{% set is_inc = name == 'Income' %}
-<div class="grp">
-  <div class="gh">
-    <h2>{{ name }}</h2>
-    {% set gd = g.actual - g.plan %}
-    <span class="small num {{ ('good' if gd >= 0 else 'bad') if is_inc else ('good' if gd <= 0 else 'bad') }}">{{ signed(gd) }}</span>
-  </div>
-  <div class="card" style="padding:0 0 4px">
-    <div class="grid colhead"><span></span><span>Plan</span><span>Actual</span><span></span><span>Diff</span></div>
-    {% for r in g.rows %}
-    {% set good = (r.diff >= 0) if is_inc else (r.diff <= 0) %}
-    {% set w = (50 * (r.diff|abs) / biggest)|round(1) %}
-    <div class="grid r">
-      <span>{{ r.cat.name }}</span>
-      <span class="n num muted">{{ usd(r.plan) }}</span>
-      <span class="n num">{{ usd(r.actual) }}</span>
-      <span class="div">{% if r.diff %}<i class="{{ 'good' if good else 'bad' }}" style="{{ 'left:50%' if r.diff > 0 else 'right:50%' }};width:{{ w }}%"></i>{% endif %}</span>
-      <span class="n num {{ '' if not r.diff else ('good' if good else 'bad') }}">{{ signed(r.diff) if r.diff else '—' }}</span>
+<section class="bento">
+  <div class="tile t-glance">
+    <h3>At a glance · per month</h3>
+    <div class="legend"><span><i class="plan"></i>Plan</span><span><i class="act"></i>Actual</span></div>
+    <div class="cmp">
+      {% for label, p, a, good in [('Income', inc.plan, inc.actual, inc.actual >= inc.plan),
+                                   ('Spending', spend.plan, spend.actual, spend.actual <= spend.plan),
+                                   ('Left over', left_plan, left_actual, left_actual >= left_plan)] %}
+      <div>
+        <div class="top">
+          <span class="lbl">{{ label }}</span>
+          <span class="diff num {{ 'good' if good else 'bad' }}">{{ signed(a - p) }}</span>
+        </div>
+        <div class="bars">
+          <div class="b plan" style="--w:{{ (100 * (p|abs) / scale)|round(1) }}%"></div>
+          <div class="b act {{ '' if good else ('bad' if label != 'Income' else 'warn') }}{{ ' bad' if a < 0 }}" style="--w:{{ (100 * (a|abs) / scale)|round(1) }}%"></div>
+        </div>
+        <div class="vals"><span>Plan <b class="num">{{ usd(p) }}</b></span><span>Actual <b class="num">{{ usd(a) }}</b></span></div>
+      </div>
+      {% endfor %}
     </div>
-    {% endfor %}
   </div>
-</div>
-{% endfor %}
 
-<p class="note">
-  Bars right of center = more than planned; left = less. Green is good either way (under on spending, over on income).
-  {% if retired %}<br>Spending also includes {{ usd(retired) }}/mo in retired categories (e.g. the Accord).{% endif %}
-  {% if uncategorized %}<br>{{ uncategorized }} uncategorized transaction{{ 's' if uncategorized != 1 }} in this period aren't counted — <a href="{{ url_for('v2.review') }}">review them</a>.{% endif %}
-</p>
+  <div class="tile t-trend">
+    <h3>Month by month</h3>
+    <div class="legend">
+      <span><i class="act"></i>Spending</span>
+      <span><i class="dash"></i>Planned spending</span>
+      <span><i class="line"></i>Income</span>
+    </div>
+    <div class="chart" id="trend"></div>
+  </div>
+
+  <div class="tile t-gaps">
+    <h3>Biggest gaps vs plan</h3>
+    {% set rows_all = [] %}
+    {% for name, g in groups if name != 'Income' %}{% for r in g.rows %}{% set _ = rows_all.append(r) %}{% endfor %}{% endfor %}
+    {% set overs = rows_all | selectattr('diff', 'ge', 50) | sort(attribute='diff', reverse=true) | list %}
+    {% set unders = rows_all | selectattr('diff', 'le', -50) | sort(attribute='diff') | list %}
+    {% set gmax = ([overs[0].diff if overs else 0, (unders[0].diff|abs) if unders else 0, 1])|max %}
+    <div class="gaps">
+      <div>
+        <h4>Over plan</h4>
+        <div class="gl">
+          {% for r in overs[:5] %}
+          <div class="gi over"><span class="n">{{ r.cat.name }}</span><span class="a num">+{{ usd(r.diff) }}</span>
+            <span class="t"><i style="--w:{{ (100 * r.diff / gmax)|round(1) }}%"></i></span></div>
+          {% else %}<div class="calm">Nothing over plan.</div>{% endfor %}
+        </div>
+      </div>
+      <div>
+        <h4>Under plan</h4>
+        <div class="gl">
+          {% for r in unders[:5] %}
+          <div class="gi under"><span class="n">{{ r.cat.name }}</span><span class="a num">−{{ usd(r.diff|abs) }}</span>
+            <span class="t"><i style="--w:{{ (100 * (r.diff|abs) / gmax)|round(1) }}%"></i></span></div>
+          {% else %}<div class="calm">Nothing under plan.</div>{% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="groups-h">
+  <h2>By category</h2>
+  <span class="hint">Bar = actual · marker = plan</span>
+</div>
+<section class="groups">
+  {% for name, g in groups %}
+  {% set is_inc = name == 'Income' %}
+  {% set gd = g.actual - g.plan %}
+  {% set gscale = ([1] + g.rows|map(attribute='plan')|list + g.rows|map(attribute='actual')|list)|max %}
+  <div class="gt">
+    <div class="gh">
+      <span class="gname">{{ name }}</span>
+      <span class="gd num {{ 'zero' if (gd|abs) < 50 else (('good' if gd >= 0 else 'bad') if is_inc else ('good' if gd <= 0 else 'bad')) }}">{{ signed(gd) }}</span>
+      <span class="gs num">Plan {{ usd(g.plan) }} · actual {{ usd(g.actual) }}</span>
+    </div>
+    <div class="rows">
+      {% for r in g.rows %}
+      {% set good = (r.diff >= 0) if is_inc else (r.diff <= 0) %}
+      {% set pw = 100 * r.plan / gscale %}
+      {% set aw = 100 * r.actual / gscale %}
+      <div class="row">
+        <span class="name">{{ r.cat.name }}</span>
+        <span class="diff num {{ 'zero' if (r.diff|abs) < 50 else ('good' if good else 'bad') }}">{{ signed(r.diff) }}</span>
+        <span class="bullet">
+          {% if is_inc or r.actual <= r.plan %}
+            <i class="fill{{ ' warn' if is_inc and not good }}" style="--w:{{ aw|round(1) }}%"></i>
+          {% else %}
+            <i class="fill" style="--w:{{ pw|round(1) }}%"></i>
+            <i class="over" style="--l:{{ pw|round(1) }}%;--w:{{ (aw - pw)|round(1) }}%"></i>
+          {% endif %}
+          {% if r.plan %}<i class="mark" style="--l:{{ pw|round(1) }}%"></i>{% endif %}
+        </span>
+        <span class="vals num"><span>Plan {{ usd(r.plan) }}</span><span>Actual {{ usd(r.actual) }}</span></span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</section>
+{% if retired %}<p class="note">Spending also includes {{ usd(retired) }}/mo in retired categories (e.g. the Accord), counted in the totals above.</p>{% endif %}
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if win %}
+<script>
+  const TREND = {{ trend|tojson }};
+  const PLAN = {{ spend.plan }};
+  const whole = c => (c < 0 ? '-' : '') + '$' + Math.round(Math.abs(c) / 100).toLocaleString();
+  const k = c => Math.abs(c) >= 100000 ? '$' + (c / 100000).toFixed(c >= 1000000 ? 0 : 1) + 'k' : whole(c);
+
+  (function draw() {
+    const el = document.getElementById('trend');
+    if (!TREND.length) { el.innerHTML = '<div class="calm">No full months yet.</div>'; return; }
+    const W = Math.max(300, Math.round(el.clientWidth || 640)), H = W < 500 ? 200 : 240;
+    const pl = 44, pr = 10, pt = 18, pb = 24;
+    const top = Math.max(PLAN, ...TREND.map(t => Math.max(t.spend, t.income)), 1) * 1.08;
+    const n = TREND.length, slot = (W - pl - pr) / n, bw = Math.min(46, slot * .56);
+    const x = i => pl + slot * i + slot / 2;
+    const y = v => pt + (1 - v / top) * (H - pt - pb);
+    const ticks = [0, top / 1.08 / 2, top / 1.08];
+    let s = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Monthly spending and income vs plan">
+      <g class="grid">${ticks.map(v => `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}"/>`).join('')}</g>
+      ${ticks.map(v => `<text x="${pl - 8}" y="${y(v) + 4}" text-anchor="end">${k(v)}</text>`).join('')}`;
+    TREND.forEach((t, i) => {
+      const h = Math.max(0, y(0) - y(t.spend));
+      const cls = 'bar-s' + (PLAN && t.spend > PLAN ? ' over' : '') + (t.in_window ? '' : ' out');
+      s += `<rect class="${cls}" x="${x(i) - bw / 2}" y="${y(t.spend)}" width="${bw}" height="${h}" rx="6" style="animation-delay:${i * 60}ms"><title>${t.label}: spent ${whole(t.spend)}, earned ${whole(t.income)}</title></rect>
+        <text class="val" x="${x(i)}" y="${y(t.spend) - 5}" text-anchor="middle">${k(t.spend)}</text>
+        <text x="${x(i)}" y="${H - 5}" text-anchor="middle">${t.label}</text>`;
+    });
+    if (PLAN) s += `<line class="plan" x1="${pl}" x2="${W - pr}" y1="${y(PLAN)}" y2="${y(PLAN)}"/>`;
+    const pts = TREND.map((t, i) => `${x(i)},${y(t.income)}`);
+    s += `<polyline class="inc" points="${pts.join(' ')}"/>` + TREND.map((t, i) => `<circle class="inc-dot" cx="${x(i)}" cy="${y(t.income)}" r="3.5"/>`).join('');
+    el.innerHTML = s + '</svg>';
+  })();
+</script>
 {% endif %}
 {% endblock %}

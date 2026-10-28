@@ -316,9 +316,45 @@ def plan():
     uncategorized = (_uncategorized_query()
                      .filter(Transaction.date >= win[0], Transaction.date <= win[1]).count()) if win else 0
 
+    # Month-by-month totals for the trend chart: the window's months, but at
+    # least the last 6 full months (where history allows) for context.
+    trend = []
+    span = _full_months()
+    if span:
+        first, end = span
+        n_chart = max(months, 6)
+        cur = date(end.year, end.month, 1)
+        months_list = []
+        while len(months_list) < n_chart and cur >= date(first.year, first.month, 1):
+            months_list.append(cur)
+            cur = date(cur.year - (cur.month == 1), (cur.month - 2) % 12 + 1, 1)
+        totals = defaultdict(lambda: {"spend": 0, "income": 0})
+        if months_list:
+            for yy, mm, is_inc, total in (
+                    db.session.query(extract("year", Transaction.date), extract("month", Transaction.date),
+                                     Category.is_income, func.sum(Transaction.amount))
+                    .join(Category, Category.id == Transaction.category_id)
+                    .filter(Transaction.date >= months_list[-1], Transaction.date <= end)
+                    .group_by(extract("year", Transaction.date), extract("month", Transaction.date),
+                              Category.is_income)):
+                key = (int(yy), int(mm))
+                if is_inc:
+                    totals[key]["income"] += int(total or 0)
+                else:
+                    totals[key]["spend"] -= int(total or 0)
+        in_win = {(d.year, d.month) for d in months_list[:win[2]]} if win else set()
+        for d in reversed(months_list):
+            t = totals[(d.year, d.month)]
+            trend.append({"label": d.strftime("%b"), "spend": t["spend"], "income": t["income"],
+                          "in_window": (d.year, d.month) in in_win})
+
+    for g in groups.values():
+        g["rows"].sort(key=lambda r: (-r["plan"], -r["actual"], r["cat"].name.lower()))
+
     return render_template(
         "v2/plan.html", months=months, win=win, groups=list(groups.items()),
-        inc=inc, spend=spend, retired=retired, biggest=biggest, uncategorized=uncategorized)
+        inc=inc, spend=spend, retired=retired, biggest=biggest, uncategorized=uncategorized,
+        trend=trend)
 
 
 # ---------- budgets ----------
