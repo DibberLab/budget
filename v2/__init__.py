@@ -173,10 +173,11 @@ def progress():
     except ValueError:
         y, m = today.year, today.month
 
-    # Hidden (retired/merged) categories are included so their past spending
-    # still shows up when browsing older months; with no budget and no spend
-    # they simply don't appear.
-    cats = Category.query.filter_by(is_income=False).all()
+    # Every visible expense category is listed (so any budget can be edited
+    # here, even $0 ones). Hidden/retired categories only appear in months
+    # where they still have spending.
+    cats = (Category.query.filter_by(is_income=False)
+            .order_by(Category.sort_order, Category.group_name, Category.name).all())
     cat_ids = [c.id for c in cats]
 
     spent_rows = (db.session.query(Transaction.category_id,
@@ -187,19 +188,15 @@ def progress():
                   .group_by(Transaction.category_id).all())
     spent = {cid: -int(total) for cid, total in spent_rows}  # outflow as positive
 
-    budget, budget_from = _budgets_as_of(y, m, cat_ids)
+    budget, _ = _budgets_as_of(y, m, cat_ids)
 
-    rows, unbudgeted = [], []
+    groups = {}
     for c in cats:
         s, b = spent.get(c.id, 0), budget.get(c.id, 0)
-        if b:
-            carried = budget_from[c.id] != (y, m)
-            rows.append({"cat": c, "spent": s, "budget": b, "left": b - s,
-                         "pct": round(100 * s / b) if b else 0, "carried": carried})
-        elif s > 0:
-            unbudgeted.append({"cat": c, "spent": s})
-    rows.sort(key=lambda r: -r["pct"])
-    unbudgeted.sort(key=lambda r: -r["spent"])
+        if c.hidden and not s:
+            continue
+        g = groups.setdefault("Retired" if c.hidden else c.group_name, [])
+        g.append({"cat": c, "spent": s, "budget": 0 if c.hidden else b})
 
     days_in_month = monthrange(y, m)[1]
     if (y, m) == (today.year, today.month):
@@ -215,21 +212,16 @@ def progress():
                       extract("year", Transaction.date) == y,
                       extract("month", Transaction.date) == m).scalar() or 0)
 
-    total_budget = sum(r["budget"] for r in rows)
-    total_spent_budgeted = sum(r["spent"] for r in rows)
-    total_unbudgeted = sum(r["spent"] for r in unbudgeted)
-
     prev = (y - 1, 12) if m == 1 else (y, m - 1)
     nxt = (y + 1, 1) if m == 12 else (y, m + 1)
+    is_current = (y, m) == (today.year, today.month)
 
     return render_template(
         "v2/progress.html",
         y=y, m=m, month_label=date(y, m, 1).strftime("%B %Y"),
-        prev=prev, nxt=nxt, is_current=(y, m) == (today.year, today.month),
-        rows=rows, unbudgeted=unbudgeted, pace=pace, income=int(income),
-        total_budget=total_budget, total_spent_budgeted=total_spent_budgeted,
-        total_unbudgeted=total_unbudgeted,
-        total_pct=round(100 * total_spent_budgeted / total_budget) if total_budget else 0,
+        prev=prev, nxt=nxt, is_current=is_current, editable=is_current,
+        groups=sorted(groups.items(), key=lambda kv: kv[0] == "Retired"),
+        pace=pace, income=int(income),
     )
 
 
