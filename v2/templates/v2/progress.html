@@ -2,49 +2,95 @@
 {% block title %}{{ month_label }} · Budget{% endblock %}
 {% block head %}
 <style>
-  .head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
   .head h1 { margin-right: auto; }
-  .arrow { text-decoration: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px;
+  .arrow { text-decoration: none; width: 32px; height: 32px; display: grid; place-items: center; border-radius: 999px;
            box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
-  .summary { display: grid; grid-template-columns: 1fr auto; gap: 4px 16px; align-items: end; margin-bottom: 14px; }
-  .summary .big { font-size: 34px; font-weight: 650; letter-spacing: -.02em; line-height: 1.1; }
-  .summary .right { text-align: right; }
-  .nudge { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px;
-           border-left: 4px solid var(--warn); }
-  .bar { position: relative; height: 8px; border-radius: 999px; background: var(--track); }
-  .bar > i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--ok); max-width: 100%; width: 0; }
-  .bar > i.warn { background: var(--warn); } .bar > i.bad { background: var(--bad); }
-  .bar > b { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--pace); opacity: .3; border-radius: 2px; }
-  .bar.lg { height: 14px; }
-  .legend { font-size: 12px; color: var(--muted); margin-top: 10px; }
-  .legend i { display: inline-block; width: 2px; height: 10px; background: var(--pace); opacity: .35; vertical-align: -1px; margin-right: 4px; }
+  .nudge { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;
+           padding: 12px 16px; border-left: 3px solid var(--warn); font-size: 14px; }
+  .nudge .btn { padding: 6px 12px; font-size: 14px; }
 
-  .grp { margin-top: 14px; padding: 0; overflow: hidden; }
-  .gh { padding: 14px 18px 12px; background: color-mix(in srgb, var(--track) 45%, transparent); border-bottom: 1px solid var(--line); }
-  .gh .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  /* bars: teal while on track, amber when ahead of pace, red only for the overspent part */
+  .bar { position: relative; display: flex; height: 6px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .bar .fill { background: var(--accent); opacity: .85; }
+  .bar .fill.ahead { background: var(--warn); opacity: 1; }
+  .bar .fill.unbudgeted { background: var(--warn); opacity: .55; }
+  .bar .over { background: var(--bad); }
+  .bar-wrap { position: relative; display: block; }
+  .bar-wrap .pace { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px;
+                    background: var(--ink); opacity: .35; }
+
+  /* summary */
+  .hero { padding: 20px 20px 18px; }
+  .hero .label { font-size: 13px; color: var(--muted); }
+  .hero .headline { font-size: 38px; font-weight: 680; letter-spacing: -.025em; line-height: 1.1; margin: 2px 0 4px; }
+  .hero .headline.over { color: var(--bad); }
+  .hero .sub { font-size: 14px; color: var(--muted); margin-bottom: 14px; }
+  .hero .sub b { color: var(--ink); font-weight: 600; }
+  .hero .bar { height: 10px; }
+  .hero .meta { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .overs { margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .overs .t { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font: inherit; font-size: 13px; border: 0; cursor: pointer; padding: 4px 10px; border-radius: 999px;
+          background: color-mix(in srgb, var(--bad) 12%, transparent); color: var(--ink); }
+  .chip b { color: var(--bad); font-weight: 600; margin-left: 4px; }
+
+  /* groups */
+  .grp { margin-top: 12px; padding: 0; }
+  .gh { display: grid; grid-template-columns: 18px minmax(0, 1fr) 150px 170px 96px; align-items: center; gap: 12px;
+        padding: 14px 18px; cursor: pointer; user-select: none; }
+  .gh .chev { color: var(--muted); font-size: 11px; transition: transform .15s; }
+  .grp.collapsed .chev { transform: rotate(-90deg); }
   .gh .gname { font-weight: 650; font-size: 15px; }
-  .row { padding: 11px 18px; cursor: pointer; }
-  .row + .row { border-top: 1px solid var(--line); }
-  .row .top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 7px; }
-  .row .name { font-weight: 500; }
-  .nums { font-size: 13px; white-space: nowrap; }
-  .nums .of { color: var(--muted); }
-  .left { margin-left: 8px; }
-  .left.over { color: var(--bad); font-weight: 600; }
-  .left.none { color: var(--muted); }
+  .grp.collapsed .rows { display: none; }
+  .rows { border-top: 1px solid var(--line); padding: 4px 0; }
+
+  .row { display: grid; grid-template-columns: 18px minmax(0, 1fr) 150px 170px 96px; align-items: center; gap: 12px;
+         padding: 8px 18px; cursor: pointer; font-size: 14px; }
+  .row:hover { background: color-mix(in srgb, var(--track) 40%, transparent); }
+  .row .name { grid-column: 2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .amt { text-align: right; white-space: nowrap; font-size: 13px; }
+  .amt .of { color: var(--muted); }
+  .status { text-align: right; white-space: nowrap; font-size: 13px; color: var(--muted); }
+  .status.over { color: var(--bad); font-weight: 600; }
+  .status.unbudgeted { color: var(--warn); }
+  .gh .amt, .gh .status { font-size: 14px; }
+  .row.idle { display: none; }
+  .grp.show-idle .row.idle { display: grid; }
+  .more { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0; cursor: pointer;
+          padding: 6px 18px 8px 48px; text-align: left; }
+  .more:hover { color: var(--ink); }
+
   .bud { font: inherit; color: var(--muted); background: none; border: 0; padding: 1px 4px; margin: -1px -4px; border-radius: 6px;
-         cursor: text; text-decoration: underline dotted; text-underline-offset: 3px; }
+         cursor: text; border-bottom: 1px dashed color-mix(in srgb, var(--muted) 60%, transparent); }
   .bud:hover { background: var(--track); color: var(--ink); }
-  .bud-input { width: 84px; padding: 2px 6px; font-size: 13px; text-align: right; }
-  .saved { color: var(--ok); margin-left: 4px; font-size: 12px; transition: opacity .6s; }
-  .row .detail { display: none; margin-top: 10px; font-size: 13px; }
+  .bud-input { width: 76px; padding: 2px 6px; font-size: 13px; text-align: right; }
+  .saved { color: var(--ok); font-size: 12px; transition: opacity .6s; margin-left: 4px; }
+
+  .detail { display: none; grid-column: 2 / -1; font-size: 13px; padding: 4px 0 6px; }
   .row.open .detail { display: block; }
-  .row .detail div { display: flex; justify-content: space-between; gap: 12px; padding: 3px 0; color: var(--muted); }
-  .row .detail div span:nth-child(2) { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .hint { font-size: 12px; color: var(--muted); margin: 10px 2px 0; }
-  @media (max-width: 560px) {
-    .row .top, .gh .top { flex-direction: column; gap: 2px; align-items: flex-start; }
-    .row, .gh { padding-left: 14px; padding-right: 14px; }
+  .detail div { display: flex; gap: 12px; padding: 2px 0; color: var(--muted); }
+  .detail div span:nth-child(2) { flex: 1; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .hint { font-size: 12px; color: var(--muted); margin: 14px 4px 0; }
+  .flash-row { animation: flash 1.4s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--warn) 25%, transparent); } to { background: transparent; } }
+
+  @media (max-width: 640px) {
+    .hero .headline { font-size: 32px; }
+    .gh, .row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas: "name status" "bar amt";
+      gap: 6px 12px; padding-left: 14px; padding-right: 14px;
+    }
+    .gh .chev { display: none; }
+    .gh .gname, .row .name { grid-area: name; }
+    .gh .status, .row .status { grid-area: status; }
+    .gh .bar-wrap, .row .bar-wrap { grid-area: bar; }
+    .gh .amt, .row .amt { grid-area: amt; font-size: 12px; }
+    .row { padding-top: 10px; padding-bottom: 10px; }
+    .detail { grid-column: 1 / -1; }
+    .more { padding-left: 14px; }
   }
 </style>
 {% endblock %}
@@ -58,58 +104,54 @@
 
 {% if v2_uncategorized %}
 <div class="card nudge">
-  <div><b>{{ v2_uncategorized }} transaction{{ 's' if v2_uncategorized != 1 }}</b> still need a category — numbers below won't include them.</div>
+  <div><b>{{ v2_uncategorized }} transaction{{ 's' if v2_uncategorized != 1 }}</b> to categorize — not counted yet.</div>
   <a class="btn" href="{{ url_for('v2.review') }}">Review</a>
 </div>
 {% endif %}
 
-<div class="card">
-  <div class="summary">
-    <div>
-      <div class="muted small">Spent this month</div>
-      <div class="big num" id="sum-spent"></div>
-    </div>
-    <div class="right">
-      <div class="muted small" id="sum-left-label"></div>
-      <div class="num" style="font-size:20px;font-weight:600" id="sum-left"></div>
-    </div>
+<div class="card hero">
+  <div class="label" id="h-label"></div>
+  <div class="headline num" id="h-big"></div>
+  <div class="sub num" id="h-sub"></div>
+  <div class="bar-wrap"><div class="bar" id="h-bar"><i class="fill"></i><i class="over"></i></div>{% if 0 < pace < 100 %}<span class="pace" style="left:{{ pace }}%"></span>{% endif %}</div>
+  <div class="meta">
+    <span>{% if 0 < pace < 100 %}{{ pace }}% through the month{% elif pace >= 100 %}Month complete{% endif %}</span>
+    <span>{% if income %}{{ income|money }} income{% endif %}</span>
   </div>
-  <div class="bar lg" id="sum-bar"><i></i>{% if 0 < pace < 100 %}<b style="left:{{ pace }}%"></b>{% endif %}</div>
-  <div class="legend">
-    <span id="sum-pct"></span>
-    {% if 0 < pace < 100 %} · <i></i>{{ pace }}% of the month gone{% endif %}
-    {% if income %} · {{ income|money }} income{% endif %}
+  <div class="overs" id="overs" hidden>
+    <div class="t">Over budget</div>
+    <div class="chips" id="chips"></div>
   </div>
 </div>
 
 {% for name, rows in groups %}
-<div class="card grp" data-group>
-  <div class="gh">
-    <div class="top">
-      <span class="gname">{{ name }}</span>
-      <span class="nums num"><span class="g-spent"></span> <span class="of">/ <span class="g-budget"></span></span><span class="left g-left"></span></span>
-    </div>
-    <div class="bar"><i></i>{% if 0 < pace < 100 %}<b style="left:{{ pace }}%"></b>{% endif %}</div>
+<div class="card grp" data-group="{{ name }}">
+  <div class="gh" role="button" tabindex="0" aria-expanded="true">
+    <span class="chev">▼</span>
+    <span class="gname">{{ name }}</span>
+    <span class="bar-wrap"><span class="bar"><i class="fill"></i><i class="over"></i></span>{% if 0 < pace < 100 %}<span class="pace" style="left:{{ pace }}%"></span>{% endif %}</span>
+    <span class="amt num"><span class="g-spent"></span> <span class="of">of <span class="g-budget"></span></span></span>
+    <span class="status num g-status"></span>
   </div>
-  {% for r in rows %}
-  <div class="row" data-cid="{{ r.cat.id }}" data-spent="{{ r.spent }}" data-budget="{{ r.budget }}" data-name="{{ r.cat.name }}">
-    <div class="top">
+  <div class="rows">
+    {% for r in rows %}
+    <div class="row{% if not r.budget and not r.spent %} idle{% endif %}" id="cat-{{ r.cat.id }}" data-cid="{{ r.cat.id }}"
+         data-spent="{{ r.spent }}" data-budget="{{ r.budget }}" data-name="{{ r.cat.name }}">
       <span class="name">{{ r.cat.name }}</span>
-      <span class="nums num">
-        <span class="r-spent"></span>
-        <span class="of">/ {% if editable and not r.cat.hidden %}<button type="button" class="bud" title="Click to edit budget"></button>{% else %}<span class="r-budget"></span>{% endif %}</span><span class="left r-left"></span>
-      </span>
+      <span class="bar-wrap"><span class="bar"><i class="fill"></i><i class="over"></i></span></span>
+      <span class="amt num"><span class="r-spent"></span> <span class="of">of {% if editable and not r.cat.hidden %}<button type="button" class="bud" title="Click to edit budget"></button>{% else %}<span class="r-budget"></span>{% endif %}</span></span>
+      <span class="status num r-status"></span>
+      <div class="detail"></div>
     </div>
-    <div class="bar"><i></i>{% if 0 < pace < 100 %}<b style="left:{{ pace }}%"></b>{% endif %}</div>
-    <div class="detail"></div>
+    {% endfor %}
+    {% set idle = rows | selectattr('budget', 'equalto', 0) | selectattr('spent', 'equalto', 0) | list | length %}
+    {% if idle %}<button type="button" class="more">+ {{ idle }} with no budget or spending</button>{% endif %}
   </div>
-  {% endfor %}
 </div>
 {% endfor %}
 
 <p class="hint">
-  {% if editable %}Click any budget amount to change it — it saves automatically and applies from this month on.{% else %}Budgets can be edited on the current month.{% endif %}
-  Tap a category to see its transactions.
+  {% if editable %}Tap a budget amount to change it — it saves automatically, from this month on. {% endif %}Tap a category to see its transactions; tap a group to fold it.
 </p>
 {% endblock %}
 {% block scripts %}
@@ -118,21 +160,29 @@
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
   const whole = c => (c < 0 ? '-' : '') + '$' + Math.round(Math.abs(c) / 100).toLocaleString();
 
-  function barClass(spent, budget) {
-    if (!budget) return spent > 0 ? 'warn' : '';
-    const pct = 100 * spent / budget;
-    if (pct > 100.5) return 'bad';
-    if (pct > PACE + 10 && pct < 99.5) return 'warn';
-    return '';
-  }
   function paintBar(bar, spent, budget) {
-    const i = bar.querySelector('i');
-    i.className = barClass(spent, budget);
-    i.style.width = (budget ? Math.min(100, 100 * spent / budget) : (spent > 0 ? 100 : 0)) + '%';
+    const fill = bar.querySelector('.fill'), over = bar.querySelector('.over');
+    fill.className = 'fill'; over.style.width = '0';
+    if (!budget) {
+      fill.style.width = spent > 0 ? '100%' : '0';
+      if (spent > 0) fill.classList.add('unbudgeted');
+    } else if (spent <= budget) {
+      const pct = 100 * spent / budget;
+      fill.style.width = pct + '%';
+      if (pct > PACE + 10 && pct < 99.5) fill.classList.add('ahead');
+    } else {
+      // Scale to the spend: teal up to the budget, red for the part beyond it.
+      fill.style.width = (100 * budget / spent) + '%';
+      over.style.width = (100 * (spent - budget) / spent) + '%';
+    }
   }
-  function paintLeft(el, spent, budget) {
-    el.classList.remove('over', 'none');
-    if (!budget) { el.textContent = spent > 0 ? 'no budget' : ''; el.classList.add('none'); return; }
+  function paintStatus(el, spent, budget) {
+    el.classList.remove('over', 'unbudgeted');
+    if (!budget) {
+      el.textContent = spent > 0 ? 'unbudgeted' : '—';
+      if (spent > 0) el.classList.add('unbudgeted');
+      return;
+    }
     const left = budget - spent;
     el.textContent = left >= 0 ? whole(left) + ' left' : whole(-left) + ' over';
     if (left < 0) el.classList.add('over');
@@ -140,6 +190,7 @@
 
   function paint() {
     let tSpent = 0, tBudget = 0;
+    const overs = [];
     $$('[data-group]').forEach(g => {
       let gs = 0, gb = 0;
       $$('.row', g).forEach(r => {
@@ -148,26 +199,70 @@
         r.querySelector('.r-spent').textContent = whole(s);
         const bud = r.querySelector('.bud, .r-budget');
         if (bud) bud.textContent = whole(b);
-        paintLeft(r.querySelector('.r-left'), s, b);
+        paintStatus(r.querySelector('.r-status'), s, b);
         paintBar(r.querySelector('.bar'), s, b);
+        if (b && s > b) overs.push({id: r.id, name: r.dataset.name, over: s - b});
       });
       g.querySelector('.g-spent').textContent = whole(gs);
       g.querySelector('.g-budget').textContent = whole(gb);
-      paintLeft(g.querySelector('.g-left'), gs, gb);
+      paintStatus(g.querySelector('.g-status'), gs, gb);
       paintBar(g.querySelector('.gh .bar'), gs, gb);
       tSpent += gs; tBudget += gb;
     });
-    document.getElementById('sum-spent').textContent = money(tSpent);
+
     const left = tBudget - tSpent;
-    document.getElementById('sum-left-label').textContent = left >= 0 ? 'Left' : 'Over';
-    const sl = document.getElementById('sum-left');
-    sl.textContent = money(Math.abs(left));
-    sl.style.color = left < 0 ? 'var(--bad)' : '';
-    paintBar(document.getElementById('sum-bar'), tSpent, tBudget);
-    document.getElementById('sum-pct').textContent = tBudget
-      ? `${Math.round(100 * tSpent / tBudget)}% of ${money(tBudget)} budgeted` : 'No budgets set';
+    document.getElementById('h-label').textContent = left >= 0 ? 'Left to spend' : 'Over budget';
+    const big = document.getElementById('h-big');
+    big.textContent = whole(Math.abs(left));
+    big.classList.toggle('over', left < 0);
+    document.getElementById('h-sub').innerHTML = tBudget
+      ? `<b>${whole(tSpent)}</b> spent of ${whole(tBudget)} budgeted`
+      : `<b>${whole(tSpent)}</b> spent · no budgets set yet`;
+    paintBar(document.getElementById('h-bar'), tSpent, tBudget);
+
+    overs.sort((a, b) => b.over - a.over);
+    const chips = document.getElementById('chips');
+    chips.innerHTML = '';
+    overs.slice(0, 6).forEach(o => {
+      const c = document.createElement('button');
+      c.type = 'button'; c.className = 'chip';
+      c.append(o.name);
+      const b = document.createElement('b'); b.textContent = '+' + whole(o.over); c.append(b);
+      c.addEventListener('click', () => {
+        const row = document.getElementById(o.id), g = row.closest('.grp');
+        if (g.classList.contains('collapsed')) toggleGroup(g);
+        row.scrollIntoView({behavior: 'smooth', block: 'center'});
+        row.classList.remove('flash-row'); void row.offsetWidth; row.classList.add('flash-row');
+      });
+      chips.append(c);
+    });
+    document.getElementById('overs').hidden = !overs.length;
   }
   paint();
+
+  // ---- collapsible groups (remembered per browser) ----
+  const KEY = 'v2-collapsed-groups';
+  let collapsed = [];
+  try { collapsed = JSON.parse(localStorage.getItem(KEY) || '[]'); } catch (e) {}
+  function toggleGroup(g) {
+    g.classList.toggle('collapsed');
+    g.querySelector('.gh').setAttribute('aria-expanded', !g.classList.contains('collapsed'));
+    const name = g.dataset.group;
+    collapsed = collapsed.filter(n => n !== name);
+    if (g.classList.contains('collapsed')) collapsed.push(name);
+    try { localStorage.setItem(KEY, JSON.stringify(collapsed)); } catch (e) {}
+  }
+  $$('[data-group]').forEach(g => {
+    if (collapsed.includes(g.dataset.group)) {
+      g.classList.add('collapsed');
+      g.querySelector('.gh').setAttribute('aria-expanded', 'false');
+    }
+    const gh = g.querySelector('.gh');
+    gh.addEventListener('click', () => toggleGroup(g));
+    gh.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(g); } });
+    const more = g.querySelector('.more');
+    if (more) more.addEventListener('click', () => { g.classList.add('show-idle'); more.remove(); });
+  });
 
   // ---- click-to-edit budgets, autosaved ----
   $$('.bud').forEach(btn => btn.addEventListener('click', e => {
@@ -192,8 +287,8 @@
       row.dataset.budget = cents; paint();
       try {
         await postJSON('{{ url_for("v2.budgets_save") }}', {budgets: {[row.dataset.cid]: cents}});
-        const tick = document.createElement('span'); tick.className = 'saved'; tick.textContent = '✓ saved';
-        row.querySelector('.r-left').after(tick);
+        const tick = document.createElement('span'); tick.className = 'saved'; tick.textContent = '✓';
+        btn.after(tick);
         setTimeout(() => { tick.style.opacity = 0; setTimeout(() => tick.remove(), 700); }, 1200);
       } catch (err) {
         row.dataset.budget = orig; paint();
@@ -208,7 +303,8 @@
   }));
 
   // ---- drill-down ----
-  $$('.row[data-cid]').forEach(row => row.addEventListener('click', async () => {
+  $$('.row[data-cid]').forEach(row => row.addEventListener('click', async e => {
+    if (e.target.closest('.detail')) return;
     row.classList.toggle('open');
     const d = row.querySelector('.detail');
     if (!row.classList.contains('open') || d.dataset.loaded) return;
