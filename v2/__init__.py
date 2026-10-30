@@ -7,6 +7,8 @@ Three screens, mounted at /v2:
                 name, pick a category, save — the choice is remembered as a
                 PayeeRule so future imports of that payee are handled automatically.
   /v2/import    Upload a bank CSV. Rules are applied on the way in.
+  /manage       Payees and categories by hand: refile a payee's history, edit
+                its rule, rename/move/retire/add categories.
 
 v2 shares login, users, accounts, categories, budgets, and transactions with v1,
 so both versions can run side by side until v1 is retired.
@@ -134,7 +136,9 @@ def _apply_rule(t: Transaction, rule: "PayeeRule") -> None:
     # from the same payee isn't counted as income.
     if rule.category_id and t.category_id is None:
         cat = db.session.get(Category, rule.category_id)
-        if not (cat and cat.is_income and (t.amount or 0) <= 0):
+        # A rule pointing at a retired category leaves the transaction for
+        # Review instead of filing it somewhere that no longer has a budget.
+        if cat and not cat.hidden and not (cat.is_income and (t.amount or 0) <= 0):
             t.category_id = rule.category_id
 
 
@@ -722,6 +726,163 @@ def review_confirm():
             db.session.add(rule)
     db.session.commit()
     return jsonify({"ok": True, "confirmed": confirmed})
+
+
+# ---------- manage: payees & categories ----------
+
+def _categorizable():
+    """Transactions that carry their own category: not transfers, not split
+    parents (their line-items carry the categories)."""
+    return (Transaction.query
+            .filter(Transaction.transfer_id.is_(None))
+            .filter(~Transaction.splits.any()))
+
+
+@v2_bp.route("/manage")
+@login_required
+def manage():
+    cats = Category.query.order_by(Category.is_income.desc(), Category.group_name, Category.name).all()
+    cat_by_id = {c.id: c for c in cats}
+    year_ago = date.today() - timedelta(days=365)
+
+    payees = {}
+    for t in _categorizable().filter(Transaction.payee.isnot(None), Transaction.payee != ""):
+        p = payees.setdefault(t.payee, {"payee": t.payee, "count": 0, "year": 0,
+                                        "latest": t.date, "cats": defaultdict(int)})
+        p["count"] += 1
+        p["latest"] = max(p["latest"], t.date)
+        if t.date >= year_ago:
+            p["year"] += t.amount
+        p["cats"][t.category_id] += 1
+
+    rules = PayeeRule.query.all()
+    rule_cat = {}
+    for r in rules:
+        rule_cat.setdefault(r.payee, r.category_id)
+    for p in payees.values():
+        ranked = sorted(p["cats"].items(), key=lambda kv: -kv[1])
+        p["category_id"] = ranked[0][0]
+        p["mixed"] = len(ranked) > 1
+        p["breakdown"] = ", ".join(
+            f"{n} in {cat_by_id[cid].name if cid in cat_by_id else 'uncategorized'}" for cid, n in ranked)
+        p["rule"] = p["payee"] in rule_cat
+        p["rule_cat"] = rule_cat.get(p["payee"])
+        del p["cats"]
+
+    groups = defaultdict(list)
+    for c in cats:
+        groups[c.group_name].append(c)
+    usage = dict(db.session.query(Transaction.category_id, func.count())
+                 .group_by(Transaction.category_id).all())
+    return render_template(
+        "v2/manage.html",
+        payees=sorted(payees.values(), key=lambda p: (-p["count"], p["payee"].lower())),
+        groups=sorted(groups.items(), key=lambda kv: (kv[0] != "Income", kv[0].lower())),
+        usage=usage, category_groups=_category_options(),
+        cat_names={c.id: c.name for c in cats},
+        active_ids={c.id for c in cats if not c.hidden})
+
+
+@v2_bp.route("/manage/payee", methods=["POST"])
+@login_required
+def manage_payee():
+    """Body: {"payee": str, "new_payee": str?, "category_id": int?, "history": bool}.
+    Renames the payee everywhere, and/or files it under a category: every past
+    transaction (when history is true) plus a PayeeRule for future imports."""
+    data = request.get_json(silent=True) or {}
+    payee = (data.get("payee") or "").strip()
+    new_payee = (data.get("new_payee") or "").strip() or payee
+    if not payee:
+        return jsonify({"error": "No payee given."}), 400
+    cat = db.session.get(Category, data["category_id"]) if data.get("category_id") else None
+    if data.get("category_id") and (not cat or cat.hidden):
+        return jsonify({"error": "Pick an active category."}), 400
+
+    renamed = refiled = 0
+    if new_payee != payee:
+        renamed = (Transaction.query.filter(Transaction.payee == payee)
+                   .update({"payee": new_payee}, synchronize_session=False))
+        PayeeRule.query.filter(PayeeRule.payee == payee).update({"payee": new_payee}, synchronize_session=False)
+
+    if cat:
+        if data.get("history", True):
+            q = _categorizable().filter(Transaction.payee == new_payee)
+            if cat.is_income:  # same as rules: income categories only take deposits
+                q = q.filter(Transaction.amount > 0)
+            for t in q:
+                if t.category_id != cat.id:
+                    t.category_id = cat.id
+                    refiled += 1
+                AutoCat.query.filter_by(transaction_id=t.id).delete()
+        # Point every rule that produces this payee at the category, and make
+        # sure the clean name itself matches (bank strings vary).
+        PayeeRule.query.filter(PayeeRule.payee == new_payee).update(
+            {"category_id": cat.id}, synchronize_session=False)
+        rule = PayeeRule.query.filter_by(match=_key(new_payee)).first()
+        if not rule:
+            db.session.add(PayeeRule(match=_key(new_payee), payee=new_payee, category_id=cat.id))
+        else:
+            rule.payee, rule.category_id = new_payee, cat.id
+
+    db.session.commit()
+    return jsonify({"ok": True, "renamed": renamed, "refiled": refiled})
+
+
+@v2_bp.route("/manage/payee/forget", methods=["POST"])
+@login_required
+def manage_payee_forget():
+    """Body: {"payee": str}. Drops the rules for a payee; its transactions stay as they are."""
+    payee = ((request.get_json(silent=True) or {}).get("payee") or "").strip()
+    n = PayeeRule.query.filter(PayeeRule.payee == payee).delete(synchronize_session=False)
+    db.session.commit()
+    return jsonify({"ok": True, "removed": n})
+
+
+@v2_bp.route("/manage/category", methods=["POST"])
+@login_required
+def manage_category():
+    """Body: {"id": int?, "name": str, "group_name": str, "hidden": bool?, "is_income": bool?}.
+    Creates the category when there's no id, otherwise updates it."""
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    group = (data.get("group_name") or "").strip()
+    if not name or not group:
+        return jsonify({"error": "A category needs a name and a group."}), 400
+    cat = db.session.get(Category, data["id"]) if data.get("id") else Category()
+    if not cat:
+        abort(404)
+    clash = (Category.query.filter(func.lower(Category.name) == name.lower(),
+                                   func.lower(Category.group_name) == group.lower(),
+                                   Category.id != (cat.id or 0)).first())
+    if clash:
+        return jsonify({"error": f"{group} already has a category called {clash.name}."}), 400
+    cat.name, cat.group_name = name, group
+    if "hidden" in data:
+        cat.hidden = bool(data["hidden"])
+    if "is_income" in data:
+        cat.is_income = bool(data["is_income"])
+    db.session.add(cat)
+    db.session.commit()
+    return jsonify({"ok": True, "id": cat.id})
+
+
+@v2_bp.route("/manage/group", methods=["POST"])
+@login_required
+def manage_group():
+    """Body: {"old": str, "new": str}. Renames a group (merging into an existing one of that name)."""
+    data = request.get_json(silent=True) or {}
+    old, new = (data.get("old") or "").strip(), (data.get("new") or "").strip()
+    if not old or not new:
+        return jsonify({"error": "A group needs a name."}), 400
+    taken = {(c.name.lower(), c.group_name.lower()) for c in Category.query.filter(Category.group_name != old)}
+    moving = Category.query.filter_by(group_name=old).all()
+    dupes = [c.name for c in moving if (c.name.lower(), new.lower()) in taken]
+    if dupes:
+        return jsonify({"error": f"{new} already has: {', '.join(dupes)}."}), 400
+    for c in moving:
+        c.group_name = new
+    db.session.commit()
+    return jsonify({"ok": True, "moved": len(moving)})
 
 
 # ---------- import ----------

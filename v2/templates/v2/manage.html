@@ -1,0 +1,339 @@
+{% extends "v2/base.html" %}
+{% block title %}Manage · Budget{% endblock %}
+{% macro cat_select(selected, cls='') -%}
+<select class="{{ cls }}" aria-label="Category">
+  {% if not selected or selected not in cat_names %}<option value="">— choose —</option>{% endif %}
+  {% if selected and selected in cat_names and selected not in active_ids %}<option value="{{ selected }}" selected disabled>{{ cat_names[selected] }} (retired)</option>{% endif %}
+  {% for g, cs in category_groups %}
+  <optgroup label="{{ g }}">
+    {% for c in cs %}<option value="{{ c.id }}"{% if c.id == selected %} selected{% endif %}>{{ c.name }}</option>{% endfor %}
+  </optgroup>
+  {% endfor %}
+</select>
+{%- endmacro %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .head h1 { margin-right: auto; font-size: 30px; letter-spacing: -.03em; font-weight: 700; }
+  .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
+  .views button { font: inherit; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 5px 12px; border-radius: 8px; cursor: pointer; }
+  .views button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+
+  .bar-tools { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .bar-tools input[type=search] { flex: 1 1 220px; max-width: 360px; border-radius: 10px; padding: 8px 12px; background: var(--card); }
+  .bar-tools label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); cursor: pointer; }
+  .bar-tools input[type=checkbox] { width: auto; }
+  .filters { display: inline-flex; gap: 4px; }
+  .filters button { font: inherit; font-size: 12px; border: 0; cursor: pointer; padding: 4px 10px; border-radius: 999px; background: var(--track); color: var(--muted); }
+  .filters button.on { background: var(--ink); color: var(--bg); }
+
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+  .p { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, 240px); gap: 4px 14px; align-items: center; padding: 11px 16px; }
+  .p + .p { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .p.flash { animation: flash 1.6s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--ok) 22%, transparent); } to { background: transparent; } }
+  .p .who { min-width: 0; }
+  .p .name { font: inherit; font-weight: 600; font-size: 14.5px; background: none; border: 0; padding: 0; color: var(--ink); cursor: text; text-align: left;
+             max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-bottom: 1px dashed transparent; }
+  .p .name:hover { border-bottom-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+  .p .rename { font-weight: 600; padding: 3px 8px; max-width: 280px; }
+  .p .meta { font-size: 12px; color: var(--muted); display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 2px; }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; background: var(--track); color: var(--muted); white-space: nowrap; }
+  .tag.mixed { background: color-mix(in srgb, var(--warn) 20%, transparent); color: var(--ink); cursor: help; }
+  .tag.rule { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+  .tag.none { background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--ink); }
+  .forget { font: inherit; font-size: 11px; background: none; border: 0; color: var(--muted); cursor: pointer; padding: 0; text-decoration: underline; }
+  .p select { border-radius: 10px; background: var(--bg); }
+  .p select.unset { border-color: color-mix(in srgb, var(--warn) 60%, transparent); }
+  .more { display: block; width: 100%; font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0; border-top: 1px solid var(--line);
+          padding: 10px; cursor: pointer; }
+  .more:hover { color: var(--ink); }
+
+  .add { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 14px 16px; margin-bottom: 14px; }
+  .add h3 { grid-column: 1 / -1; margin: 0 0 2px; font-size: 13px; font-weight: 550; color: var(--muted); }
+  .add label { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .add input[type=checkbox] { width: auto; }
+  .groups { columns: 2 340px; column-gap: 12px; }
+  .gt { break-inside: avoid; margin-bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; display: inline-block; width: 100%; }
+  .gh { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .gh .gname { font: inherit; font-weight: 650; font-size: 15px; background: none; border: 0; padding: 0; color: var(--ink); cursor: text; border-bottom: 1px dashed transparent; }
+  .gh .gname:hover { border-bottom-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+  .gh .gcount { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .c { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; align-items: center; padding: 8px 12px 8px 16px; }
+  .c + .c { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  .c input.cname { border-color: transparent; background: transparent; padding: 5px 8px; margin-left: -8px; font-size: 14px; }
+  .c input.cname:hover { border-color: var(--line); }
+  .c input.cname:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+  .c input.cgroup { font-size: 13px; padding: 5px 8px; background: var(--bg); }
+  .c .n { font-size: 11.5px; color: var(--muted); grid-column: 1; margin-top: -6px; }
+  .c .act { font: inherit; font-size: 12px; border: 0; cursor: pointer; padding: 4px 10px; border-radius: 999px; background: var(--track); color: var(--muted); white-space: nowrap; }
+  .c .act:hover { color: var(--ink); }
+  .c.retired input.cname { color: var(--muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+  .c.retired .act { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
+  .c.saved { animation: flash 1.6s ease-out; }
+  .retired-h { font-size: 11px; color: var(--muted); padding: 8px 16px 2px; text-transform: uppercase; letter-spacing: .06em; border-top: 1px solid var(--line); }
+
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+           background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; transition: .25s; z-index: 10;
+           max-width: calc(100vw - 32px); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { background: var(--bad); color: #fff; }
+
+  @media (max-width: 560px) {
+    .p { grid-template-columns: minmax(0, 1fr); }
+    .add { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+    .c { grid-template-columns: minmax(0, 1fr) 110px auto; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Manage</h1>
+  <div class="views" role="tablist" style="margin:0">
+    <button type="button" class="on" data-pane="payees" role="tab">Payees</button>
+    <button type="button" data-pane="cats" role="tab">Categories</button>
+  </div>
+</div>
+
+<section id="payees">
+  <p class="sub">Choose where a payee belongs. Changing it moves past transactions too, and new imports from that payee will follow. Click a name to rename it.</p>
+  <div class="bar-tools">
+    <input type="search" id="q" placeholder="Search payees" aria-label="Search payees">
+    <div class="filters" id="filters">
+      <button type="button" class="on" data-f="all">All</button>
+      <button type="button" data-f="mixed">Mixed</button>
+      <button type="button" data-f="norule">No rule</button>
+    </div>
+    <label><input type="checkbox" id="history" checked> Move past transactions too</label>
+  </div>
+  <div class="list" id="plist">
+    {% for p in payees %}
+    <div class="p" data-payee="{{ p.payee }}" data-mixed="{{ 1 if p.mixed else 0 }}" data-rule="{{ 1 if p.rule else 0 }}"
+         data-count="{{ p.count }}" data-breakdown="{{ p.breakdown }}">
+      <div class="who">
+        <button type="button" class="name" title="Click to rename">{{ p.payee }}</button>
+        <div class="meta">
+          <span class="num">{{ p.count }} transaction{{ 's' if p.count != 1 }}</span>
+          {% if p.year %}<span class="num">{{ (p.year|abs)|money }} {{ 'in' if p.year > 0 }} last 12 mo</span>{% endif %}
+          <span>last {{ p.latest.strftime('%b %-d') }}</span>
+          {% if p.mixed %}<span class="tag mixed" title="{{ p.breakdown }}">mixed</span>{% endif %}
+          {% if p.rule %}<span class="tag rule" title="New imports are filed automatically{% if p.rule_cat in cat_names %} under {{ cat_names[p.rule_cat] }}{% endif %}">auto</span>
+            <button type="button" class="forget" title="Stop filing this payee automatically">forget</button>{% endif %}
+          {% if not p.category_id %}<span class="tag none">uncategorized</span>{% endif %}
+        </div>
+      </div>
+      {{ cat_select(p.category_id, '' if p.category_id else 'unset') }}
+    </div>
+    {% else %}
+    <div class="empty muted">No transactions yet.</div>
+    {% endfor %}
+  </div>
+</section>
+
+<section id="cats" hidden>
+  <p class="sub">Rename a category or group by clicking it. Retiring a category hides it from budgets and pickers but keeps its history.</p>
+  <div class="card add">
+    <h3>Add a category</h3>
+    <input id="n-name" placeholder="Name, e.g. Claude" aria-label="New category name">
+    <input id="n-group" list="group-names" placeholder="Group" aria-label="Group">
+    <label><input type="checkbox" id="n-income"> Income</label>
+    <button class="btn" id="n-add" type="button">Add</button>
+  </div>
+  <datalist id="group-names">{% for g, cs in groups %}<option value="{{ g }}">{% endfor %}</datalist>
+  <div class="groups">
+    {% for g, cs in groups %}
+    {% set live = cs | rejectattr('hidden') | list %}{% set gone = cs | selectattr('hidden') | list %}
+    <div class="gt" data-group="{{ g }}">
+      <div class="gh">
+        <button type="button" class="gname" title="Click to rename group">{{ g }}</button>
+        <span class="gcount">{{ live|length }} active{% if gone %} · {{ gone|length }} retired{% endif %}</span>
+      </div>
+      {% for c in live + gone %}
+      {% if loop.index0 == live|length and gone %}<div class="retired-h">Retired</div>{% endif %}
+      <div class="c{% if c.hidden %} retired{% endif %}" data-id="{{ c.id }}" data-hidden="{{ 1 if c.hidden else 0 }}">
+        <input class="cname" value="{{ c.name }}" aria-label="Category name">
+        <input class="cgroup" list="group-names" value="{{ c.group_name }}" aria-label="Group for {{ c.name }}">
+        <button type="button" class="act">{{ 'Restore' if c.hidden else 'Retire' }}</button>
+        <span class="n num">{{ usage.get(c.id, 0) }} transaction{{ 's' if usage.get(c.id, 0) != 1 }}{% if c.is_income %} · income{% endif %}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+</section>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const $ = id => document.getElementById(id);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+  let toastT;
+  function toast(msg, err) {
+    const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+    clearTimeout(toastT); toastT = setTimeout(() => t.className = 'toast', err ? 5000 : 2600);
+  }
+  const flash = el => { el.classList.remove('flash', 'saved'); void el.offsetWidth; el.classList.add(el.classList.contains('c') ? 'saved' : 'flash'); };
+
+  // ---- tabs (remembered in the URL hash so reloads land on the same one) ----
+  function show(pane) {
+    $$('.views button').forEach(b => b.classList.toggle('on', b.dataset.pane === pane));
+    $('payees').hidden = pane !== 'payees'; $('cats').hidden = pane !== 'cats';
+    history.replaceState(null, '', pane === 'cats' ? '#categories' : location.pathname);
+  }
+  $$('.views button').forEach(b => b.addEventListener('click', () => show(b.dataset.pane)));
+  if (location.hash === '#categories') show('cats');
+
+  // ---- payees: search, filter, show-more ----
+  const PAGE = 60;
+  let filter = 'all', limit = PAGE;
+  function applyFilter() {
+    const q = $('q').value.trim().toLowerCase();
+    let shown = 0, matched = 0;
+    $$('.p').forEach(p => {
+      const ok = (!q || p.dataset.payee.toLowerCase().includes(q))
+        && (filter !== 'mixed' || p.dataset.mixed === '1')
+        && (filter !== 'norule' || p.dataset.rule === '0');
+      if (ok) matched++;
+      const vis = ok && (q || shown < limit);
+      if (vis) shown++;
+      p.hidden = !vis;
+    });
+    let more = $('more');
+    if (!more) { more = document.createElement('button'); more.type = 'button'; more.className = 'more'; more.id = 'more';
+                 more.addEventListener('click', () => { limit += PAGE * 4; applyFilter(); }); $('plist').append(more); }
+    more.hidden = shown >= matched;
+    more.textContent = `Show more (${matched - shown} hidden)`;
+  }
+  $('q').addEventListener('input', () => { limit = PAGE; applyFilter(); });
+  $$('#filters button').forEach(b => b.addEventListener('click', () => {
+    filter = b.dataset.f; limit = PAGE;
+    $$('#filters button').forEach(x => x.classList.toggle('on', x === b)); applyFilter();
+  }));
+  applyFilter();
+
+  // ---- payees: change category ----
+  $$('.p select').forEach(sel => sel.dataset.orig = sel.value);
+  $$('.p select').forEach(sel => sel.addEventListener('change', async () => {
+    const row = sel.closest('.p'), payee = row.dataset.payee, cid = +sel.value;
+    if (!cid) return;
+    const name = sel.selectedOptions[0].textContent;
+    if ($('history').checked && row.dataset.mixed === '1' &&
+        !confirm(`${payee} is split across categories right now (${row.dataset.breakdown}).\n\nMove all ${row.dataset.count} to ${name}?\n\n(Cancel, then untick "Move past transactions too" to only change future imports.)`)) {
+      sel.value = sel.dataset.orig; return;
+    }
+    sel.disabled = true;
+    try {
+      const r = await postJSON('{{ url_for("v2.manage_payee") }}', {payee, category_id: cid, history: $('history').checked});
+      sel.dataset.orig = sel.value;
+      toast(r.refiled ? `Moved ${r.refiled} ${payee} transaction${r.refiled === 1 ? '' : 's'} to ${name}` : `${payee} will be filed under ${name}`);
+      sel.classList.remove('unset');
+      row.dataset.rule = '1';
+      const meta = row.querySelector('.meta');
+      meta.querySelector('.tag.none')?.remove();
+      if ($('history').checked) { meta.querySelector('.tag.mixed')?.remove(); row.dataset.mixed = '0'; }
+      if (!meta.querySelector('.tag.rule')) meta.insertAdjacentHTML('beforeend', '<span class="tag rule">auto</span>');
+      meta.querySelector('.tag.rule').title = 'New imports are filed automatically under ' + name;
+      sel.querySelector('option[value=""]')?.remove();
+      flash(row);
+    } catch (e) { toast('Couldn\'t save: ' + e.message, true); }
+    sel.disabled = false;
+  }));
+
+  // ---- payees: forget rule ----
+  document.addEventListener('click', async e => {
+    const b = e.target.closest('.forget'); if (!b) return;
+    const row = b.closest('.p');
+    try {
+      await postJSON('{{ url_for("v2.manage_payee_forget") }}', {payee: row.dataset.payee});
+      row.querySelector('.tag.rule')?.remove(); b.remove(); row.dataset.rule = '0';
+      toast(`New ${row.dataset.payee} imports will go to Review`);
+    } catch (err) { toast('Couldn\'t save: ' + err.message, true); }
+  });
+
+  // ---- payees: rename ----
+  $$('.p .name').forEach(btn => btn.addEventListener('click', () => {
+    const row = btn.closest('.p'), old = row.dataset.payee;
+    const input = document.createElement('input'); input.className = 'rename'; input.value = old;
+    input.setAttribute('aria-label', 'New name for ' + old);
+    btn.hidden = true; btn.after(input); input.focus(); input.select();
+    let done = false;
+    const finish = async save => {
+      if (done) return; done = true;
+      const v = input.value.trim(); input.remove(); btn.hidden = false;
+      if (!save || !v || v === old) return;
+      try {
+        const r = await postJSON('{{ url_for("v2.manage_payee") }}', {payee: old, new_payee: v});
+        btn.textContent = v; row.dataset.payee = v;
+        toast(`Renamed ${r.renamed} transaction${r.renamed === 1 ? '' : 's'} to ${v}`);
+        flash(row);
+        const twin = $$('.p').find(p => p !== row && p.dataset.payee === v);
+        if (twin) toast(`Renamed — merged with the existing ${v}. Reload to see them combined.`);
+      } catch (e) { toast('Couldn\'t rename: ' + e.message, true); }
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+    input.addEventListener('blur', () => finish(true));
+  }));
+
+  // ---- categories ----
+  async function saveCat(row, extra = {}) {
+    const body = {id: +row.dataset.id, name: row.querySelector('.cname').value.trim(),
+                  group_name: row.querySelector('.cgroup').value.trim(), ...extra};
+    return postJSON('{{ url_for("v2.manage_category") }}', body);
+  }
+  $$('.c').forEach(row => {
+    const name = row.querySelector('.cname'), group = row.querySelector('.cgroup');
+    for (const inp of [name, group]) {
+      inp.dataset.orig = inp.value;
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = inp.dataset.orig; inp.blur(); } });
+      inp.addEventListener('change', async () => {
+        if (!inp.value.trim()) { inp.value = inp.dataset.orig; return; }
+        try {
+          await saveCat(row);
+          const moved = inp === group;
+          inp.dataset.orig = inp.value; flash(row);
+          toast(moved ? `Moved ${name.value} to ${group.value} — reload to regroup` : 'Saved');
+        } catch (e) { inp.value = inp.dataset.orig; toast(e.message, true); }
+      });
+    }
+    row.querySelector('.act').addEventListener('click', async () => {
+      const hide = row.dataset.hidden !== '1';
+      try {
+        await saveCat(row, {hidden: hide});
+        row.dataset.hidden = hide ? '1' : '0';
+        row.classList.toggle('retired', hide);
+        row.querySelector('.act').textContent = hide ? 'Restore' : 'Retire';
+        flash(row);
+        toast(hide ? `${name.value} retired` : `${name.value} is back — set its budget on the Budgets tab`);
+      } catch (e) { toast(e.message, true); }
+    });
+  });
+
+  $$('.gh .gname').forEach(btn => btn.addEventListener('click', () => {
+    const old = btn.textContent.trim();
+    const input = document.createElement('input'); input.value = old; input.style.maxWidth = '200px';
+    input.setAttribute('aria-label', 'Rename group ' + old);
+    btn.hidden = true; btn.after(input); input.focus(); input.select();
+    let done = false;
+    const finish = async save => {
+      if (done) return; done = true;
+      const v = input.value.trim(); input.remove(); btn.hidden = false;
+      if (!save || !v || v === old) return;
+      try {
+        await postJSON('{{ url_for("v2.manage_group") }}', {old, new: v});
+        location.hash = 'categories'; location.reload();
+      } catch (e) { toast(e.message, true); }
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+    input.addEventListener('blur', () => finish(true));
+  }));
+
+  $('n-add').addEventListener('click', async () => {
+    const name = $('n-name').value.trim(), group = $('n-group').value.trim();
+    if (!name || !group) { toast('Give it a name and a group', true); return; }
+    try {
+      await postJSON('{{ url_for("v2.manage_category") }}', {name, group_name: group, is_income: $('n-income').checked});
+      location.hash = 'categories'; location.reload();
+    } catch (e) { toast(e.message, true); }
+  });
+</script>
+{% endblock %}
