@@ -86,6 +86,10 @@
 {% endblock %}
 {% block content %}
 {% set expense_groups = groups | rejectattr(0, 'equalto', 'Income') | list %}
+<div class="views">
+  <a class="on" href="{{ url_for('v2.budgets') }}">Planner</a>
+  <a href="{{ url_for('v2.sheet') }}">Sheet</a>
+</div>
 <div class="head">
   <h1>Budgets</h1>
   {% if n_months %}<button class="btn ghost" id="use-all" type="button">Use averages for all</button>{% endif %}

@@ -1,0 +1,197 @@
+{% extends "v2/base.html" %}
+{% block title %}Sheet · Budget{% endblock %}
+{% block wrap_class %}wide{% endblock %}
+{% macro line(r, kind) -%}
+<tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}">
+  <td class="what"><span class="nm">{{ r.cat.name }}</span><span class="once" hidden></span></td>
+  <td class="spent num"></td>
+  <td class="amt"><label class="money"><input inputmode="decimal" class="num"  value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
+</tr>
+{%- endmacro %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .head h1 { margin-right: auto; font-size: 30px; letter-spacing: -.03em; font-weight: 700; }
+  .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+  .sheet { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--accent-ink); background: var(--accent);
+       padding: 9px 14px; letter-spacing: .02em; }
+  th.r { text-align: right; }
+  td { padding: 3px 14px; height: 40px; }
+  tbody tr:nth-child(odd) td { background: color-mix(in srgb, var(--accent) 9%, var(--card)); }
+  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 17%, var(--card)); }
+  tr.section td { background: var(--bg) !important; height: auto; padding: 14px 14px 6px; font-size: 12px; font-weight: 650;
+                  color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  .what { font-size: 14.5px; }
+  .what { padding-left: 26px; }
+  tr.group td { background: var(--card) !important; height: auto; padding: 14px 14px 6px; font-weight: 650; font-size: 14.5px;
+                border-top: 1px solid var(--line); }
+  tr.group td.sub { text-align: right; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; padding-right: 24px; }
+  tr.group td.sub.plan { color: var(--ink); }
+  tr.group td.sub.over { color: var(--bad); }
+  tr.zero .nm { color: var(--muted); }
+  .once { margin-left: 8px; font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+          background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); }
+  .kv.next { font-size: 13px; color: var(--muted); }
+  .spent { text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; width: 1%; }
+  .spent.over { color: var(--bad); font-weight: 600; }
+  .amt { width: 150px; }
+  .money { position: relative; display: block; }
+  .money::before { content: '$'; position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--muted); font-size: 15px; }
+  .money input { text-align: right; font-size: 15.5px; font-weight: 550; padding: 6px 10px 6px 22px; border-radius: 8px;
+                 background: transparent; border: 1px solid transparent; transition: border-color .15s, background .15s; }
+  .money input:hover { border-color: color-mix(in srgb, var(--ink) 18%, transparent); background: color-mix(in srgb, var(--card) 70%, transparent); }
+  .money input:focus { outline: none; border-color: var(--accent); background: var(--card); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent); }
+  tr.saved td { animation: saved 1.4s ease-out; }
+  @keyframes saved { from { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--ok) 25%, transparent); } }
+  tr.err .money input { border-color: var(--bad); }
+
+  .summary { position: sticky; top: 16px; display: grid; gap: 12px; }
+  .box { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  .box h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--accent-ink); background: var(--ink); padding: 9px 14px; letter-spacing: .02em; }
+  @media (prefers-color-scheme: dark) { .box h2 { color: var(--bg); } }
+  .kv { display: flex; justify-content: space-between; gap: 12px; padding: 8px 14px; font-size: 14px; }
+  .kv + .kv { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .kv.total { font-weight: 700; font-size: 16px; border-top: 2px solid var(--ink) !important; }
+  .kv .v { font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .extra { padding: 14px; text-align: center; }
+  .extra .l { font-size: 13px; color: var(--muted); }
+  .extra .v { font-size: 36px; font-weight: 750; letter-spacing: -.03em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  .extra .v.good { color: var(--ok); } .extra .v.bad { color: var(--bad); }
+  .extra .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+  @media (max-width: 820px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .summary { position: static; order: -1; }
+    .amt { width: 128px; }
+    td { padding: 3px 10px; }
+  }
+  @media print {
+    nav, .views, .sub { display: none !important; }
+    .money input { border: 0 !important; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="views">
+  <a href="{{ url_for('v2.budgets') }}">Planner</a>
+  <a class="on" href="{{ url_for('v2.sheet') }}">Sheet</a>
+</div>
+<div class="head">
+  <h1>Monthly budget</h1>
+</div>
+<p class="sub">Type a new amount to change it. It saves right away and applies from {{ month_label }} on, everywhere in the app. "Spent" is {{ month_label }} so far; red means over.</p>
+
+<div class="layout">
+  <div class="sheet" id="sheet">
+    <table>
+      <thead><tr><th>Item</th><th class="r">Spent in {{ month_label }}</th><th class="r">Monthly</th></tr></thead>
+      <tbody>
+        <tr class="section"><td colspan="3">Income</td></tr>
+        {% for r in income %}{{ line(r, 'inc') }}{% endfor %}
+        <tr class="section"><td colspan="3">Expenses</td></tr>
+        {% for g, rows in groups %}
+        <tr class="group" data-group="{{ g }}"><td>{{ g }}</td><td class="sub spent-sub"></td><td class="sub plan"></td></tr>
+        {% for r in rows %}{{ line(r, 'exp') }}{% endfor %}
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <aside class="summary">
+    <div class="box">
+      <h2>Monthly totals</h2>
+      <div class="kv"><span>Total income</span><span class="v" id="t-inc"></span></div>
+      <div class="kv"><span>Total expenses</span><span class="v" id="t-exp"></span></div>
+      <div class="extra">
+        <div class="l">Extra $$ (Crosshatch) ☕</div>
+        <div class="v" id="t-extra"></div>
+        <div class="s" id="t-extra-s"></div>
+      </div>
+      <div class="kv next" id="next-row" hidden><span>From {{ next_label }} (no one-time items)</span><span class="v" id="t-next"></span></div>
+    </div>
+    <div class="box">
+      <h2>{{ month_label }} so far</h2>
+      <div class="kv"><span>Earned</span><span class="v" id="a-inc"></span></div>
+      <div class="kv"><span>Spent</span><span class="v" id="a-exp"></span></div>
+      <div class="kv total"><span>Difference</span><span class="v" id="a-net"></span></div>
+    </div>
+  </aside>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const $ = id => document.getElementById(id);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+  const fmt = c => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const money2 = c => (c / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const COFFEE = 650; // a coffee run, for the leftover line
+
+  function totals() {
+    let inc = 0, exp = 0, ainc = 0, aexp = 0, ninc = 0, nexp = 0;
+    $$('tr[data-cid]').forEach(tr => {
+      const plan = +tr.dataset.plan, spent = +tr.dataset.spent;
+      const next = +tr.dataset.next;
+      if (tr.classList.contains('inc')) { inc += plan; ainc += spent; ninc += next; } else { exp += plan; aexp += spent; nexp += next; }
+      const once = tr.querySelector('.once');
+      once.hidden = next === plan;
+      once.textContent = `one-time · ${fmt(next)} from {{ next_label }}`;
+      const s = tr.querySelector('.spent');
+      s.textContent = spent ? fmt(spent) : '—';
+      s.classList.toggle('over', tr.classList.contains('exp') && plan > 0 && spent > plan);
+      tr.classList.toggle('zero', !plan);
+    });
+    // Group subtotals: each group header sums the rows under it.
+    $$('tr.group').forEach(g => {
+      let p = 0, sp = 0;
+      for (let tr = g.nextElementSibling; tr && tr.dataset.cid; tr = tr.nextElementSibling) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
+      g.querySelector('.plan').textContent = fmt(p);
+      const s = g.querySelector('.spent-sub'); s.textContent = sp ? fmt(sp) : '—'; s.classList.toggle('over', p > 0 && sp > p);
+    });
+    const extra = inc - exp;
+    $('t-inc').textContent = fmt(inc);
+    $('t-exp').textContent = fmt(-exp);
+    $('t-extra').textContent = fmt(extra);
+    $('t-extra').className = 'v ' + (extra >= 0 ? 'good' : 'bad');
+    $('t-extra-s').textContent = extra > 0 ? `≈ ${Math.floor(extra / COFFEE).toLocaleString()} coffees` : extra < 0 ? 'Budgeted more than you earn' : '';
+    const differs = ninc - nexp !== extra;
+    $('next-row').hidden = !differs;
+    $('t-next').textContent = fmt(ninc - nexp) + ' extra';
+    $('a-inc').textContent = fmt(ainc); $('a-exp').textContent = fmt(-aexp); $('a-net').textContent = fmt(ainc - aexp);
+  }
+
+  // Spreadsheet-style editing: Enter/Tab moves on, Escape undoes, change saves.
+  const inputs = $$('.money input');
+  inputs.forEach((inp, i) => {
+    const tr = inp.closest('tr');
+    inp.addEventListener('focus', () => inp.select());
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { inp.value = money2(+tr.dataset.plan); inp.blur(); }
+      if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); (inputs[i + 1] || inp).focus(); if (!inputs[i + 1]) inp.blur(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); (inputs[i - 1] || inp).focus(); }
+    });
+    inp.addEventListener('change', async () => {
+      const n = parseFloat(inp.value.replace(/[$,\s]/g, ''));
+      const old = +tr.dataset.plan;
+      if (isNaN(n) || n < 0) { inp.value = money2(old); return; }
+      const cents = Math.round(n * 100);
+      inp.value = money2(cents);
+      if (cents === old) return;
+      const oldNext = +tr.dataset.next;
+      tr.dataset.plan = cents; tr.dataset.next = cents; totals(); tr.classList.remove('err', 'saved');
+      try {
+        await postJSON('{{ url_for("v2.budgets_save") }}', {budgets: {[tr.dataset.cid]: cents}});
+        void tr.offsetWidth; tr.classList.add('saved');
+      } catch (err) {
+        tr.dataset.plan = old; tr.dataset.next = oldNext; inp.value = money2(old); totals(); tr.classList.add('err');
+        alert('Couldn\'t save that amount: ' + err.message);
+      }
+    });
+  });
+
+  totals();
+</script>
+{% endblock %}

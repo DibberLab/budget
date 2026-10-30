@@ -434,6 +434,42 @@ def budgets():
         month_label=today.strftime("%B"))
 
 
+@v2_bp.route("/budgets/sheet")
+@login_required
+def sheet():
+    """The budget as one plain spreadsheet-style list: planned income, every
+    active category's monthly amount, and what's left over."""
+    today = date.today()
+    cats = (Category.query.filter_by(hidden=False)
+            .order_by(Category.group_name, Category.name).all())
+    ids = [c.id for c in cats]
+    plan, _ = _budgets_as_of(today.year, today.month, ids)
+    plan.update({p.category_id: p.amount for p in IncomePlan.query})
+    first = date(today.year, today.month, 1)
+    spent = {cid: (1 if cid in {c.id for c in cats if c.is_income} else -1) * int(total or 0) for cid, total in
+             db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+             .filter(Transaction.category_id.in_(ids), Transaction.date >= first)
+             .group_by(Transaction.category_id)}
+    # Next month's amounts, so one-time budgets (a payoff month) can be flagged
+    # and the summary can show what a normal month looks like.
+    ny, nm = (today.year + (today.month == 12), today.month % 12 + 1)
+    nxt, _ = _budgets_as_of(ny, nm, ids)
+    nxt.update({p.category_id: p.amount for p in IncomePlan.query})
+    rows = [{"cat": c, "plan": plan.get(c.id, 0), "next": nxt.get(c.id, 0), "spent": spent.get(c.id, 0)} for c in cats]
+    income = [r for r in rows if r["cat"].is_income]
+    groups = defaultdict(list)
+    for r in rows:
+        if not r["cat"].is_income:
+            groups[r["cat"].group_name].append(r)
+    for items in groups.values():
+        items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
+    # Biggest groups first, like reading down a budget.
+    ordered = sorted(groups.items(), key=lambda kv: (-sum(r["plan"] for r in kv[1]), kv[0].lower()))
+    return render_template("v2/sheet.html", income=income, groups=ordered,
+                           month_label=today.strftime("%B"),
+                           next_label=date(ny, nm, 1).strftime("%B"))
+
+
 @v2_bp.route("/budgets/save", methods=["POST"])
 @login_required
 def budgets_save():
