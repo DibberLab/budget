@@ -15,7 +15,7 @@
 {%- endmacro %}
 {% macro line(r, kind) -%}
 <tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}">
-  {% if kind == 'inc' %}<td class="gut" aria-hidden="true"></td>{% endif %}
+  <td class="gut" aria-hidden="true"></td>
   <td class="what"><span class="nm">{{ r.cat.name }}</span><span class="once" hidden></span></td>
   <td class="spent num"></td>
   <td class="amt"><label class="money"><input inputmode="decimal" class="num"{% if not editable %} readonly tabindex="-1"{% endif %} value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
@@ -46,9 +46,12 @@
   .charts-on .gut { display: table-cell; }
   th.gut { width: 150px; background: var(--bg); }
   td.gut { width: 150px; padding: 0 !important; background-color: var(--bg) !important; background-image: none !important;
-           box-shadow: none !important; border: 0 !important; vertical-align: top; cursor: pointer; }
+           box-shadow: none !important; border: 0 !important; vertical-align: top; position: relative; overflow: visible; }
+  tr.group td.gut { cursor: pointer; z-index: 1; }
   tr.group td.gut { border-top: 1px solid var(--line) !important; }
-  .dwrap { position: relative; width: 150px; display: grid; place-items: center; padding: 8px 0; }
+  /* Height is set to the group's height by drawDonut(); it overlaps the empty gutter cells below. */
+  .dwrap { position: absolute; top: 0; left: 0; width: 150px; display: grid; place-items: center; pointer-events: none; }
+  .dwrap svg { pointer-events: auto; }
   .dwrap svg { display: block; transform: rotate(-90deg); overflow: visible; }
   .dwrap circle { fill: none; transition: stroke-dasharray .9s cubic-bezier(.2,.8,.2,1); }
   .dc { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
@@ -308,7 +311,7 @@
         {% for g, rows in groups %}
         {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="4"></td></tr>{% endif %}
         <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
-          <td class="gut" rowspan="{{ rows|length + 1 }}" aria-hidden="true"><div class="dwrap"><svg class="donut"></svg><div class="dc"></div></div></td>
+          <td class="gut" aria-hidden="true"><div class="dwrap"><svg class="donut"></svg><div class="dc"></div></div></td>
           <td><span class="gname"><span class="chev" aria-hidden="true">▼</span>{{ g }}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span></span></td>
           <td class="sub spent-sub"></td><td class="sub plan"></td>
         </tr>
@@ -493,7 +496,7 @@
     const td = document.createElement('td'); td.colSpan = 3;
     const list = document.createElement('div'); list.className = 'txlist';
     list.innerHTML = '<span class="none">Loading…</span>';
-    if (income) { const gut = document.createElement('td'); gut.className = 'gut'; row.append(gut); }
+    const gut = document.createElement('td'); gut.className = 'gut'; row.append(gut);
     td.append(list); row.append(td); tr.after(row);
     fillRows();
     try {
@@ -684,7 +687,6 @@
   function drawDonut(g) {
     const cell = g.querySelector('td.gut'), svg = cell.querySelector('svg'), dc = cell.querySelector('.dc');
     const rows = itemRows(g);
-    cell.rowSpan = g.classList.contains('collapsed') ? 1 : 1 + groupRows(g).length;
     // Match the group's height (header plus whatever rows are showing), within the column's width.
     // Shrink first so the donut's old size doesn't prop the rows open while measuring.
     svg.setAttribute('width', 36); svg.setAttribute('height', 36);
@@ -694,6 +696,7 @@
     const size = Math.max(36, Math.min(h - 16, maxW));
     const stroke = Math.max(6, Math.round(size * 0.15)), r = (size - stroke) / 2, C = 2 * Math.PI * r;
     svg.setAttribute('width', size); svg.setAttribute('height', size);
+    cell.querySelector('.dwrap').style.height = h + 'px';
     svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
 
     const plans = rows.map(tr => +tr.dataset.plan), spents = rows.map(tr => +tr.dataset.spent);
