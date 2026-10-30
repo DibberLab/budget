@@ -21,13 +21,15 @@
        padding: 9px 14px; letter-spacing: .02em; }
   th.r { text-align: right; }
   td { padding: 3px 14px; height: 40px; }
-  tbody tr:nth-child(odd) td { background: color-mix(in srgb, var(--accent) 9%, var(--card)); }
-  tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 17%, var(--card)); }
-  tr.section td { background: var(--bg) !important; height: auto; padding: 14px 14px 6px; font-size: 12px; font-weight: 650;
+  tbody tr:nth-child(odd) td { background-color: color-mix(in srgb, var(--accent) 4%, var(--card)); }
+  tbody tr:nth-child(even) td { background-color: color-mix(in srgb, var(--accent) 9%, var(--card)); }
+  /* Percentage-spent fill: painted per cell by fillRows(), so it can span the whole row. */
+  tbody td { background-repeat: no-repeat; transition: background-size .9s cubic-bezier(.2,.8,.2,1); }
+  tr.section td { background-color: var(--bg) !important; height: auto; padding: 14px 14px 6px; font-size: 12px; font-weight: 650;
                   color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
   .what { font-size: 14.5px; }
   .what { padding-left: 26px; }
-  tr.group td { background: var(--card) !important; height: auto; padding: 14px 14px 6px; font-weight: 650; font-size: 14.5px;
+  tr.group td { background-color: var(--card) !important; height: auto; padding: 14px 14px 6px; font-weight: 650; font-size: 14.5px;
                 border-top: 1px solid var(--line); }
   tr.group td.sub { text-align: right; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; padding-right: 24px; }
   tr.group td.sub.plan { color: var(--ink); }
@@ -130,7 +132,7 @@
   const money2 = c => (c / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
   const COFFEE = 650; // a coffee run, for the leftover line
 
-  function totals() {
+  let totals = function () {
     let inc = 0, exp = 0, ainc = 0, aexp = 0, ninc = 0, nexp = 0;
     $$('tr[data-cid]').forEach(tr => {
       const plan = +tr.dataset.plan, spent = +tr.dataset.spent;
@@ -191,6 +193,53 @@
       }
     });
   });
+
+  // ---- fill each row by how much of its monthly amount is spent ----
+  const now = new Date();
+  const PACE = 100 * now.getDate() / new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  function rowStatus(plan, spent, income) {
+    if (income) return 'ok';
+    if (!plan) return spent > 0 ? 'warn' : 'none';
+    const pct = 100 * spent / plan;
+    if (pct > 100.5) return 'bad';
+    if (pct > PACE + 10 && pct < 99.5) return 'warn';
+    return 'ok';
+  }
+  function paintFill(tr, plan, spent, income) {
+    const st = rowStatus(plan, spent, income);
+    const frac = st === 'none' ? 0 : !plan ? 1 : Math.min(1, spent / plan);
+    const color = css({ok: '--accent', warn: '--warn', bad: '--bad', none: '--accent'}[st]);
+    const fill = `color-mix(in srgb, ${color} ${st === 'ok' ? 26 : 30}%, transparent)`;
+    const edge = `color-mix(in srgb, ${color} 65%, transparent)`;
+    const cells = [...tr.children];
+    const left = cells[0].getBoundingClientRect().left;
+    const width = cells.at(-1).getBoundingClientRect().right - left;
+    const end = frac * width;
+    for (const td of cells) {
+      const r = td.getBoundingClientRect();
+      const x = Math.max(0, Math.min(r.width, end - (r.left - left)));
+      const showEdge = frac > 0 && frac < 1 && end > r.left - left && end <= r.right - left;
+      td.style.backgroundImage = x <= 0 ? 'none' : showEdge
+        ? `linear-gradient(to right, ${fill} 0 ${x - 2}px, ${edge} ${x - 2}px ${x}px, transparent ${x}px)`
+        : `linear-gradient(to right, ${fill} 0 ${x}px, transparent ${x}px)`;
+    }
+    tr.title = st === 'none' ? '' : plan
+      ? `${Math.round(100 * spent / plan)}% of ${fmt(plan)} ${income ? 'received' : 'spent'}`
+      : `${fmt(spent)} spent with no budget`;
+  }
+  function fillRows() {
+    $$('tr[data-cid]').forEach(tr => paintFill(tr, +tr.dataset.plan, +tr.dataset.spent, tr.classList.contains('inc')));
+    $$('tr.group').forEach(g => {
+      let p = 0, sp = 0;
+      for (let tr = g.nextElementSibling; tr && tr.dataset.cid; tr = tr.nextElementSibling) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
+      paintFill(g, p, sp, false);
+    });
+  }
+  const _totals = totals;
+  totals = () => { _totals(); fillRows(); };
+  let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(fillRows, 100); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fillRows);
 
   totals();
 </script>
