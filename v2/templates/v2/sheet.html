@@ -21,8 +21,8 @@
        padding: 9px 14px; letter-spacing: .02em; }
   th.r { text-align: right; }
   td { padding: 3px 14px; height: 40px; }
-  tbody tr:nth-child(odd) td { background-color: color-mix(in srgb, var(--accent) 4%, var(--card)); }
-  tbody tr:nth-child(even) td { background-color: color-mix(in srgb, var(--accent) 9%, var(--card)); }
+  tbody tr[data-cid] td { background-color: color-mix(in srgb, var(--accent) 4%, var(--card)); }
+  tbody tr[data-cid].alt td { background-color: color-mix(in srgb, var(--accent) 9%, var(--card)); }
   /* Percentage-spent fill: painted per cell by fillRows(), so it can span the whole row. */
   tbody td { background-repeat: no-repeat; transition: background-size .9s cubic-bezier(.2,.8,.2,1); }
   tr.section td { background-color: var(--bg) !important; height: auto; padding: 18px 14px 8px; font-size: 12px; font-weight: 700;
@@ -31,7 +31,7 @@
   /* Line items: indented, with a rail in the accent color tying them to their group. */
   tr.exp td.what { padding-left: 36px; box-shadow: inset 4px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
   tr.inc td.what { padding-left: 24px; }
-  tr.exp.hide { display: none; }
+  tr.hide { display: none; }
 
   /* Group headers: a band, not a line item. */
   tr.gap td { height: 10px; padding: 0; background-color: var(--bg) !important; border-top: 1px solid var(--line); }
@@ -51,6 +51,24 @@
   tr.group td.sub.spent-sub { font-size: 14px; font-weight: 600; color: var(--muted); }
   tr.group td.sub.plan { font-size: 16.5px; font-weight: 750; color: var(--ink); padding-right: 24px; }
   tr.group td.sub.over { color: var(--bad); }
+  /* Click a row to see its transactions this month. */
+  tr[data-cid] { cursor: pointer; }
+  tr[data-cid] .nm::after { content: '▸'; display: inline-block; margin-left: 7px; font-size: 10px; color: var(--muted);
+                            transition: transform .15s; vertical-align: 1px; }
+  tr[data-cid].open .nm::after { transform: rotate(90deg); }
+  tr[data-cid]:hover .nm { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--muted) 60%, transparent); text-underline-offset: 3px; }
+  tr.txrow td { background-color: var(--card) !important; padding: 4px 14px 10px 36px; height: auto; cursor: default;
+                box-shadow: inset 4px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  tr.txrow.inc-tx td { padding-left: 24px; box-shadow: none; }
+  .txlist { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; gap: 3px 14px; font-size: 13.5px; padding: 6px 0 2px;
+            max-width: 560px; }
+  .txlist .d { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .txlist .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .txlist .a { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .txlist .a.in { color: var(--ok); }
+  .txlist .tot { grid-column: 1 / -1; display: flex; justify-content: space-between; border-top: 1px solid var(--line);
+                 margin-top: 4px; padding-top: 5px; font-size: 12.5px; color: var(--muted); }
+  .txlist .none { grid-column: 1 / -1; color: var(--muted); }
   .foldall { font: inherit; font-size: 13px; border: 0; background: var(--track); color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
   .foldall:hover { color: var(--ink); }
   tr.zero .nm { color: var(--muted); }
@@ -154,7 +172,14 @@
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
   const fmt = c => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
   const money2 = c => (c / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
-  const COFFEE = 650; // a coffee run, for the leftover line
+  const COFFEE = 650;
+  // A group's category rows (skipping open transaction lists between them).
+  function itemRows(g) {
+    const out = [];
+    for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .section'); tr = tr.nextElementSibling)
+      if (tr.dataset.cid) out.push(tr);
+    return out;
+  } // a coffee run, for the leftover line
 
   let totals = function () {
     let inc = 0, exp = 0, ainc = 0, aexp = 0, ninc = 0, nexp = 0;
@@ -173,7 +198,7 @@
     // Group subtotals: each group header sums the rows under it.
     $$('tr.group').forEach(g => {
       let p = 0, sp = 0;
-      for (let tr = g.nextElementSibling; tr && tr.dataset.cid; tr = tr.nextElementSibling) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
+      for (const tr of itemRows(g)) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
       g.querySelector('.plan').textContent = fmt(p);
       const s = g.querySelector('.spent-sub'); s.textContent = sp ? fmt(sp) : '—'; s.classList.toggle('over', p > 0 && sp > p);
     });
@@ -265,18 +290,69 @@
     $$('tr[data-cid]').forEach(tr => paintFill(tr, +tr.dataset.plan, +tr.dataset.spent, tr.classList.contains('inc')));
     $$('tr.group').forEach(g => {
       let p = 0, sp = 0;
-      for (let tr = g.nextElementSibling; tr && tr.dataset.cid; tr = tr.nextElementSibling) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
+      for (const tr of itemRows(g)) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
       paintFill(g, p, sp, false);
     });
   }
   const _totals = totals;
   totals = () => { _totals(); fillRows(); };
 
+  // Stripes set once, so opening a transaction list doesn't shift them.
+  { let n = 0; $$('tbody tr').forEach(tr => { if (!tr.dataset.cid) { n = 0; return; } tr.classList.toggle('alt', n++ % 2 === 1); }); }
+
+  // ---- click a row: its transactions this month ----
+  const Y = new Date().getFullYear(), M = new Date().getMonth() + 1;
+  const txCache = {};
+  async function toggleTx(tr) {
+    const next = tr.nextElementSibling;
+    if (next && next.classList.contains('txrow')) { next.remove(); tr.classList.remove('open'); return; }
+    tr.classList.add('open');
+    const income = tr.classList.contains('inc');
+    const row = document.createElement('tr');
+    row.className = 'txrow' + (income ? ' inc-tx' : '');
+    const td = document.createElement('td'); td.colSpan = 3;
+    const list = document.createElement('div'); list.className = 'txlist';
+    list.innerHTML = '<span class="none">Loading…</span>';
+    td.append(list); row.append(td); tr.after(row);
+    try {
+      const cid = tr.dataset.cid;
+      if (!txCache[cid]) {
+        const r = await fetch(`{{ url_for('v2.category_detail', cid=0) }}`.replace('/0', '/' + cid) + `?y=${Y}&m=${M}`);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        txCache[cid] = await r.json();
+      }
+      // The endpoint reports spending as positive; flip it back for income rows.
+      const txs = txCache[cid].map(t => ({...t, amount: income ? -t.amount : t.amount}));
+      list.innerHTML = '';
+      if (!txs.length) { list.innerHTML = `<span class="none">Nothing yet in {{ month_label }}.</span>`; return; }
+      for (const t of txs) {
+        const d = document.createElement('span'); d.className = 'd'; d.textContent = t.date;
+        const p = document.createElement('span'); p.className = 'p'; p.textContent = t.payee || '(no payee)';
+        const a = document.createElement('span'); a.className = 'a' + (income && t.amount > 0 ? ' in' : ''); a.textContent = fmt(t.amount);
+        list.append(d, p, a);
+      }
+      const total = txs.reduce((x, t) => x + t.amount, 0);
+      const tot = document.createElement('div'); tot.className = 'tot';
+      tot.innerHTML = '<span></span><span></span>';
+      tot.children[0].textContent = `${txs.length} transaction${txs.length === 1 ? '' : 's'}`;
+      tot.children[1].textContent = `${income ? 'Received' : 'Spent'} ${fmt(total)}`;
+      list.append(tot);
+    } catch (err) {
+      list.innerHTML = '<span class="none"></span>';
+      list.firstChild.textContent = 'Couldn\'t load transactions: ' + err.message;
+    }
+  }
+  $$('tr[data-cid]').forEach(tr => tr.addEventListener('click', e => {
+    if (e.target.closest('.money')) return;   // clicking the amount edits it
+    toggleTx(tr);
+  }));
+
   // ---- collapsible groups (remembered on this device) ----
   const FOLD_KEY = 'v2-sheet-collapsed';
   let folded = [];
   try { folded = JSON.parse(localStorage.getItem(FOLD_KEY) || '[]'); } catch (e) {}
-  const groupRows = g => { const out = []; for (let tr = g.nextElementSibling; tr && tr.dataset.cid; tr = tr.nextElementSibling) out.push(tr); return out; };
+  // Everything under a group header up to the next header: its rows plus any open transaction lists.
+  const groupRows = g => { const out = []; for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .section'); tr = tr.nextElementSibling) out.push(tr); return out; };
   function setFold(g, fold) {
     g.classList.toggle('collapsed', fold);
     g.setAttribute('aria-expanded', !fold);
