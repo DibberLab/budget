@@ -73,6 +73,34 @@
   .c.saved { animation: flash 1.6s ease-out; }
   .retired-h { font-size: 11px; color: var(--muted); padding: 8px 16px 2px; text-transform: uppercase; letter-spacing: .06em; border-top: 1px solid var(--line); }
 
+  .ask { padding: 16px; margin-bottom: 18px; }
+  .ask h3 { margin: 0 0 4px; font-size: 15px; font-weight: 650; }
+  .ask .hint { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+  .ask form { display: flex; gap: 8px; align-items: flex-end; }
+  .ask textarea { flex: 1; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px;
+                  padding: 9px 11px; resize: vertical; min-height: 44px; max-height: 220px; }
+  .ask textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent); }
+  .chat { display: grid; gap: 10px; margin: 0 0 12px; }
+  .chat:empty { display: none; }
+  .msg { font-size: 14px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { justify-self: end; max-width: 85%; background: var(--track); padding: 8px 12px; border-radius: 12px 12px 4px 12px; }
+  .msg.assistant { max-width: 95%; }
+  .msg.note { font-size: 12px; color: var(--ok); }
+  .working { font-size: 13px; color: var(--muted); display: flex; gap: 8px; align-items: center; }
+  .working::before { content: ""; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--accent);
+                     animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .props { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 12px; }
+  .props .ph { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; background: var(--bg);
+               font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .prop { display: flex; gap: 10px; align-items: flex-start; padding: 9px 12px; font-size: 14px; cursor: pointer; }
+  .prop + .prop { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  .prop input { width: auto; margin-top: 3px; }
+  .prop.done { color: var(--muted); cursor: default; }
+  .prop .st { margin-left: auto; font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .prop.applied .st { color: var(--ok); }
+  .linkbtn { font: inherit; font-size: 12px; background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; padding: 0; }
+
   .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
            background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; transition: .25s; z-index: 10;
            max-width: calc(100vw - 32px); }
@@ -94,6 +122,18 @@
     <button type="button" data-pane="cats" role="tab">Categories</button>
   </div>
 </div>
+
+<section class="card ask" id="ask">
+  <h3>Ask Claude</h3>
+  <p class="hint">Tell it what changed, like "insurance is one Progressive bill now" or "Cloudflare is a subscription". It looks at your transactions and suggests changes. Nothing happens until you press Apply.</p>
+  <div class="chat" id="chat" aria-live="polite"></div>
+  <div id="props"></div>
+  <form id="ask-form">
+    <textarea id="ask-text" rows="2" placeholder="What changed?" aria-label="Message to Claude"></textarea>
+    <button class="btn" id="ask-send" type="submit">Send</button>
+  </form>
+  <div style="margin-top:8px;text-align:right"><button type="button" class="linkbtn" id="ask-new" hidden>Start a new conversation</button></div>
+</section>
 
 <section id="payees">
   <p class="sub">Choose where a payee belongs. Changing it moves past transactions too, and new imports from that payee will follow. Click a name to rename it.</p>
@@ -335,5 +375,78 @@
       location.hash = 'categories'; location.reload();
     } catch (e) { toast(e.message, true); }
   });
+  // ---- Ask Claude ----
+  const ASK_KEY = 'v2-assistant-chat';
+  let chatId = null; try { chatId = +sessionStorage.getItem(ASK_KEY) || null; } catch (e) {}
+  let busy = false;
+  function renderChat(v) {
+    const box = $('chat'); box.innerHTML = '';
+    for (const m of v.transcript) {
+      const d = document.createElement('div'); d.className = 'msg ' + m.role; d.textContent = m.text; box.append(d);
+    }
+    if (!v.done) { const w = document.createElement('div'); w.className = 'working'; w.textContent = v.status || 'Working…'; box.append(w); }
+    const props = $('props'); props.innerHTML = '';
+    const shown = v.proposals.filter(p => p.status !== 'dropped');
+    if (shown.length) {
+      const wrap = document.createElement('div'); wrap.className = 'props';
+      const pending = shown.filter(p => p.status === 'pending');
+      const head = document.createElement('div'); head.className = 'ph';
+      head.innerHTML = '<span></span>';
+      head.firstChild.textContent = pending.length ? `${pending.length} suggested change${pending.length === 1 ? '' : 's'}` : 'Changes';
+      if (pending.length && v.done) {
+        const b = document.createElement('button'); b.type = 'button'; b.className = 'btn'; b.id = 'apply';
+        b.style.cssText = 'padding:6px 14px;font-size:14px'; b.textContent = 'Apply selected';
+        b.addEventListener('click', applySelected); head.append(b);
+      }
+      wrap.append(head);
+      for (const p of shown) {
+        const row = document.createElement('label'); row.className = 'prop' + (p.status === 'pending' ? '' : ' done ' + p.status);
+        if (p.status === 'pending') { const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.value = p.id; row.append(cb); }
+        const t = document.createElement('span'); t.textContent = p.summary; row.append(t);
+        if (p.status !== 'pending') { const st = document.createElement('span'); st.className = 'st'; st.textContent = p.status === 'applied' ? '✓ applied' : 'not applied'; row.append(st); }
+        wrap.append(row);
+      }
+      props.append(wrap);
+    }
+    $('ask-send').disabled = !v.done; $('ask-text').disabled = !v.done;
+    $('ask-new').hidden = !v.transcript.length;
+  }
+  async function drive(v) {
+    renderChat(v);
+    while (!v.done) {
+      v = await postJSON('{{ url_for("v2.assistant_step") }}', {chat_id: chatId});
+      renderChat(v);
+    }
+    return v;
+  }
+  $('ask-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = $('ask-text').value.trim(); if (!text || busy) return;
+    busy = true;
+    try {
+      let v = await postJSON('{{ url_for("v2.assistant_step") }}', {chat_id: chatId, message: text});
+      chatId = v.chat_id; try { sessionStorage.setItem(ASK_KEY, chatId); } catch (e) {}
+      $('ask-text').value = '';
+      await drive(v);
+    } catch (err) { toast('Claude: ' + err.message, true); $('ask-send').disabled = false; $('ask-text').disabled = false; }
+    busy = false;
+  });
+  $('ask-text').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('ask-form').requestSubmit(); } });
+  async function applySelected() {
+    const ids = $$('#props input:checked').map(x => +x.value);
+    if (!ids.length) { toast('Nothing selected', true); return; }
+    $('apply').disabled = true;
+    try {
+      await postJSON('{{ url_for("v2.assistant_apply") }}', {chat_id: chatId, ids});
+      toast(`Applied ${ids.length} change${ids.length === 1 ? '' : 's'}`);
+      setTimeout(() => location.reload(), 700);
+    } catch (err) { toast(err.message, true); $('apply').disabled = false; }
+  }
+  $('ask-new').addEventListener('click', () => {
+    chatId = null; try { sessionStorage.removeItem(ASK_KEY); } catch (e) {}
+    renderChat({transcript: [], proposals: [], done: true});
+  });
+  if (chatId) fetch(`{{ url_for('v2.assistant_get', cid=0) }}`.replace('/0', '/' + chatId))
+    .then(r => r.ok ? r.json() : null).then(v => { if (v) (v.done ? renderChat(v) : drive(v).catch(err => toast(err.message, true))); });
 </script>
 {% endblock %}

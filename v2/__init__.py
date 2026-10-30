@@ -783,21 +783,12 @@ def manage():
         active_ids={c.id for c in cats if not c.hidden})
 
 
-@v2_bp.route("/manage/payee", methods=["POST"])
-@login_required
-def manage_payee():
-    """Body: {"payee": str, "new_payee": str?, "category_id": int?, "history": bool}.
-    Renames the payee everywhere, and/or files it under a category: every past
-    transaction (when history is true) plus a PayeeRule for future imports."""
-    data = request.get_json(silent=True) or {}
-    payee = (data.get("payee") or "").strip()
-    new_payee = (data.get("new_payee") or "").strip() or payee
-    if not payee:
-        return jsonify({"error": "No payee given."}), 400
-    cat = db.session.get(Category, data["category_id"]) if data.get("category_id") else None
-    if data.get("category_id") and (not cat or cat.hidden):
-        return jsonify({"error": "Pick an active category."}), 400
-
+def file_payee(payee: str, cat: "Category | None", new_payee: str | None = None,
+               history: bool = True) -> dict:
+    """Rename a payee everywhere and/or file it under a category: every past
+    transaction (when history is true) plus a PayeeRule for future imports.
+    Caller commits."""
+    new_payee = (new_payee or "").strip() or payee
     renamed = refiled = 0
     if new_payee != payee:
         renamed = (Transaction.query.filter(Transaction.payee == payee)
@@ -805,7 +796,7 @@ def manage_payee():
         PayeeRule.query.filter(PayeeRule.payee == payee).update({"payee": new_payee}, synchronize_session=False)
 
     if cat:
-        if data.get("history", True):
+        if history:
             q = _categorizable().filter(Transaction.payee == new_payee)
             if cat.is_income:  # same as rules: income categories only take deposits
                 q = q.filter(Transaction.amount > 0)
@@ -823,9 +814,72 @@ def manage_payee():
             db.session.add(PayeeRule(match=_key(new_payee), payee=new_payee, category_id=cat.id))
         else:
             rule.payee, rule.category_id = new_payee, cat.id
+    return {"renamed": renamed, "refiled": refiled}
 
+
+def save_category(cat: "Category | None", name: str, group: str, hidden=None, is_income=None) -> "Category":
+    """Create (cat=None) or update a category. Raises ValueError on a bad or
+    clashing name. Caller commits."""
+    name, group = (name or "").strip(), (group or "").strip()
+    if not name or not group:
+        raise ValueError("A category needs a name and a group.")
+    cat = cat or Category()
+    clash = (Category.query.filter(func.lower(Category.name) == name.lower(),
+                                   func.lower(Category.group_name) == group.lower(),
+                                   Category.id != (cat.id or 0)).first())
+    if clash:
+        raise ValueError(f"{group} already has a category called {clash.name}.")
+    cat.name, cat.group_name = name, group
+    if hidden is not None:
+        cat.hidden = bool(hidden)
+    if is_income is not None:
+        cat.is_income = bool(is_income)
+    db.session.add(cat)
+    db.session.flush()
+    return cat
+
+
+def set_budget(cat: "Category", cents: int, this_month_only: bool = False) -> None:
+    """Budget from this month onward (carrying forward), or for this month only
+    with next month going back to what it was. Caller commits."""
+    today = date.today()
+    if cat.is_income:
+        plan = db.session.get(IncomePlan, cat.id) or IncomePlan(category_id=cat.id)
+        plan.amount = cents
+        db.session.add(plan)
+        return
+    ny, nm = (today.year + (today.month == 12), today.month % 12 + 1)
+    prior = _budgets_as_of(today.year, today.month, [cat.id])[0].get(cat.id, 0)
+    row = (BudgetMonth.query.filter_by(year=today.year, month=today.month, category_id=cat.id).first()
+           or BudgetMonth(year=today.year, month=today.month, category_id=cat.id))
+    row.assigned = cents
+    db.session.add(row)
+    if this_month_only:
+        nxt = BudgetMonth.query.filter_by(year=ny, month=nm, category_id=cat.id).first()
+        if not nxt:
+            db.session.add(BudgetMonth(year=ny, month=nm, category_id=cat.id, assigned=prior))
+    else:
+        # Drop any budgets already set for future months so this one carries forward.
+        (BudgetMonth.query
+         .filter(BudgetMonth.category_id == cat.id,
+                 (BudgetMonth.year * 12 + BudgetMonth.month) > today.year * 12 + today.month)
+         .delete(synchronize_session=False))
+
+
+@v2_bp.route("/manage/payee", methods=["POST"])
+@login_required
+def manage_payee():
+    """Body: {"payee": str, "new_payee": str?, "category_id": int?, "history": bool}."""
+    data = request.get_json(silent=True) or {}
+    payee = (data.get("payee") or "").strip()
+    if not payee:
+        return jsonify({"error": "No payee given."}), 400
+    cat = db.session.get(Category, data["category_id"]) if data.get("category_id") else None
+    if data.get("category_id") and (not cat or cat.hidden):
+        return jsonify({"error": "Pick an active category."}), 400
+    result = file_payee(payee, cat, data.get("new_payee"), data.get("history", True))
     db.session.commit()
-    return jsonify({"ok": True, "renamed": renamed, "refiled": refiled})
+    return jsonify({"ok": True, **result})
 
 
 @v2_bp.route("/manage/payee/forget", methods=["POST"])
@@ -844,24 +898,16 @@ def manage_category():
     """Body: {"id": int?, "name": str, "group_name": str, "hidden": bool?, "is_income": bool?}.
     Creates the category when there's no id, otherwise updates it."""
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()
-    group = (data.get("group_name") or "").strip()
-    if not name or not group:
-        return jsonify({"error": "A category needs a name and a group."}), 400
-    cat = db.session.get(Category, data["id"]) if data.get("id") else Category()
-    if not cat:
-        abort(404)
-    clash = (Category.query.filter(func.lower(Category.name) == name.lower(),
-                                   func.lower(Category.group_name) == group.lower(),
-                                   Category.id != (cat.id or 0)).first())
-    if clash:
-        return jsonify({"error": f"{group} already has a category called {clash.name}."}), 400
-    cat.name, cat.group_name = name, group
-    if "hidden" in data:
-        cat.hidden = bool(data["hidden"])
-    if "is_income" in data:
-        cat.is_income = bool(data["is_income"])
-    db.session.add(cat)
+    cat = None
+    if data.get("id"):
+        cat = db.session.get(Category, data["id"])
+        if not cat:
+            abort(404)
+    try:
+        cat = save_category(cat, data.get("name"), data.get("group_name"),
+                            data.get("hidden"), data.get("is_income"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     db.session.commit()
     return jsonify({"ok": True, "id": cat.id})
 
@@ -994,3 +1040,7 @@ def import_csv():
         msg += f" ({skipped} already imported)"
     flash(msg + ".", "ok")
     return redirect(url_for("v2.import_page", ai=1))
+
+
+# Routes for the Manage page's "Ask Claude" box (imports helpers above).
+from v2 import assistant  # noqa: E402,F401
