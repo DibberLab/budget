@@ -95,7 +95,14 @@
   .gt { break-inside: avoid; margin-bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 18px;
         overflow: hidden; display: inline-block; width: 100%; }
   .gh { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "ring name status" "ring amt chev";
-        gap: 0 12px; align-items: center; padding: 14px 16px; cursor: pointer; user-select: none; }
+        gap: 0 12px; align-items: center; padding: 14px 16px; cursor: pointer; user-select: none;
+        position: relative; isolation: isolate; --p: 0%; --gc: var(--accent); }
+  /* the header card fills left-to-right with the share of budget used */
+  .gh::before { content: ""; position: absolute; inset: 0; z-index: -1; width: var(--p);
+                background: color-mix(in srgb, var(--gc) 20%, transparent);
+                box-shadow: inset -2px 0 0 color-mix(in srgb, var(--gc) 45%, transparent);
+                transition: width 1.1s cubic-bezier(.2,.8,.2,1), background .3s; }
+  .gh[data-st="full"]::before { box-shadow: none; }
   .gh .ring { grid-area: ring; }
   .gh .gname { grid-area: name; font-weight: 650; font-size: 15px; }
   .gh .amt { grid-area: amt; font-size: 12px; color: var(--muted); }
@@ -105,7 +112,7 @@
   .gt.collapsed .rows { display: none; }
   .rows { border-top: 1px solid var(--line); padding: 4px 0 6px; }
   .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name status" "bar amt" "detail detail";
-         gap: 5px 12px; padding: 9px 16px; cursor: pointer; font-size: 14px; }
+         gap: 6px 12px; padding: 10px 16px; cursor: pointer; font-size: 14px; }
   .row:hover { background: color-mix(in srgb, var(--track) 45%, transparent); }
   .row .name { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row .bar { grid-area: bar; align-self: center; }
@@ -120,11 +127,11 @@
   .more { font: inherit; font-size: 12px; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 4px 16px 8px; }
   .more:hover { color: var(--ink); }
 
-  .bar { display: flex; height: 5px; border-radius: 999px; background: var(--track); overflow: hidden; }
+  .bar { display: flex; height: 10px; border-radius: 999px; background: var(--track); overflow: hidden; }
   .bar i { display: block; height: 100%; width: 0; transition: width .9s cubic-bezier(.2,.8,.2,1); }
   .bar .fill { background: var(--accent); }
   .bar .fill.ahead, .bar .fill.unbudgeted { background: var(--warn); }
-  .bar .fill.unbudgeted { opacity: .55; }
+  .bar .fill.unbudgeted { opacity: .8; }
   .bar .over { background: var(--bad); }
 
   .bud { font: inherit; color: inherit; background: none; border: 0; padding: 1px 4px; margin: -1px -4px; border-radius: 6px;
@@ -302,6 +309,13 @@
     else { f = 100 * budget / spent; o = 100 - f; }
     later(() => { fill.style.width = f + '%'; over.style.width = o + '%'; });
   }
+  function fillHeader(gh, spent, budget) {
+    const st = status(spent, budget);
+    const p = budget ? Math.min(100, 100 * spent / budget) : (spent > 0 ? 100 : 0);
+    gh.style.setProperty('--gc', stColor(st));
+    gh.dataset.st = p >= 99.5 ? 'full' : '';
+    later(() => gh.style.setProperty('--p', p + '%'));
+  }
   function setStatus(el, spent, budget) {
     const st = status(spent, budget);
     el.className = el.className.replace(/\b(over|unbudgeted|left)\b/g, '').trim();
@@ -380,6 +394,7 @@
       g.querySelector('.g-budget').textContent = whole(gb);
       setStatus(g.querySelector('.g-status'), gs, gb);
       setRing(g.querySelector('.ring'), gs, gb);
+      fillHeader(g.querySelector('.gh'), gs, gb);
       tSpent += gs; tBudget += gb;
     });
 
