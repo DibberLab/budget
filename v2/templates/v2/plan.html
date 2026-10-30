@@ -131,7 +131,7 @@
 <p class="sub">
   Actual = average per month over {{ win[2] }} full month{{ 's' if win[2] != 1 }}
   ({% if win[2] > 1 %}{{ win[0].strftime('%b') }}–{% endif %}{{ win[1].strftime('%b %Y') }}){% if win[2] < months %}, all the history there is{% endif %}.
-  Plan = your current <a href="{{ url_for('v2.budgets') }}">budgets</a>.
+  Plan = your current <a href="{{ url_for('v2.progress') }}">budgets</a>.
 </p>
 
 {% if uncategorized %}

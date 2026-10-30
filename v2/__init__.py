@@ -208,6 +208,9 @@ def _inject_counts():
 @v2_bp.route("/")
 @login_required
 def progress():
+    """Home: the month as a spreadsheet-style budget (income, every category's
+    monthly amount and what's been spent, Extra $$), with the charts above it
+    folded away until wanted. This month is editable; past months are read-only."""
     today = date.today()
     try:
         y = int(request.args.get("y", today.year))
@@ -215,69 +218,61 @@ def progress():
         date(y, m, 1)
     except ValueError:
         y, m = today.year, today.month
-
-    # Every visible expense category is listed (so any budget can be edited
-    # here, even $0 ones). Hidden/retired categories only appear in months
-    # where they still have spending.
-    cats = (Category.query.filter_by(is_income=False)
-            .order_by(Category.sort_order, Category.group_name, Category.name).all())
-    cat_ids = [c.id for c in cats]
-
-    spent_rows = (db.session.query(Transaction.category_id,
-                                   func.coalesce(func.sum(Transaction.amount), 0))
-                  .filter(Transaction.category_id.in_(cat_ids),
-                          extract("year", Transaction.date) == y,
-                          extract("month", Transaction.date) == m)
-                  .group_by(Transaction.category_id).all())
-    spent = {cid: -int(total) for cid, total in spent_rows}  # outflow as positive
-
-    budget, _ = _budgets_as_of(y, m, cat_ids)
-
-    groups = {}
-    for c in cats:
-        s, b = spent.get(c.id, 0), budget.get(c.id, 0)
-        if c.hidden and not s:
-            continue
-        g = groups.setdefault("Retired" if c.hidden else c.group_name, [])
-        g.append({"cat": c, "spent": s, "budget": 0 if c.hidden else b})
-
-    days_in_month = monthrange(y, m)[1]
-    if (y, m) == (today.year, today.month):
-        pace = round(100 * today.day / days_in_month)
-    elif (y, m) < (today.year, today.month):
-        pace = 100
-    else:
-        pace = 0
-
-    income = (db.session.query(func.coalesce(func.sum(Transaction.amount), 0))
-              .join(Category, Category.id == Transaction.category_id)
-              .filter(Category.is_income.is_(True),
-                      extract("year", Transaction.date) == y,
-                      extract("month", Transaction.date) == m).scalar() or 0)
-
-    prev = (y - 1, 12) if m == 1 else (y, m - 1)
-    nxt = (y + 1, 1) if m == 12 else (y, m + 1)
+    if (y, m) > (today.year, today.month):
+        y, m = today.year, today.month
     is_current = (y, m) == (today.year, today.month)
 
-    # Spending per day of the month, for the pace chart.
+    cats = Category.query.order_by(Category.group_name, Category.name).all()
+    ids = [c.id for c in cats]
+    plan, _ = _budgets_as_of(y, m, ids)
+    ny, nm = (y + (m == 12), m % 12 + 1)
+    nxt_plan, _ = _budgets_as_of(ny, nm, ids)
+    income_plan = {p.category_id: p.amount for p in IncomePlan.query}
+    spent = {cid: int(total or 0) for cid, total in
+             db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+             .filter(Transaction.category_id.in_(ids),
+                     extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
+             .group_by(Transaction.category_id)}
+
+    income, groups = [], defaultdict(list)
+    for c in cats:
+        if c.is_income:
+            if not c.hidden or spent.get(c.id):
+                p = income_plan.get(c.id, 0)
+                income.append({"cat": c, "plan": p, "next": p, "spent": spent.get(c.id, 0)})
+            continue
+        s_ = -spent.get(c.id, 0)  # outflow as positive
+        if c.hidden:
+            # Retired categories only show in months where they still have spending.
+            if s_:
+                groups["Retired"].append({"cat": c, "plan": 0, "next": 0, "spent": s_})
+            continue
+        groups[c.group_name].append({"cat": c, "plan": plan.get(c.id, 0),
+                                     "next": nxt_plan.get(c.id, 0) if is_current else plan.get(c.id, 0),
+                                     "spent": s_})
+    for items in groups.values():
+        items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
+    # Biggest groups first; Retired (spending with no budget) last.
+    ordered = sorted(groups.items(), key=lambda kv: (kv[0] == "Retired", -sum(r["plan"] for r in kv[1]), kv[0].lower()))
+
+    days_in_month = monthrange(y, m)[1]
+    days_elapsed = today.day if is_current else days_in_month
+    pace = round(100 * days_elapsed / days_in_month)
     daily = [0] * days_in_month
     for d, total in (db.session.query(Transaction.date, func.sum(Transaction.amount))
-                     .filter(Transaction.category_id.in_(cat_ids),
-                             extract("year", Transaction.date) == y,
-                             extract("month", Transaction.date) == m)
+                     .join(Category, Category.id == Transaction.category_id)
+                     .filter(Category.is_income.is_(False),
+                             extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
                      .group_by(Transaction.date)):
         daily[d.day - 1] -= int(total or 0)
-    days_elapsed = today.day if is_current else (days_in_month if (y, m) < (today.year, today.month) else 0)
 
+    prev = (y - 1, 12) if m == 1 else (y, m - 1)
     return render_template(
-        "v2/progress.html",
-        y=y, m=m, month_label=date(y, m, 1).strftime("%B %Y"),
-        prev=prev, nxt=nxt, is_current=is_current, editable=is_current,
-        groups=sorted(((name, sorted(rows, key=lambda r: (-r["budget"], -r["spent"], r["cat"].name.lower())))
-                       for name, rows in groups.items()), key=lambda kv: kv[0] == "Retired"),
-        pace=pace, income=int(income), daily=daily, days_in_month=days_in_month,
-        days_elapsed=days_elapsed,
-    )
+        "v2/month.html", y=y, m=m, income=income, groups=ordered,
+        month_name=date(y, m, 1).strftime("%B"), month_label=date(y, m, 1).strftime("%B %Y"),
+        next_label=date(ny, nm, 1).strftime("%B"),
+        prev=prev, nxt=(ny, nm), is_current=is_current, editable=is_current,
+        pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed)
 
 
 @v2_bp.route("/category/<int:cid>")
@@ -388,86 +383,11 @@ def plan():
 # ---------- budgets ----------
 
 @v2_bp.route("/budgets")
-@login_required
-def budgets():
-    today = date.today()
-    cats = (Category.query.filter_by(hidden=False)
-            .order_by(Category.is_income.desc(), Category.sort_order,
-                      Category.group_name, Category.name).all())
-    cat_ids = [c.id for c in cats]
-    current, _ = _budgets_as_of(today.year, today.month, cat_ids)
-    current.update({p.category_id: p.amount for p in IncomePlan.query})
-    income_ids = {c.id for c in cats if c.is_income}
-
-    # Average monthly spend over complete months only, so a partial first
-    # month or the in-progress current month doesn't drag the average down.
-    avg, n_months, span = {}, 0, _full_months()
-    if span:
-        start, end = span
-        n_months = (end.year - start.year) * 12 + end.month - start.month + 1
-        for cid, total in (db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-                           .filter(Transaction.category_id.in_(cat_ids),
-                                   Transaction.date >= start, Transaction.date <= end)
-                           .group_by(Transaction.category_id)):
-            sign = 1 if cid in income_ids else -1
-            avg[cid] = max(0, round(sign * int(total or 0) / n_months))
-
-    lm_end = date(today.year, today.month, 1) - timedelta(days=1)
-    last_month = {cid: max(0, (1 if cid in income_ids else -1) * int(total or 0)) for cid, total in
-                  (db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-                   .filter(Transaction.category_id.in_(cat_ids),
-                           extract("year", Transaction.date) == lm_end.year,
-                           extract("month", Transaction.date) == lm_end.month)
-                   .group_by(Transaction.category_id))}
-
-    groups = defaultdict(list)
-    for c in cats:
-        groups[c.group_name].append({"cat": c, "budget": current.get(c.id, 0),
-                                     "avg": avg.get(c.id, 0), "last": last_month.get(c.id, 0)})
-    for items in groups.values():
-        items.sort(key=lambda it: (-it["budget"], -it["avg"], it["cat"].name.lower()))
-    return render_template(
-        "v2/budgets.html", groups=list(groups.items()),
-        n_months=n_months, span=span, last_label=lm_end.strftime("%b"),
-        income_avg=sum(v for k, v in avg.items() if k in income_ids),
-        total_avg=sum(v for k, v in avg.items() if k not in income_ids),
-        month_label=today.strftime("%B"))
-
-
 @v2_bp.route("/budgets/sheet")
 @login_required
-def sheet():
-    """The budget as one plain spreadsheet-style list: planned income, every
-    active category's monthly amount, and what's left over."""
-    today = date.today()
-    cats = (Category.query.filter_by(hidden=False)
-            .order_by(Category.group_name, Category.name).all())
-    ids = [c.id for c in cats]
-    plan, _ = _budgets_as_of(today.year, today.month, ids)
-    plan.update({p.category_id: p.amount for p in IncomePlan.query})
-    first = date(today.year, today.month, 1)
-    spent = {cid: (1 if cid in {c.id for c in cats if c.is_income} else -1) * int(total or 0) for cid, total in
-             db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-             .filter(Transaction.category_id.in_(ids), Transaction.date >= first)
-             .group_by(Transaction.category_id)}
-    # Next month's amounts, so one-time budgets (a payoff month) can be flagged
-    # and the summary can show what a normal month looks like.
-    ny, nm = (today.year + (today.month == 12), today.month % 12 + 1)
-    nxt, _ = _budgets_as_of(ny, nm, ids)
-    nxt.update({p.category_id: p.amount for p in IncomePlan.query})
-    rows = [{"cat": c, "plan": plan.get(c.id, 0), "next": nxt.get(c.id, 0), "spent": spent.get(c.id, 0)} for c in cats]
-    income = [r for r in rows if r["cat"].is_income]
-    groups = defaultdict(list)
-    for r in rows:
-        if not r["cat"].is_income:
-            groups[r["cat"].group_name].append(r)
-    for items in groups.values():
-        items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
-    # Biggest groups first, like reading down a budget.
-    ordered = sorted(groups.items(), key=lambda kv: (-sum(r["plan"] for r in kv[1]), kv[0].lower()))
-    return render_template("v2/sheet.html", income=income, groups=ordered,
-                           month_label=today.strftime("%B"),
-                           next_label=date(ny, nm, 1).strftime("%B"))
+def budgets():
+    """The Planner and Sheet pages were folded into the home page."""
+    return redirect(url_for("v2.progress"))
 
 
 @v2_bp.route("/budgets/save", methods=["POST"])

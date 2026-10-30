@@ -64,9 +64,8 @@
 <div class="wrap {% block wrap_class %}{% endblock %}">
   <nav>
     <a class="brand" href="{{ url_for('v2.progress') }}">Budget</a>
-    <a class="tab {% if request.endpoint in ('v2.progress', 'v2.plan') %}on{% endif %}" href="{{ url_for('v2.progress') }}">Progress</a>
+    <a class="tab {% if request.endpoint in ('v2.progress', 'v2.plan') %}on{% endif %}" href="{{ url_for('v2.progress') }}">Home</a>
     <a class="tab {% if request.endpoint == 'v2.review' %}on{% endif %}" href="{{ url_for('v2.review') }}">Review{% if v2_to_review %}<span class="pill">{{ v2_to_review }}</span>{% endif %}</a>
-    <a class="tab {% if request.endpoint in ('v2.budgets', 'v2.sheet') %}on{% endif %}" href="{{ url_for('v2.budgets') }}">Budgets</a>
     <a class="tab {% if request.endpoint == 'v2.import_page' %}on{% endif %}" href="{{ url_for('v2.import_page') }}">Import</a>
     <a class="tab {% if request.endpoint == 'v2.manage' %}on{% endif %}" href="{{ url_for('v2.manage') }}">Manage</a>
     <a class="v1" href="{{ url_for('dashboard') }}" title="The original app: accounts, transactions, recurring, goals, AI advisor">Classic ↗</a>
