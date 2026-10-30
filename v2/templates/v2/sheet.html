@@ -25,15 +25,34 @@
   tbody tr:nth-child(even) td { background-color: color-mix(in srgb, var(--accent) 9%, var(--card)); }
   /* Percentage-spent fill: painted per cell by fillRows(), so it can span the whole row. */
   tbody td { background-repeat: no-repeat; transition: background-size .9s cubic-bezier(.2,.8,.2,1); }
-  tr.section td { background-color: var(--bg) !important; height: auto; padding: 14px 14px 6px; font-size: 12px; font-weight: 650;
-                  color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+  tr.section td { background-color: var(--bg) !important; height: auto; padding: 18px 14px 8px; font-size: 12px; font-weight: 700;
+                  color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
   .what { font-size: 14.5px; }
-  .what { padding-left: 26px; }
-  tr.group td { background-color: var(--card) !important; height: auto; padding: 14px 14px 6px; font-weight: 650; font-size: 14.5px;
-                border-top: 1px solid var(--line); }
-  tr.group td.sub { text-align: right; font-size: 13px; font-weight: 600; color: var(--muted); white-space: nowrap; padding-right: 24px; }
-  tr.group td.sub.plan { color: var(--ink); }
+  /* Line items: indented, with a rail in the accent color tying them to their group. */
+  tr.exp td.what { padding-left: 36px; box-shadow: inset 4px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
+  tr.inc td.what { padding-left: 24px; }
+  tr.exp.hide { display: none; }
+
+  /* Group headers: a band, not a line item. */
+  tr.gap td { height: 10px; padding: 0; background-color: var(--bg) !important; border-top: 1px solid var(--line); }
+  tr.group { cursor: pointer; user-select: none; }
+  tr.group td { background-color: color-mix(in srgb, var(--ink) 9%, var(--card)) !important; height: 52px; padding: 6px 14px;
+                border-top: 1px solid color-mix(in srgb, var(--ink) 16%, transparent);
+                border-bottom: 2px solid color-mix(in srgb, var(--ink) 22%, transparent); }
+  tr.group:hover td { background-color: color-mix(in srgb, var(--ink) 13%, var(--card)) !important; }
+  tr.group:focus-visible { outline: none; }
+  tr.group:focus-visible td { box-shadow: inset 0 0 0 2px var(--accent); }
+  tr.group .gname { font-size: 17px; font-weight: 750; letter-spacing: -.01em; display: inline-flex; align-items: center; gap: 10px; }
+  tr.group .chev { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; font-size: 11px;
+                   background: color-mix(in srgb, var(--ink) 12%, transparent); transition: transform .2s; }
+  tr.group.collapsed .chev { transform: rotate(-90deg); }
+  tr.group .cnt { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+  tr.group td.sub { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  tr.group td.sub.spent-sub { font-size: 14px; font-weight: 600; color: var(--muted); }
+  tr.group td.sub.plan { font-size: 16.5px; font-weight: 750; color: var(--ink); padding-right: 24px; }
   tr.group td.sub.over { color: var(--bad); }
+  .foldall { font: inherit; font-size: 13px; border: 0; background: var(--track); color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
+  .foldall:hover { color: var(--ink); }
   tr.zero .nm { color: var(--muted); }
   .once { margin-left: 8px; font-size: 11px; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
           background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); }
@@ -84,6 +103,7 @@
 </div>
 <div class="head">
   <h1>Monthly budget</h1>
+  <button type="button" class="foldall" id="foldall">Collapse all</button>
 </div>
 <p class="sub">Type a new amount to change it. It saves right away and applies from {{ month_label }} on, everywhere in the app. "Spent" is {{ month_label }} so far; red means over.</p>
 
@@ -96,7 +116,11 @@
         {% for r in income %}{{ line(r, 'inc') }}{% endfor %}
         <tr class="section"><td colspan="3">Expenses</td></tr>
         {% for g, rows in groups %}
-        <tr class="group" data-group="{{ g }}"><td>{{ g }}</td><td class="sub spent-sub"></td><td class="sub plan"></td></tr>
+        {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="3"></td></tr>{% endif %}
+        <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
+          <td><span class="gname"><span class="chev" aria-hidden="true">▼</span>{{ g }}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span></span></td>
+          <td class="sub spent-sub"></td><td class="sub plan"></td>
+        </tr>
         {% for r in rows %}{{ line(r, 'exp') }}{% endfor %}
         {% endfor %}
       </tbody>
@@ -172,8 +196,17 @@
     inp.addEventListener('focus', () => inp.select());
     inp.addEventListener('keydown', e => {
       if (e.key === 'Escape') { inp.value = money2(+tr.dataset.plan); inp.blur(); }
-      if (e.key === 'Enter' || e.key === 'ArrowDown') { e.preventDefault(); (inputs[i + 1] || inp).focus(); if (!inputs[i + 1]) inp.blur(); }
-      if (e.key === 'ArrowUp') { e.preventDefault(); (inputs[i - 1] || inp).focus(); }
+      const visible = j => inputs[j] && !inputs[j].closest('tr').classList.contains('hide');
+      if (e.key === 'Enter' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        let j = i + 1; while (inputs[j] && !visible(j)) j++;
+        if (inputs[j]) inputs[j].focus(); else inp.blur();
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        let j = i - 1; while (j >= 0 && !visible(j)) j--;
+        if (j >= 0) inputs[j].focus();
+      }
     });
     inp.addEventListener('change', async () => {
       const n = parseFloat(inp.value.replace(/[$,\s]/g, ''));
@@ -238,6 +271,35 @@
   }
   const _totals = totals;
   totals = () => { _totals(); fillRows(); };
+
+  // ---- collapsible groups (remembered on this device) ----
+  const FOLD_KEY = 'v2-sheet-collapsed';
+  let folded = [];
+  try { folded = JSON.parse(localStorage.getItem(FOLD_KEY) || '[]'); } catch (e) {}
+  const groupRows = g => { const out = []; for (let tr = g.nextElementSibling; tr && tr.dataset.cid; tr = tr.nextElementSibling) out.push(tr); return out; };
+  function setFold(g, fold) {
+    g.classList.toggle('collapsed', fold);
+    g.setAttribute('aria-expanded', !fold);
+    groupRows(g).forEach(tr => tr.classList.toggle('hide', fold));
+  }
+  function saveFolds() {
+    folded = $$('tr.group.collapsed').map(g => g.dataset.group);
+    try { localStorage.setItem(FOLD_KEY, JSON.stringify(folded)); } catch (e) {}
+    const all = $$('tr.group'), n = all.filter(g => g.classList.contains('collapsed')).length;
+    $('foldall').textContent = n === all.length ? 'Expand all' : 'Collapse all';
+  }
+  $$('tr.group').forEach(g => {
+    if (folded.includes(g.dataset.group)) setFold(g, true);
+    const toggle = () => { setFold(g, !g.classList.contains('collapsed')); saveFolds(); fillRows(); };
+    g.addEventListener('click', toggle);
+    g.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  });
+  $('foldall').addEventListener('click', () => {
+    const fold = $('foldall').textContent === 'Collapse all';
+    $$('tr.group').forEach(g => setFold(g, fold));
+    saveFolds(); fillRows();
+  });
+  saveFolds();
   let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(fillRows, 100); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', fillRows);
 
