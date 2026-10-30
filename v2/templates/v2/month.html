@@ -756,7 +756,9 @@
     $('charts-btn').textContent = on ? 'Hide charts' : 'Show charts';
     $('charts-btn').classList.toggle('on', on);
     $('charts-btn').setAttribute('aria-expanded', on);
-    if (on) { paintCharts(); layoutDonuts(); }
+    if (on) paintCharts();
+    // Showing or hiding the donut column changes every cell's width, so repaint the fills (and donuts).
+    fillRows();
   }
   $('charts-btn').addEventListener('click', () => {
     const on = $('bento').hidden;
