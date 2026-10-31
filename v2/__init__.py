@@ -234,22 +234,32 @@ def progress():
                      extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
              .group_by(Transaction.category_id)}
 
+    # Average per month over the three full months before this one.
+    first = date(y, m, 1)
+    a_start = date(y - (m <= 3), (m - 4) % 12 + 1, 1)
+    avg3 = {cid: int(total or 0) / 3 for cid, total in
+            db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+            .filter(Transaction.category_id.in_(ids), Transaction.date >= a_start, Transaction.date < first)
+            .group_by(Transaction.category_id)}
+
     income, groups = [], defaultdict(list)
     for c in cats:
         if c.is_income:
             if not c.hidden or spent.get(c.id):
                 p = income_plan.get(c.id, 0)
-                income.append({"cat": c, "plan": p, "next": p, "spent": spent.get(c.id, 0)})
+                income.append({"cat": c, "plan": p, "next": p, "spent": spent.get(c.id, 0),
+                               "avg": round(avg3.get(c.id, 0))})
             continue
         s_ = -spent.get(c.id, 0)  # outflow as positive
         if c.hidden:
             # Retired categories only show in months where they still have spending.
             if s_:
-                groups["Retired"].append({"cat": c, "plan": 0, "next": 0, "spent": s_})
+                groups["Retired"].append({"cat": c, "plan": 0, "next": 0, "spent": s_,
+                                          "avg": round(-avg3.get(c.id, 0))})
             continue
         groups[c.group_name].append({"cat": c, "plan": plan.get(c.id, 0),
                                      "next": nxt_plan.get(c.id, 0) if is_current else plan.get(c.id, 0),
-                                     "spent": s_})
+                                     "spent": s_, "avg": round(-avg3.get(c.id, 0))})
     for items in groups.values():
         items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
     # Biggest groups first; Retired (spending with no budget) last.
@@ -272,6 +282,8 @@ def progress():
         month_name=date(y, m, 1).strftime("%B"), month_label=date(y, m, 1).strftime("%B %Y"),
         next_label=date(ny, nm, 1).strftime("%B"),
         prev=prev, nxt=(ny, nm), is_current=is_current, editable=is_current,
+        avg_label=f"{a_start:%b}–{(first - timedelta(days=1)):%b}",
+        cat_options=[(g, [{"id": c.id, "name": c.name} for c in cs]) for g, cs in _category_options()],
         pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed)
 
 
@@ -682,6 +694,59 @@ def review_confirm():
             db.session.add(rule)
     db.session.commit()
     return jsonify({"ok": True, "confirmed": confirmed})
+
+
+# ---------- transactions ----------
+
+@v2_bp.route("/transactions")
+@login_required
+def transactions():
+    """Every transaction in a month, each with a category picker."""
+    today = date.today()
+    try:
+        y = int(request.args.get("y", today.year))
+        m = int(request.args.get("m", today.month))
+        date(y, m, 1)
+    except ValueError:
+        y, m = today.year, today.month
+    first = date(y, m, 1)
+    nxt = date(y + (m == 12), m % 12 + 1, 1)
+    txns = (Transaction.query
+            .filter(Transaction.date >= first, Transaction.date < nxt, Transaction.parent_id.is_(None))
+            .order_by(Transaction.date.desc(), Transaction.id.desc()).all())
+    cats = {c.id: c for c in Category.query}
+    accounts = {a.id: a.name for a in Account.query}
+    split_parents = {t.parent_id for t in Transaction.query.filter(Transaction.parent_id.isnot(None))}
+    rows = []
+    for t in txns:
+        kind = "transfer" if t.transfer_id else ("split" if t.id in split_parents else "")
+        rows.append({"t": t, "kind": kind, "cat": cats.get(t.category_id), "account": accounts.get(t.account_id, "")})
+    prev = (y - 1, 12) if m == 1 else (y, m - 1)
+    return render_template("v2/transactions.html", rows=rows, y=y, m=m,
+                           month_label=first.strftime("%B %Y"), prev=prev, nxt=(nxt.year, nxt.month),
+                           is_current=(y, m) == (today.year, today.month),
+                           category_groups=_category_options(), cat_names={c.id: c.name for c in cats.values()})
+
+
+@v2_bp.route("/transactions/<int:tid>/category", methods=["POST"])
+@login_required
+def transaction_category(tid):
+    """Body: {"category_id": int|null}. Files one transaction under a category."""
+    t = db.session.get(Transaction, tid)
+    if not t:
+        abort(404)
+    if t.transfer_id or t.splits:
+        return jsonify({"error": "Transfers and split transactions can't be recategorized here."}), 400
+    cid = (request.get_json(silent=True) or {}).get("category_id")
+    if cid is not None:
+        cat = db.session.get(Category, cid)
+        if not cat or cat.hidden:
+            return jsonify({"error": "Pick an active category."}), 400
+    old = t.category_id
+    t.category_id = cid
+    AutoCat.query.filter_by(transaction_id=t.id).delete()
+    db.session.commit()
+    return jsonify({"ok": True, "id": t.id, "from": old, "to": cid, "amount": t.amount})
 
 
 # ---------- manage: payees & categories ----------

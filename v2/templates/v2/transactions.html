@@ -1,0 +1,148 @@
+{% extends "v2/base.html" %}
+{% block title %}Transactions · {{ month_label }}{% endblock %}
+{% block wrap_class %}wide{% endblock %}
+{% block head %}
+<style>
+  .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .head h1 { margin-right: auto; font-size: 30px; letter-spacing: -.03em; font-weight: 700; }
+  .arrow { text-decoration: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px;
+           background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--muted); }
+  .arrow:hover { color: var(--ink); }
+  .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
+  .tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .tools input, .tools select { width: auto; border-radius: 10px; padding: 8px 12px; background: var(--card); }
+  .tools input[type=search] { flex: 1 1 220px; max-width: 340px; }
+  .summary { font-size: 13px; color: var(--muted); margin-left: auto; }
+  .summary b { color: var(--ink); font-weight: 600; }
+
+  .list { background: var(--card); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 12px; font-weight: 600; color: var(--accent-ink); background: var(--accent); padding: 9px 12px; }
+  th.r, td.r { text-align: right; }
+  td { padding: 7px 12px; font-size: 14px; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); vertical-align: middle; }
+  tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 4%, var(--card)); }
+  .date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 1%; }
+  .payee { font-weight: 550; }
+  .memo, .acct { font-size: 12px; color: var(--muted); }
+  .amt { white-space: nowrap; font-variant-numeric: tabular-nums; width: 1%; }
+  .amt.in { color: var(--ok); }
+  .cat { width: 240px; }
+  .cat select { width: 100%; border-radius: 8px; padding: 5px 8px; background: var(--bg); font-size: 13.5px; }
+  .cat select.unset { border-color: color-mix(in srgb, var(--warn) 70%, transparent); }
+  .tag { font-size: 12px; color: var(--muted); font-style: italic; }
+  tr.flash td { animation: flash 1.4s ease-out; }
+  @keyframes flash { from { background: color-mix(in srgb, var(--ok) 25%, transparent); } }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+           background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; transition: .25s; z-index: 10; }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { background: var(--bad); color: #fff; }
+  @media (max-width: 700px) {
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: auto !important; }
+    tr { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 12px;
+         border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+    td { padding: 0; border: 0; background: none !important; }
+    td.date { grid-column: 1; grid-row: 1; }
+    td.pay { grid-column: 1; grid-row: 2; }
+    td.amt { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+    td.acct { display: none; }
+    td.cat { grid-column: 1 / -1; margin-top: 6px; }
+  }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head">
+  <h1>Transactions</h1>
+  <a class="arrow" href="{{ url_for('v2.transactions', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
+  <span style="font-weight:600;min-width:130px;text-align:center">{{ month_label }}</span>
+  {% if not is_current %}<a class="arrow" href="{{ url_for('v2.transactions', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% else %}<span style="width:34px"></span>{% endif %}
+</div>
+<p class="sub">Change a transaction's category with its dropdown; it saves right away. To file every transaction from a payee at once (and future ones), use <a href="{{ url_for('v2.manage') }}">Manage → Payees</a>.</p>
+
+<div class="tools">
+  <input type="search" id="q" placeholder="Search payee, memo or amount" aria-label="Search transactions">
+  <select id="fcat" aria-label="Filter by category">
+    <option value="">All categories</option>
+    <option value="none">Uncategorized</option>
+    {% for g, cs in category_groups %}<optgroup label="{{ g }}">{% for c in cs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</optgroup>{% endfor %}
+  </select>
+  <span class="summary" id="summary"></span>
+</div>
+
+<div class="list">
+  {% if rows %}
+  <table>
+    <thead><tr><th>Date</th><th>Payee</th><th>Account</th><th class="r">Amount</th><th>Category</th></tr></thead>
+    <tbody id="rows">
+      {% for r in rows %}{% set t = r.t %}
+      <tr data-id="{{ t.id }}" data-cid="{{ t.category_id or '' }}" data-amount="{{ t.amount }}"
+          data-search="{{ (t.payee ~ ' ' ~ (t.memo or '') ~ ' ' ~ '%.2f'|format((t.amount|abs) / 100))|lower }}">
+        <td class="date">{{ t.date.strftime('%b %-d') }}</td>
+        <td class="pay"><div class="payee">{{ t.payee or '(no payee)' }}</div>{% if t.memo %}<div class="memo">{{ t.memo }}</div>{% endif %}</td>
+        <td class="acct">{{ r.account }}</td>
+        <td class="amt r num{% if t.amount > 0 %} in{% endif %}">{{ t.amount|money }}</td>
+        <td class="cat">
+          {% if r.kind == 'transfer' %}<span class="tag">Transfer</span>
+          {% elif r.kind == 'split' %}<span class="tag">Split across categories</span>
+          {% else %}
+          <select aria-label="Category for {{ t.payee }}"{% if not t.category_id %} class="unset"{% endif %}>
+            {% if not t.category_id %}<option value="" selected>— uncategorized —</option>{% endif %}
+            {% if r.cat and r.cat.hidden %}<option value="{{ r.cat.id }}" selected disabled>{{ r.cat.name }} (retired)</option>{% endif %}
+            {% for g, cs in category_groups %}
+            <optgroup label="{{ g }}">{% for c in cs %}<option value="{{ c.id }}"{% if c.id == t.category_id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</optgroup>
+            {% endfor %}
+          </select>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty">No transactions in {{ month_label }}.</div>
+  {% endif %}
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+  const $ = id => document.getElementById(id);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+  let toastT;
+  function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+                             clearTimeout(toastT); toastT = setTimeout(() => t.className = 'toast', err ? 5000 : 2200); }
+
+  function filter() {
+    const q = ($('q') ? $('q').value : '').trim().toLowerCase(), f = $('fcat') ? $('fcat').value : '';
+    let n = 0, out = 0, inn = 0;
+    $$('#rows tr').forEach(tr => {
+      const ok = (!q || tr.dataset.search.includes(q)) &&
+                 (!f || (f === 'none' ? !tr.dataset.cid : tr.dataset.cid === f));
+      tr.hidden = !ok;
+      if (ok) { n++; const a = +tr.dataset.amount; if (a < 0) out -= a; else inn += a; }
+    });
+    $('summary').innerHTML = `<b>${n}</b> shown · out <b>${money(-out)}</b> · in <b>${money(inn)}</b>`;
+  }
+  $('q')?.addEventListener('input', filter);
+  $('fcat')?.addEventListener('change', filter);
+  filter();
+
+  $$('#rows select').forEach(sel => {
+    sel.dataset.orig = sel.value;
+    sel.addEventListener('change', async () => {
+      const tr = sel.closest('tr'), cid = sel.value ? +sel.value : null;
+      sel.disabled = true;
+      try {
+        await postJSON(`{{ url_for('v2.transaction_category', tid=0) }}`.replace('/0/', '/' + tr.dataset.id + '/'), {category_id: cid});
+        tr.dataset.cid = cid || ''; sel.dataset.orig = sel.value;
+        sel.classList.toggle('unset', !cid);
+        sel.querySelector('option[value=""]')?.remove();
+        tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+        toast('Moved to ' + sel.selectedOptions[0].textContent);
+      } catch (e) { sel.value = sel.dataset.orig; toast('Couldn\'t save: ' + e.message, true); }
+      sel.disabled = false;
+    });
+  });
+</script>
+{% endblock %}

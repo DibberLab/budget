@@ -14,10 +14,12 @@
 </svg>
 {%- endmacro %}
 {% macro line(r, kind) -%}
-<tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}">
+<tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}"
+    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}">
   <td class="gut" aria-hidden="true"></td>
-  <td class="what"><span class="nm">{{ r.cat.name }}</span><span class="once" hidden></span></td>
+  <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<span class="once" hidden></span></td>
   <td class="spent num"></td>
+  <td class="avg num"></td>
   <td class="amt"><label class="money"><input inputmode="decimal" class="num"{% if not editable %} readonly tabindex="-1"{% endif %} value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
 </tr>
 {%- endmacro %}
@@ -182,7 +184,7 @@
   tr.txrow td { background-color: var(--card) !important; padding: 4px 14px 10px 36px; height: auto; cursor: default;
                 box-shadow: inset 4px 0 0 color-mix(in srgb, var(--accent) 45%, transparent); }
   tr.txrow.inc-tx td { padding-left: 24px; box-shadow: none; }
-  .txlist { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto; gap: 3px 14px; font-size: 13.5px; padding: 6px 0 2px;
+  .txlist { display: grid; grid-template-columns: 58px minmax(0, 1fr) auto auto; gap: 3px 14px; align-items: center; font-size: 13.5px; padding: 6px 0 2px;
             max-width: 560px; }
   .txlist .d { color: var(--muted); font-variant-numeric: tabular-nums; }
   .txlist .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -191,6 +193,22 @@
   .txlist .tot { grid-column: 1 / -1; display: flex; justify-content: space-between; border-top: 1px solid var(--line);
                  margin-top: 4px; padding-top: 5px; font-size: 12.5px; color: var(--muted); }
   .txlist .none { grid-column: 1 / -1; color: var(--muted); }
+  .avg { text-align: right; font-size: 13px; color: var(--muted); white-space: nowrap; width: 1%; }
+  tr.group td.sub.avg-sub { font-size: 13px; font-weight: 600; color: var(--muted); }
+  .ren { font: inherit; font-size: 12px; line-height: 1; border: 0; background: none; color: var(--muted); cursor: pointer;
+         padding: 3px 5px; margin-left: 4px; border-radius: 6px; opacity: 0; transition: opacity .15s; vertical-align: 1px; }
+  tr:hover .ren, .ren:focus-visible { opacity: .9; }
+  .ren:hover { background: var(--track); color: var(--ink); }
+  @media (hover: none) { .ren { opacity: .6; } }
+  .rename-in { font: inherit; font-size: 14.5px; padding: 3px 8px; width: min(260px, 100%); }
+  tr.group .rename-in { font-size: 16px; font-weight: 700; }
+  .txlist select { font-size: 12.5px; padding: 2px 6px; border-radius: 7px; width: 170px; background: var(--bg); }
+  @media (max-width: 600px) { .avg, th.avg { display: none; } .txlist select { width: 130px; } }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+           background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: 14px; transition: .25s; z-index: 10;
+           max-width: calc(100vw - 32px); }
+  .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  .toast.err { background: var(--bad); color: #fff; }
   .foldall { font: inherit; font-size: 13px; border: 0; background: var(--track); color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
   .foldall:hover { color: var(--ink); }
   tr.zero .nm { color: var(--muted); }
@@ -303,17 +321,17 @@
 <div class="layout">
   <div class="sheet" id="sheet">
     <table>
-      <thead><tr><th class="gut" aria-hidden="true"></th><th>Item</th><th class="r">Spent in {{ month_name }}</th><th class="r">Monthly</th></tr></thead>
+      <thead><tr><th class="gut" aria-hidden="true"></th><th>Item</th><th class="r">Spent in {{ month_name }}</th><th class="r avg" title="Average per month, {{ avg_label }}">3-mo avg</th><th class="r">Monthly</th></tr></thead>
       <tbody>
-        <tr class="section"><td colspan="4">Income</td></tr>
+        <tr class="section"><td colspan="5">Income</td></tr>
         {% for r in income %}{{ line(r, 'inc') }}{% endfor %}
-        <tr class="section"><td colspan="4">Expenses</td></tr>
+        <tr class="section"><td colspan="5">Expenses</td></tr>
         {% for g, rows in groups %}
-        {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="4"></td></tr>{% endif %}
+        {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="5"></td></tr>{% endif %}
         <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
           <td class="gut" aria-hidden="true"><div class="dwrap"><svg class="donut"></svg><div class="dc"></div></div></td>
-          <td><span class="gname"><span class="chev" aria-hidden="true">▼</span>{{ g }}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span></span></td>
-          <td class="sub spent-sub"></td><td class="sub plan"></td>
+          <td><span class="gname"><span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span></span></td>
+          <td class="sub spent-sub"></td><td class="sub avg avg-sub"></td><td class="sub plan"></td>
         </tr>
         {% for r in rows %}{{ line(r, 'exp') }}{% endfor %}
         {% endfor %}
@@ -341,10 +359,14 @@
     </div>
   </aside>
 </div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 {% endblock %}
 {% block scripts %}
 <script>
   const $ = id => document.getElementById(id);
+  let toastT;
+  function toast(msg, err) { const t = $('toast'); t.textContent = msg; t.className = 'toast show' + (err ? ' err' : '');
+                             clearTimeout(toastT); toastT = setTimeout(() => t.className = 'toast', err ? 5000 : 2200); }
   const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
   const fmt = c => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
   const money2 = c => (c / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -368,14 +390,17 @@
       once.textContent = `one-time · ${fmt(next)} from {{ next_label }}`;
       const s = tr.querySelector('.spent');
       s.textContent = spent ? fmt(spent) : '—';
+      const av = +tr.dataset.avg; tr.querySelector('.avg').textContent = av ? fmt(av) : '—';
       s.classList.toggle('over', tr.classList.contains('exp') && plan > 0 && spent > plan);
       tr.classList.toggle('zero', !plan);
     });
     // Group subtotals: each group header sums the rows under it.
     $$('tr.group').forEach(g => {
       let p = 0, sp = 0;
-      for (const tr of itemRows(g)) { p += +tr.dataset.plan; sp += +tr.dataset.spent; }
+      let av = 0;
+      for (const tr of itemRows(g)) { p += +tr.dataset.plan; sp += +tr.dataset.spent; av += +tr.dataset.avg; }
       g.querySelector('.plan').textContent = fmt(p);
+      g.querySelector('.avg-sub').textContent = av ? fmt(av) : '—';
       const s = g.querySelector('.spent-sub'); s.textContent = sp ? fmt(sp) : '—'; s.classList.toggle('over', p > 0 && sp > p);
     });
     const extra = inc - exp;
@@ -493,7 +518,7 @@
     const income = tr.classList.contains('inc');
     const row = document.createElement('tr');
     row.className = 'txrow' + (income ? ' inc-tx' : '');
-    const td = document.createElement('td'); td.colSpan = 3;
+    const td = document.createElement('td'); td.colSpan = 4;
     const list = document.createElement('div'); list.className = 'txlist';
     list.innerHTML = '<span class="none">Loading…</span>';
     const gut = document.createElement('td'); gut.className = 'gut'; row.append(gut);
@@ -514,7 +539,7 @@
         const d = document.createElement('span'); d.className = 'd'; d.textContent = t.date;
         const p = document.createElement('span'); p.className = 'p'; p.textContent = t.payee || '(no payee)';
         const a = document.createElement('span'); a.className = 'a' + (income && t.amount > 0 ? ' in' : ''); a.textContent = fmt(t.amount);
-        list.append(d, p, a);
+        list.append(d, p, a, catPicker(t, tr));
       }
       const total = txs.reduce((x, t) => x + t.amount, 0);
       const tot = document.createElement('div'); tot.className = 'tot';
@@ -530,8 +555,76 @@
   }
   $$('tr[data-cid]').forEach(tr => tr.addEventListener('click', e => {
     if (e.target.closest('.money')) return;   // clicking the amount edits it
+    if (e.target.closest('.ren')) { e.stopPropagation(); renameCategory(tr); return; }
     toggleTx(tr);
   }));
+
+
+  // ---- per-transaction category picker (in the click-a-row lists) ----
+  const CAT_OPTIONS = {{ cat_options|tojson }};
+  function catPicker(t, srcRow) {
+    const sel = document.createElement('select');
+    sel.setAttribute('aria-label', 'Category for ' + (t.payee || 'transaction'));
+    for (const [g, cs] of CAT_OPTIONS) {
+      const og = document.createElement('optgroup'); og.label = g;
+      for (const c of cs) { const o = document.createElement('option'); o.value = c.id; o.textContent = c.name; og.append(o); }
+      sel.append(og);
+    }
+    sel.value = srcRow.dataset.cid;
+    if (sel.value !== srcRow.dataset.cid) {  // current category is retired: show it, unselectable
+      const o = document.createElement('option'); o.value = srcRow.dataset.cid; o.disabled = true; o.selected = true;
+      o.textContent = srcRow.querySelector('.nm').textContent + ' (retired)'; sel.prepend(o);
+    }
+    sel.addEventListener('click', e => e.stopPropagation());
+    sel.addEventListener('change', async () => {
+      const to = +sel.value; sel.disabled = true;
+      try {
+        const r = await postJSON(`{{ url_for('v2.transaction_category', tid=0) }}`.replace('/0/', '/' + t.id + '/'), {category_id: to});
+        // r.amount is signed (spending negative). Rows track spending (expenses) or receipts (income) as positive.
+        const move = (row, sign) => { if (!row) return; const inc = row.classList.contains('inc');
+                                      row.dataset.spent = +row.dataset.spent + sign * (inc ? r.amount : -r.amount); delete txCache[row.dataset.cid]; };
+        move(srcRow, -1);
+        move(document.querySelector(`tr[data-cid="${to}"]`), +1);
+        totals();
+        toast('Moved to ' + sel.selectedOptions[0].textContent);
+        // Re-open this row's list so the moved transaction drops out of it.
+        await toggleTx(srcRow); await toggleTx(srcRow);
+      } catch (e) { sel.value = srcRow.dataset.cid; sel.disabled = false; toast('Couldn\'t save: ' + e.message, true); }
+    });
+    return sel;
+  }
+
+  // ---- rename categories and groups in place ----
+  function inlineEdit(span, onSave) {
+    const old = span.textContent, input = document.createElement('input');
+    input.className = 'rename-in'; input.value = old; span.hidden = true; span.after(input);
+    input.focus(); input.select();
+    let done = false;
+    const finish = async save => {
+      if (done) return; done = true;
+      const v = input.value.trim(); input.remove(); span.hidden = false;
+      if (!save || !v || v === old) return;
+      try { await onSave(v); span.textContent = v; } catch (e) { toast(e.message, true); }
+    };
+    ['click', 'keydown'].forEach(ev => input.addEventListener(ev, e => e.stopPropagation()));
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+    input.addEventListener('blur', () => finish(true));
+  }
+  function renameCategory(tr) {
+    inlineEdit(tr.querySelector('.nm'), async name => {
+      await postJSON('{{ url_for("v2.manage_category") }}', {id: +tr.dataset.cid, name, group_name: tr.dataset.gname});
+      toast('Renamed to ' + name);
+    });
+  }
+  $$('tr.group .ren').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const g = b.closest('tr.group');
+    inlineEdit(g.querySelector('.gtitle'), async name => {
+      await postJSON('{{ url_for("v2.manage_group") }}', {old: g.dataset.group, new: name});
+      location.reload();
+    });
+  }));
+  $$('tr.group .ren').forEach(b => b.addEventListener('keydown', e => e.stopPropagation()));
 
   // ---- collapsible groups (remembered on this device) ----
   const FOLD_KEY = 'v2-sheet-collapsed';
