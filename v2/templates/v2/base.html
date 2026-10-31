@@ -70,6 +70,7 @@
     <a class="tab {% if request.endpoint == 'v2.progress' %}on{% endif %}" href="{{ url_for('v2.progress') }}">Home</a>
     <a class="tab {% if request.endpoint == 'v2.transactions' %}on{% endif %}" href="{{ url_for('v2.transactions') }}">Transactions</a>
     <a class="tab {% if request.endpoint == 'v2.review' %}on{% endif %}" href="{{ url_for('v2.review') }}">Review{% if v2_to_review %}<span class="pill">{{ v2_to_review }}</span>{% endif %}</a>
+    <a class="tab {% if request.endpoint == 'v2.reports' %}on{% endif %}" href="{{ url_for('v2.reports') }}">Reports</a>
     <a class="tab {% if request.endpoint == 'v2.import_page' %}on{% endif %}" href="{{ url_for('v2.import_page') }}">Import</a>
     <a class="tab {% if request.endpoint == 'v2.manage' %}on{% endif %}" href="{{ url_for('v2.manage') }}">Manage</a>
     <a class="v1" href="{{ url_for('dashboard') }}" title="The original app: accounts, transactions, recurring, goals, AI advisor">Classic ↗</a>
