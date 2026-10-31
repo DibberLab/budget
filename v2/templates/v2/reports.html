@@ -1,0 +1,955 @@
+{% extends "v2/base.html" %}
+{% block title %}Reports · Budget{% endblock %}
+{% block wrap_class %}wide reports{% endblock %}
+{% block head %}
+<style>
+  .wrap.reports { max-width: 1320px; }
+  /* Chart colors: the validated categorical order (fixed per group, never by rank),
+     a one-hue sequential ramp for heatmaps, and a gray for the folded "Other". */
+  :root {
+    --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+    --s-other: #a9a79f;
+    --q0: #eef4fc; --q1: #cde2fb; --q2: #9ec5f4; --q3: #6da7ec; --q4: #3987e5; --q5: #256abf; --q6: #184f95; --q7: #0d366b;
+    --grid: #e9e7e1; --axis: #c3c2b7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+      --s-other: #6f6d66;
+      --q0: #24282e; --q1: #10294a; --q2: #12386a; --q3: #184f95; --q4: #256abf; --q5: #3987e5; --q6: #6da7ec; --q7: #9ec5f4;
+      --grid: #2c2c2a; --axis: #383835;
+    }
+  }
+
+  .head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 2px; }
+  .head h1 { margin-right: auto; font-size: 30px; letter-spacing: -.03em; font-weight: 700; }
+  .head .when { font-size: 14px; color: var(--muted); }
+  .sub { font-size: 13px; color: var(--muted); margin: 0 0 12px; max-width: 80ch; }
+
+  /* ---------- filter bar: one row of controls scoping everything below ---------- */
+  .filters { position: sticky; top: 0; z-index: 6; margin: 0 -16px 14px; padding: 10px 16px; display: grid; gap: 8px;
+             background: color-mix(in srgb, var(--page, var(--bg)) 88%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .frow { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pills button, .chip, .tbtn { font: inherit; font-size: 13px; border: 0; cursor: pointer; padding: 6px 12px; border-radius: 999px;
+                    background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--muted); white-space: nowrap; }
+  .pills button:hover, .tbtn:hover { color: var(--ink); }
+  .pills button[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); box-shadow: none; font-weight: 600; }
+  .custom { display: none; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); }
+  .custom.on { display: inline-flex; }
+  .custom input { width: auto; padding: 5px 8px; border-radius: 8px; font-size: 13px; background: var(--card); }
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--track); }
+  .seg button { font: inherit; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 5px 14px; border-radius: 8px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 600; }
+  .frow input[type=search] { flex: 1 1 200px; max-width: 280px; width: auto; padding: 7px 12px; border-radius: 10px; background: var(--card); }
+  .frow select { width: auto; max-width: 220px; padding: 7px 10px; border-radius: 10px; background: var(--card); font-size: 13.5px; }
+  .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
+  .chk input { width: auto; }
+  .frow .spacer { margin-left: auto; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .chips:empty { display: none; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; color: var(--ink); background: var(--card); padding: 4px 6px 4px 10px; }
+  .chip .k { color: var(--muted); }
+  .chip .sw { width: 9px; height: 9px; border-radius: 3px; }
+  .chip .x { font-size: 15px; line-height: 1; width: 20px; height: 20px; border-radius: 999px; display: grid; place-items: center; color: var(--muted); }
+  .chip:hover .x { background: var(--track); color: var(--ink); }
+  .clear { font: inherit; font-size: 12.5px; border: 0; background: none; color: var(--muted); cursor: pointer; text-decoration: underline; }
+
+  /* ---------- summary tiles ---------- */
+  .kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .kpi { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 12px 14px; min-width: 0; }
+  .kpi .l { font-size: 12.5px; color: var(--muted); }
+  .kpi .v { font-size: 26px; font-weight: 750; letter-spacing: -.03em; margin: 2px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi .d { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .d .good { color: var(--ok); font-weight: 600; } .d .bad { color: var(--bad); font-weight: 600; }
+
+  /* ---------- widgets: a two-column board, each card draggable, half or full width ---------- */
+  .board { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; transition: opacity .2s; }
+  .board.busy { opacity: .55; }
+  .w { background: var(--card); border: 1px solid var(--line); border-radius: 18px; min-width: 0; position: relative; }
+  .w.full { grid-column: 1 / -1; }
+  .w.dragging { opacity: .4; }
+  .w.drop-before::before, .w.drop-after::after { content: ''; position: absolute; z-index: 2; background: var(--accent); border-radius: 4px; }
+  .w.drop-before.dy::before { left: 8px; right: 8px; top: -8px; height: 4px; }
+  .w.drop-after.dy::after { left: 8px; right: 8px; bottom: -8px; height: 4px; }
+  .w.drop-before.dx::before { top: 8px; bottom: 8px; left: -8px; width: 4px; }
+  .w.drop-after.dx::after { top: 8px; bottom: 8px; right: -8px; width: 4px; }
+  .wh { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0 8px; }
+  .handle { font: inherit; border: 0; background: none; color: var(--muted); cursor: grab; padding: 4px 4px; border-radius: 6px; font-size: 15px; line-height: 1; letter-spacing: -2px; }
+  .handle:hover, .handle:focus-visible { background: var(--track); color: var(--ink); outline: none; }
+  .handle:active { cursor: grabbing; }
+  .wh h2 { margin: 0; font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
+  @media (max-width: 560px) { .wh .cap { display: none; } }
+  .wh .cap { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .wh .tools { margin-left: auto; display: flex; gap: 2px; flex: none; }
+  .ibtn { font: inherit; font-size: 12px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
+  .ibtn:hover, .ibtn[aria-pressed="true"] { background: var(--track); color: var(--ink); }
+  .wb { padding: 10px 16px 16px; min-height: 60px; }
+  .empty { color: var(--muted); font-size: 14px; padding: 18px 0; text-align: center; }
+  .note { font-size: 12.5px; color: var(--muted); margin: 8px 0 0; }
+  .note b { color: var(--ink); font-weight: 600; }
+
+  /* legend: swatch mirrors the mark (rect for bars) */
+  .legend { display: flex; gap: 4px 12px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin-bottom: 8px; }
+  .legend button { font: inherit; display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; padding: 2px 4px; border-radius: 6px; cursor: pointer; }
+  .legend button:hover { color: var(--ink); background: var(--track); }
+  .sw { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex: none; }
+
+  svg.chart { display: block; width: 100%; overflow: visible; }
+  svg.chart text { font-family: inherit; }
+  .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .col-hit { fill: transparent; cursor: pointer; }
+  .col.hot rect { filter: brightness(1.12) saturate(1.05); }
+  .col-hi { fill: var(--ink); opacity: 0; transition: opacity .1s; }
+  .col.hot .col-hi { opacity: .05; }
+
+  /* ranked bars (Where it went) */
+  .rank { display: grid; gap: 2px; }
+  .rk { display: grid; grid-template-columns: 18px minmax(90px, 1.1fr) minmax(60px, 2fr) auto auto 74px; gap: 10px; align-items: center;
+        padding: 5px 6px; border-radius: 9px; font-size: 13.5px; }
+  .rk:hover { background: var(--track); }
+  .rk.child { font-size: 13px; }
+  .rk.child .nm { padding-left: 14px; color: var(--ink); }
+  .rk .caret { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0; width: 18px; height: 18px; border-radius: 5px; font-size: 10px; transition: transform .15s; }
+  .rk .caret[aria-expanded="true"] { transform: rotate(90deg); }
+  .rk .nm { font: inherit; text-align: left; border: 0; background: none; color: var(--ink); cursor: pointer; padding: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .rk .nm span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .rk .nm:hover span:last-child { text-decoration: underline; text-underline-offset: 3px; }
+  .track { height: 8px; border-radius: 999px; background: var(--track); position: relative; overflow: hidden; }
+  .track i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; }
+  .rk .amt { font-variant-numeric: tabular-nums; font-weight: 600; text-align: right; white-space: nowrap; }
+  .rk .pct { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; text-align: right; width: 38px; }
+  .delta { font-size: 12px; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; color: var(--muted); }
+  .delta.good { color: var(--ok); } .delta.bad { color: var(--bad); }
+
+  /* tables */
+  .tw { overflow-x: auto; margin: 0 -4px; }
+  table.t { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  table.t th { text-align: left; font-size: 11.5px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+               padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  table.t th.r, table.t td.r { text-align: right; }
+  table.t th button { font: inherit; text-transform: inherit; letter-spacing: inherit; border: 0; background: none; color: inherit; cursor: pointer; padding: 0; }
+  table.t th button:hover, table.t th[aria-sort] button { color: var(--ink); }
+  table.t td { padding: 6px 8px; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); white-space: nowrap; }
+  table.t td.num, table.t td.r { font-variant-numeric: tabular-nums; }
+  table.t tr.click { cursor: pointer; }
+  table.t tr.click:hover td { background: var(--track); }
+  table.t td.wrap { white-space: normal; min-width: 140px; }
+  table.t tfoot td { font-weight: 650; border-bottom: 0; border-top: 1px solid var(--line); }
+  .lnk { font: inherit; border: 0; background: none; color: var(--ink); cursor: pointer; padding: 0; text-align: left; }
+  .lnk:hover { text-decoration: underline; text-underline-offset: 3px; }
+  .in { color: var(--ok); }
+  .muted { color: var(--muted); }
+  .tag { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); margin-left: 6px; }
+  .mini { display: inline-block; width: 64px; height: 6px; border-radius: 999px; background: var(--track); position: relative; overflow: hidden; vertical-align: middle; }
+  .mini i { position: absolute; inset: 0 auto 0 0; background: var(--s1); border-radius: 999px; }
+  .more { font: inherit; font-size: 13px; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 10px 0 0; }
+  .more:hover { color: var(--ink); }
+
+  /* heatmaps */
+  .heat { display: grid; gap: 2px; font-size: 12px; }
+  .heat .rl { display: flex; align-items: center; gap: 6px; padding-right: 8px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: var(--ink); min-width: 0; }
+  .heat .rl span:last-child { overflow: hidden; text-overflow: ellipsis; }
+  .heat .cl { text-align: center; color: var(--muted); font-size: 11px; padding-bottom: 2px; white-space: nowrap; overflow: hidden; }
+  .cell { height: 28px; border-radius: 5px; display: grid; place-items: center; font-variant-numeric: tabular-nums; font-size: 11px; cursor: pointer; border: 0; padding: 0; font-family: inherit; }
+  .cell:hover, .cell:focus-visible { outline: 2px solid var(--ink); outline-offset: -1px; }
+  .cell.z { background: var(--q0); color: transparent; }
+  .scale { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+  .scale i { width: 22px; height: 10px; border-radius: 3px; display: inline-block; }
+  .cal { display: grid; grid-auto-flow: column; grid-template-rows: repeat(7, 13px); gap: 3px; overflow-x: auto; padding-bottom: 4px; }
+  .cal .day { width: 13px; height: 13px; border-radius: 3px; border: 0; padding: 0; cursor: pointer; }
+  .cal .day.out { background: transparent; cursor: default; }
+  .cal .day:hover, .cal .day:focus-visible { outline: 2px solid var(--ink); outline-offset: 0; }
+  .rhythm { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .w.full .rhythm { grid-template-columns: auto minmax(220px, 1fr); align-items: start; }
+  .cal-wrap { display: grid; grid-template-columns: 28px minmax(0, auto); gap: 4px; min-width: 0; }
+  .cal-days { display: grid; grid-template-rows: repeat(7, 13px); gap: 3px; font-size: 10px; color: var(--muted); }
+  .wk { display: grid; gap: 4px; }
+  .wk .r { display: grid; grid-template-columns: 34px minmax(0, 1fr) 70px; gap: 8px; align-items: center; font-size: 12.5px; }
+  .wk .r b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* tooltip: value leads, label follows; line keys */
+  .tip { position: fixed; z-index: 30; pointer-events: none; min-width: 160px; max-width: 280px; background: var(--card); color: var(--ink);
+         border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12.5px; box-shadow: 0 8px 28px rgba(0,0,0,.16); }
+  .tip[hidden] { display: none; }
+  .tip .tt { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .tip .tr { display: grid; grid-template-columns: 12px auto 1fr; gap: 7px; align-items: center; padding: 1px 0; }
+  .tip .tr i { height: 2px; border-radius: 2px; }
+  .tip .tr b { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tip .tr span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tip .tot { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+  .tip .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* customize panel */
+  dialog.cust { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(420px, calc(100vw - 32px)); background: var(--card); color: var(--ink);
+                box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  dialog.cust::backdrop { background: rgba(0,0,0,.3); }
+  .cust h2 { margin: 0; padding: 16px 18px 4px; font-size: 17px; }
+  .cust p { margin: 0; padding: 0 18px 8px; font-size: 13px; color: var(--muted); }
+  .cust ul { list-style: none; margin: 0; padding: 4px 10px; }
+  .cust li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 10px; font-size: 14px; }
+  .cust li:hover { background: var(--track); }
+  .cust li input { width: auto; }
+  .cust .f { display: flex; justify-content: space-between; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--line); margin-top: 6px; }
+
+  .loading { padding: 60px 0; text-align: center; color: var(--muted); }
+
+  @media (max-width: 980px) { .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 760px) {
+    .board { grid-template-columns: minmax(0, 1fr); }
+    .w.full { grid-column: auto; }
+    .rhythm { grid-template-columns: minmax(0, 1fr); }
+    .rk { grid-template-columns: 18px minmax(80px, 1fr) minmax(40px, 1fr) auto 0 0; }
+    .rk .pct, .rk .delta { display: none; }
+    .filters { position: static; }
+  }
+  @media (max-width: 560px) { .acct, .gp { display: none; } table.t td.wrap { min-width: 110px; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi .v { font-size: 22px; } }
+  @media (prefers-reduced-motion: reduce) { .board, .rk .caret { transition: none; } }
+  @media print { nav, .filters .frow, .wh .tools, .handle { display: none !important; } .filters { position: static; } .w { break-inside: avoid; } }
+</style>
+{% endblock %}
+{% block content %}
+<div class="head"><h1>Reports</h1><span class="when" id="when"></span></div>
+<p class="sub">Click any bar, row or cell to filter everything by it. Drag a card by <b>⋮⋮</b> to rearrange; <b>Customize</b> to show, hide or resize cards.</p>
+
+<div class="filters" id="filters">
+  <div class="frow">
+    <div class="pills" id="ranges" role="group" aria-label="Date range"></div>
+    <span class="custom" id="custom"><input type="date" id="from" aria-label="From"> to <input type="date" id="to" aria-label="To"></span>
+  </div>
+  <div class="frow">
+    <div class="seg" role="group" aria-label="Show">
+      <button type="button" data-mode="spend" aria-pressed="true">Spending</button>
+      <button type="button" data-mode="income" aria-pressed="false">Income</button>
+    </div>
+    <input type="search" id="q" placeholder="Search payees or amounts" aria-label="Search payees or amounts">
+    <select id="acct" aria-label="Account"><option value="">All accounts</option></select>
+    <label class="chk"><input type="checkbox" id="transfers"> Include transfers</label>
+    <span class="spacer"></span>
+    <button type="button" class="tbtn" id="cust-btn">Customize</button>
+  </div>
+  <div class="chips" id="chips"></div>
+</div>
+
+<div id="app"><div class="loading">Loading your transactions…</div></div>
+<div class="tip" id="tip" hidden role="tooltip"></div>
+<dialog class="cust" id="cust" aria-labelledby="cust-h">
+  <h2 id="cust-h">Customize</h2>
+  <p>Tick the cards to show. Use the arrows (or drag cards on the page) to reorder, and Wide/Half to size them.</p>
+  <ul id="cust-list"></ul>
+  <div class="f"><button type="button" class="btn ghost" id="cust-reset">Reset layout</button><button type="button" class="btn" id="cust-done">Done</button></div>
+</dialog>
+{% endblock %}
+{% block scripts %}
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const $$ = (sel, el = document) => [...el.querySelectorAll(sel)];
+  const NS = 'http://www.w3.org/2000/svg';
+  // Element helpers. Text always goes in as text nodes: payee and category names are data.
+  function h(tag, props, ...kids) {
+    const e = document.createElement(tag);
+    for (const [k, v] of Object.entries(props || {})) {
+      if (v == null || v === false) continue;
+      if (k === 'class') e.className = v;
+      else if (k === 'style') e.style.cssText = v;
+      else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+      else e.setAttribute(k, v === true ? '' : v);
+    }
+    for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid instanceof Node ? kid : String(kid));
+    return e;
+  }
+  function s(tag, attrs, parent) {
+    const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs || {})) if (v != null) e.setAttribute(k, v);
+    if (parent) parent.append(e);
+    return e;
+  }
+
+  // ---------- money & dates ----------
+  const cents = c => (c < 0 ? '-' : '') + '$' + (Math.abs(c) / 100).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  const whole = c => (c < 0 ? '-' : '') + '$' + Math.round(Math.abs(c) / 100).toLocaleString();
+  const compact = c => { const d = Math.abs(c) / 100, sg = c < 0 ? '-' : '';
+    return sg + '$' + (d >= 1e6 ? (d / 1e6).toFixed(1).replace(/\.0$/, '') + 'M' : d >= 1000 ? (d / 1000).toFixed(d >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'K' : Math.round(d)); };
+  // ISO dates as plain strings; arithmetic in UTC so time zones never shift a day.
+  const toD = iso => new Date(iso + 'T00:00:00Z');
+  const toISO = d => d.toISOString().slice(0, 10);
+  const addDays = (iso, n) => { const d = toD(iso); d.setUTCDate(d.getUTCDate() + n); return toISO(d); };
+  const monthStart = iso => iso.slice(0, 8) + '01';
+  const addMonths = (iso, n) => { const d = toD(monthStart(iso)); d.setUTCMonth(d.getUTCMonth() + n); return toISO(d); };
+  const monthEnd = iso => addDays(addMonths(iso, 1), -1);
+  const daysBetween = (a, b) => Math.round((toD(b) - toD(a)) / 864e5);
+  const weekStart = iso => { const d = toD(iso); return addDays(iso, -((d.getUTCDay() + 6) % 7)); };  // Monday
+  const fmtDay = (iso, year) => toD(iso).toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(year ? {year: 'numeric'} : {}), timeZone: 'UTC'});
+  const fmtMonth = (iso, long) => toD(iso).toLocaleDateString(undefined, {month: long ? 'long' : 'short', year: long ? 'numeric' : '2-digit', timeZone: 'UTC'});
+  const fmtMonthShort = iso => toD(iso).toLocaleDateString(undefined, {month: 'short', timeZone: 'UTC'});
+  const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  // ---------- data ----------
+  let DATA = null, TODAY = '', ROWS = [], CATS = new Map(), ACCTS = new Map(), FIRST = '', LAST = '';
+  const SERIES = {spend: new Map(), income: new Map()};  // series key -> color var, fixed by all-time size
+
+  function prepare(d) {
+    DATA = d; TODAY = d.today;
+    for (const [id, name, group, income, hidden] of d.cats) CATS.set(id, {id, name, group, income, hidden});
+    for (const [id, name] of d.accounts) ACCTS.set(id, name);
+    ROWS = d.tx.map(([id, date, amt, cid, aid, pix, flags]) => {
+      const c = CATS.get(cid);
+      // Uncategorized money is sorted by direction: money out is spending, money in is income.
+      const kind = c ? (c.income ? 'income' : 'spend') : (amt > 0 ? 'income' : 'spend');
+      return {id, date, amt, cid, aid, payee: d.payees[pix], pending: !!(flags & 1), transfer: !!(flags & 2), manual: !!(flags & 4),
+              kind, val: kind === 'spend' ? -amt : amt,
+              group: c ? c.group : 'Uncategorized', cat: c ? c.name : 'Uncategorized', retired: !!(c && c.hidden)};
+    });
+    FIRST = ROWS.length ? ROWS[ROWS.length - 1].date : TODAY;
+    LAST = ROWS.length ? ROWS[0].date : TODAY;
+    // Colors follow the entity, not its rank in the current view: ranked once over all
+    // history, so filtering never repaints a group. Past eight, the tail folds into "Other".
+    for (const mode of ['spend', 'income']) {
+      const tot = new Map();
+      for (const r of ROWS) if (r.kind === mode && !r.transfer) tot.set(seriesKey(r, mode), (tot.get(seriesKey(r, mode)) || 0) + r.val);
+      const ranked = [...tot.entries()].sort((a, b) => b[1] - a[1]).map(e => e[0]);
+      const slots = ranked.length > 8 ? 7 : 8;
+      ranked.forEach((k, i) => SERIES[mode].set(k, i < slots ? `var(--s${i + 1})` : null));
+    }
+    const sel = $('acct');
+    for (const [id, name] of ACCTS) sel.append(h('option', {value: id}, name));
+  }
+  // Spending is grouped by category group; income (fewer, flatter) by category.
+  const seriesKey = (r, mode) => mode === 'spend' ? r.group : r.cat;
+  const colorOf = (key, mode = S.mode) => SERIES[mode].get(key) || 'var(--s-other)';
+  const foldKey = (key, mode = S.mode) => SERIES[mode].get(key) ? key : 'Other';
+  const seriesOrder = (mode = S.mode) => [...SERIES[mode].entries()].filter(e => e[1]).map(e => e[0]);
+
+  // ---------- state (kept in the URL, so a view can be bookmarked or shared) ----------
+  const DEFAULT = {range: '90', from: '', to: '', mode: 'spend', q: '', acct: '', transfers: false, group: [], cat: [], payee: []};
+  let S = structuredClone(DEFAULT);
+  function readHash() {
+    const p = new URLSearchParams(location.hash.slice(1));
+    S = structuredClone(DEFAULT);
+    for (const k of ['range', 'from', 'to', 'mode', 'q', 'acct']) if (p.has(k)) S[k] = p.get(k);
+    S.transfers = p.get('transfers') === '1';
+    for (const k of ['group', 'cat', 'payee']) S[k] = p.getAll(k);
+    if (!RANGES.some(r => r.k === S.range)) S.range = '90';
+    if (!['spend', 'income'].includes(S.mode)) S.mode = 'spend';
+  }
+  function writeHash() {
+    const p = new URLSearchParams();
+    for (const k of ['range', 'mode', 'q', 'acct']) if (S[k] !== DEFAULT[k]) p.set(k, S[k]);
+    if (S.range === 'custom') { p.set('from', S.from); p.set('to', S.to); }
+    if (S.transfers) p.set('transfers', '1');
+    for (const k of ['group', 'cat', 'payee']) for (const v of S[k]) p.append(k, v);
+    history.replaceState(null, '', location.pathname + (p.toString() ? '#' + p : ''));
+  }
+
+  const RANGES = [
+    {k: 'month', label: 'This month'}, {k: 'last', label: 'Last month'}, {k: '30', label: '30 days'},
+    {k: '90', label: '90 days'}, {k: 'ytd', label: 'Year to date'}, {k: '12m', label: '12 months'},
+    {k: 'all', label: 'All time'}, {k: 'custom', label: 'Custom…'}];
+  // [from, to] inclusive, plus the period just before it (same length) for comparisons.
+  function period() {
+    const t = TODAY, ms = monthStart(t);
+    let from, to, prev, label;
+    switch (S.range) {
+      case 'month': from = ms; to = monthEnd(t); prev = [addMonths(ms, -1), addDays(ms, -1)]; label = fmtMonthShort(prev[0]); break;
+      case 'last': from = addMonths(ms, -1); to = addDays(ms, -1); prev = [addMonths(ms, -2), addDays(from, -1)]; label = fmtMonthShort(prev[0]); break;
+      case 'ytd': from = t.slice(0, 4) + '-01-01'; to = t;
+        prev = [(+t.slice(0, 4) - 1) + '-01-01', (+t.slice(0, 4) - 1) + t.slice(4)]; label = 'same time last year'; break;
+      case '12m': from = addMonths(ms, -11); to = monthEnd(t); prev = [addMonths(ms, -23), addDays(from, -1)]; label = 'the 12 months before'; break;
+      case 'all': from = FIRST; to = LAST > t ? LAST : t; prev = null; break;
+      case 'custom': from = S.from || addDays(t, -29); to = S.to || t; if (to < from) [from, to] = [to, from]; break;
+      default: { const n = +S.range; from = addDays(t, -(n - 1)); to = t; label = `the ${n} days before`; }
+    }
+    if (!prev && S.range !== 'all') { const n = daysBetween(from, to) + 1; prev = [addDays(from, -n), addDays(from, -1)]; label = label || 'the period before'; }
+    // Nothing exists before the first transaction: start the range there (so charts and
+    // per-day averages aren't padded with empty months), and only compare against a
+    // previous period that history fully covers - a half-empty one would fake a jump.
+    const clipped = from < FIRST && FIRST <= to;
+    if (clipped) from = FIRST;
+    if (prev && prev[0] < FIRST) prev = null;
+    return {from, to, prev, prevLabel: label, clipped};
+  }
+
+  function matches(r, from, to) {
+    if (r.date < from || r.date > to) return false;
+    if (r.transfer && !S.transfers) return false;
+    if (S.acct && String(r.aid) !== S.acct) return false;
+    if (S.group.length && !S.group.includes(r.group)) return false;
+    if (S.cat.length && !S.cat.includes(r.cat)) return false;
+    if (S.payee.length && !S.payee.includes(r.payee)) return false;
+    if (S.q) {
+      const q = S.q.toLowerCase().trim(), n = q.replace(/[$,]/g, '');
+      const amt = (Math.abs(r.amt) / 100).toFixed(2);
+      if (!r.payee.toLowerCase().includes(q) && !(n && /^[\d.]+$/.test(n) && amt.startsWith(n))) return false;
+    }
+    return true;
+  }
+
+  // ---------- filter actions (every click-to-filter goes through these) ----------
+  function toggleIn(key, v) { const a = S[key]; const i = a.indexOf(v); i < 0 ? a.push(v) : a.splice(i, 1); }
+  function filterBy(key, v) {
+    if (key === 'series') key = S.mode === 'spend' ? 'group' : 'cat';
+    if (v === 'Other') { toast('“Other” is several small groups — filter one of them from Where it went.'); return; }
+    toggleIn(key, v); render();
+  }
+  function setRange(from, to) { S.range = 'custom'; S.from = from; S.to = to; render(); }
+
+  // ---------- tooltip ----------
+  const tip = $('tip');
+  function showTip(evt, title, rows, hint) {
+    tip.replaceChildren(h('div', {class: 'tt'}, title));
+    for (const r of rows) tip.append(h('div', {class: 'tr' + (r.tot ? ' tot' : '')}, h('i', {style: r.color ? `background:${r.color}` : ''}), h('b', {}, r.value), h('span', {}, r.label || '')));
+    if (hint) tip.append(h('div', {class: 'hint'}, hint));
+    tip.hidden = false;
+    const p = evt.touches ? evt.touches[0] : evt;
+    let x = p.clientX, y = p.clientY;
+    if (x == null) { const b = evt.target.getBoundingClientRect(); x = b.left + b.width / 2; y = b.top; }
+    const w = tip.offsetWidth, hh = tip.offsetHeight;
+    tip.style.left = Math.max(8, Math.min(x + 14, innerWidth - w - 8)) + 'px';
+    tip.style.top = (y - hh - 12 < 8 ? y + 16 : y - hh - 12) + 'px';
+  }
+  const hideTip = () => { tip.hidden = true; };
+  addEventListener('scroll', hideTip, {passive: true});
+  // Hover and keyboard focus show the same thing.
+  function tipOn(el, fn) {
+    el.addEventListener('pointermove', e => fn(e));
+    el.addEventListener('pointerleave', hideTip);
+    el.addEventListener('focus', e => fn(e));
+    el.addEventListener('blur', hideTip);
+  }
+
+  let toastT;
+  function toast(msg) {
+    let t = $('rtoast');
+    if (!t) { t = h('div', {id: 'rtoast', class: 'toast', role: 'status', style: 'position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:14px;z-index:40;max-width:calc(100vw - 32px)'}); document.body.append(t); }
+    t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3200);
+  }
+
+  // ---------- small shared pieces ----------
+  const sum = (rows, f = r => r.val) => rows.reduce((a, r) => a + f(r), 0);
+  function groupBy(rows, keyFn) { const m = new Map(); for (const r of rows) { const k = keyFn(r); let g = m.get(k); if (!g) m.set(k, g = []); g.push(r); } return m; }
+  // Change vs the previous period. For spending, up is bad; for income and net, up is good.
+  function delta(now, before, upIsGood, inDollars) {
+    if (before == null) return h('span', {class: 'delta'}, '');
+    const diff = now - before;
+    if (!before && !now) return h('span', {class: 'delta'}, '—');
+    // Percent change is meaningless when a value can cross zero (net), so that shows dollars.
+    const pct = before && !inDollars ? Math.round(100 * diff / Math.abs(before)) : null;
+    const good = diff === 0 ? null : (diff > 0) === upIsGood;
+    const arrow = diff > 0 ? '▲' : diff < 0 ? '▼' : '';
+    const txt = pct == null ? `${arrow} ${whole(Math.abs(diff))}` : `${arrow} ${pct === 0 ? '<1' : Math.abs(pct)}%`;
+    return h('span', {class: 'delta' + (good == null ? '' : good ? ' good' : ' bad'), title: `${whole(before)} before`}, diff === 0 ? 'no change' : txt.trim());
+  }
+  function niceScale(max, ticks = 4) {
+    const m = Math.max(max, 100) / 100, raw = m / ticks, pow = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map(x => x * pow).find(v => v >= raw);
+    return {top: Math.ceil(m / step) * step * 100, step: step * 100};
+  }
+  function buckets(from, to) {
+    const span = daysBetween(from, to) + 1;
+    const unit = span <= 62 ? 'day' : span <= 210 ? 'week' : 'month';
+    const out = [];
+    if (unit === 'day') for (let d = from; d <= to; d = addDays(d, 1)) out.push({k: d, from: d, to: d, label: fmtDay(d)});
+    else if (unit === 'week') for (let d = weekStart(from); d <= to; d = addDays(d, 7)) out.push({k: d, from: d < from ? from : d, to: addDays(d, 6) > to ? to : addDays(d, 6), label: fmtDay(d)});
+    else for (let d = monthStart(from); d <= to; d = addMonths(d, 1)) out.push({k: d, from: d < from ? from : d, to: monthEnd(d) > to ? to : monthEnd(d), label: fmtMonth(d)});
+    const keyOf = unit === 'day' ? (iso => iso) : unit === 'week' ? weekStart : monthStart;
+    return {unit, list: out, keyOf};
+  }
+  const empty = msg => h('div', {class: 'empty'}, msg || 'Nothing matches these filters.');
+  const seqVar = (v, max) => { if (v <= 0 || !max) return null; const i = Math.min(7, 1 + Math.floor(6.999 * Math.sqrt(v / max))); return i; };
+  const darkMode = () => matchMedia('(prefers-color-scheme: dark)').matches;
+  const cellInk = i => darkMode() ? (i >= 6 ? '#0d0d0d' : '#f0efec') : (i >= 4 ? '#ffffff' : '#1d1d1b');
+  function legend(keys, mode) {
+    return h('div', {class: 'legend'}, keys.map(k => h('button', {type: 'button', onclick: () => filterBy('series', k), title: k === 'Other' ? 'Smaller groups, folded together' : `Filter to ${k}`},
+      h('i', {class: 'sw', style: `background:${k === 'Other' ? 'var(--s-other)' : colorOf(k, mode)}`}), k)));
+  }
+
+  // A stacked or grouped column chart. cols: [{label, title, parts: [{key, value, color}], onclick}]
+  function columnChart(box, cols, {height = 220, grouped = false} = {}) {
+    const W = Math.max(280, box.clientWidth || 600), H = height, padL = 46, padB = 24, padT = 8;
+    const totals = cols.map(c => grouped ? Math.max(0, ...c.parts.map(p => p.value)) : sum(c.parts.filter(p => p.value > 0), p => p.value));
+    const {top, step} = niceScale(Math.max(...totals, 0) * 1.05);
+    const y = v => padT + (H - padT - padB) * (1 - v / top);
+    const svg = s('svg', {class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Column chart'});
+    for (let v = 0; v <= top + 1; v += step) {
+      s('line', {x1: padL, x2: W, y1: y(v), y2: y(v), stroke: v ? 'var(--grid)' : 'var(--axis)', 'stroke-width': 1}, svg);
+      s('text', {x: padL - 8, y: y(v) + 4, class: 'tick', 'text-anchor': 'end'}, svg).textContent = compact(v);
+    }
+    const n = cols.length, slot = (W - padL) / n, bw = Math.max(2, Math.min(56, slot * (grouped ? 0.78 : 0.68)));
+    const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - padL) / 64))));
+    cols.forEach((c, i) => {
+      const g = s('g', {class: 'col'}, svg), x0 = padL + slot * i + (slot - bw) / 2;
+      s('rect', {class: 'col-hi', x: padL + slot * i, y: padT, width: slot, height: H - padT - padB}, g);
+      if (grouped) {
+        const pw = (bw - 2 * (c.parts.length - 1)) / c.parts.length;
+        c.parts.forEach((p, j) => { if (p.value <= 0) return;
+          s('rect', {x: x0 + j * (pw + 2), y: y(p.value), width: Math.max(1, pw), height: Math.max(0, y(0) - y(p.value)), rx: Math.min(3, pw / 2), fill: p.color}, g); });
+      } else {
+        let acc = 0;
+        const parts = c.parts.filter(p => p.value > 0);
+        parts.forEach((p, j) => {
+          const y1 = y(acc + p.value), y0 = y(acc); acc += p.value;
+          const gap = j < parts.length - 1 ? 2 : 0;  // 2px surface gap between stacked segments
+          s('rect', {x: x0, y: y1 + gap, width: bw, height: Math.max(0, y0 - y1 - gap), rx: j === parts.length - 1 ? Math.min(3, bw / 2) : 0, fill: p.color}, g);
+        });
+      }
+      if (i % every === 0) s('text', {x: padL + slot * i + slot / 2, y: H - 6, class: 'tick', 'text-anchor': 'middle'}, svg).textContent = c.label;
+      const hit = s('rect', {class: 'col-hit', x: padL + slot * i, y: padT, width: slot, height: H - padT, tabindex: 0, role: 'button', 'aria-label': c.title}, g);
+      tipOn(hit, e => { g.classList.add('hot'); c.tip(e); });
+      hit.addEventListener('pointerleave', () => g.classList.remove('hot'));
+      hit.addEventListener('blur', () => g.classList.remove('hot'));
+      if (c.onclick) { hit.addEventListener('click', () => { hideTip(); c.onclick(); }); hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.onclick(); } }); }
+    });
+    box.append(svg);
+  }
+  // Table twin for any chart: same numbers, no hovering needed.
+  function table(headers, rows, foot) {
+    const t = h('table', {class: 't'}, h('thead', {}, h('tr', {}, headers.map(x => h('th', {class: x.r ? 'r' : ''}, x.label)))),
+      h('tbody', {}, rows.map(r => h('tr', {}, r.map((v, i) => h('td', {class: headers[i].r ? 'r num' : ''}, v))))));
+    if (foot) t.append(h('tfoot', {}, h('tr', {}, foot.map((v, i) => h('td', {class: headers[i].r ? 'r num' : ''}, v)))));
+    return h('div', {class: 'tw'}, t);
+  }
+
+  // ---------- widgets ----------
+  const WIDGETS = {
+    trend: {
+      title: 'Over time', size: 'full', table: true,
+      render(box, c, asTable) {
+        const rows = c.mrows;
+        if (!rows.length) return box.append(empty());
+        const b = buckets(c.from, c.to), keys = [...seriesOrder(), 'Other'];
+        const byB = new Map(b.list.map(x => [x.k, new Map()]));
+        for (const r of rows) { const m = byB.get(b.keyOf(r.date)); if (!m) continue; const k = foldKey(seriesKey(r, S.mode)); m.set(k, (m.get(k) || 0) + r.val); }
+        const present = keys.filter(k => b.list.some(x => byB.get(x.k).get(k)));
+        const tot = x => sum([...byB.get(x.k).values()], v => v);
+        const avg = sum(rows) / b.list.length;
+        c.setCap(`${whole(sum(rows))} · avg ${whole(avg)} per ${b.unit}`);
+        if (asTable) {
+          return box.append(table([{label: b.unit[0].toUpperCase() + b.unit.slice(1)}, ...present.map(k => ({label: k, r: 1})), {label: 'Total', r: 1}],
+            b.list.map(x => [x.label, ...present.map(k => whole(byB.get(x.k).get(k) || 0)), whole(tot(x))]),
+            ['Total', ...present.map(k => whole(sum(rows.filter(r => foldKey(seriesKey(r, S.mode)) === k)))), whole(sum(rows))]));
+        }
+        if (present.length > 1) box.append(legend(present));
+        const chart = h('div'); box.append(chart);
+        columnChart(chart, b.list.map(x => {
+          const m = byB.get(x.k);
+          const parts = present.map(k => ({key: k, value: m.get(k) || 0, color: k === 'Other' ? 'var(--s-other)' : colorOf(k)}));
+          const title = b.unit === 'day' ? fmtDay(x.from, true) : b.unit === 'week' ? `Week of ${fmtDay(x.k, true)}` : fmtMonth(x.k, true);
+          return {label: x.label, title: `${title}: ${whole(tot(x))}`, parts,
+            tip: e => showTip(e, title, [...parts.filter(p => p.value).sort((a, b2) => b2.value - a.value).map(p => ({color: p.color, value: whole(p.value), label: p.key})),
+                                         {tot: 1, value: whole(tot(x)), label: 'Total'}], 'Click to zoom into this ' + b.unit),
+            onclick: () => setRange(x.from, x.to)};
+        }));
+      }
+    },
+    where: {
+      title: 'Where it went', titleIncome: 'Where it came from', size: 'half',
+      render(box, c) {
+        const rows = c.mrows;
+        if (!rows.length) return box.append(empty());
+        const total = sum(rows);
+        const prevBy = c.prevM ? groupBy(c.prevM, r => r.group) : null, prevCat = c.prevM ? groupBy(c.prevM, r => r.group + '\u0000' + r.cat) : null;
+        const spend = S.mode === 'spend';
+        const top = spend ? [...groupBy(rows, r => r.group)] : [...groupBy(rows, r => r.cat)].map(([k, v]) => [k, v]);
+        top.sort((a, b) => sum(b[1]) - sum(a[1]));
+        const max = Math.max(...top.map(([, v]) => sum(v)), 1);
+        c.setCap(`${top.length} ${spend ? 'group' : 'source'}${top.length === 1 ? '' : 's'} · ${whole(total)}`);
+        const list = h('div', {class: 'rank'});
+        const line = (cls, color, name, val, before, onName, caret) => h('div', {class: 'rk ' + cls},
+          caret || h('span'),
+          h('button', {type: 'button', class: 'nm', onclick: onName, title: `Filter to ${name}`}, h('i', {class: 'sw', style: `background:${color}`}), h('span', {}, name)),
+          h('div', {class: 'track'}, h('i', {style: `width:${Math.max(0, 100 * val / max)}%;background:${color}`})),
+          h('span', {class: 'amt'}, whole(val)),
+          h('span', {class: 'pct'}, total ? Math.round(100 * val / total) + '%' : ''),
+          before === undefined ? h('span') : delta(val, before, !spend));
+        for (const [k, rs] of top) {
+          const v = sum(rs), color = colorOf(k);
+          const before = prevBy ? (spend ? sum(prevBy.get(k) || []) : sum((c.prevM || []).filter(r => r.cat === k))) : undefined;
+          if (!spend) { list.append(line('', color, k, v, before, () => filterBy('cat', k))); continue; }
+          const kids = [...groupBy(rs, r => r.cat)].sort((a, b) => sum(b[1]) - sum(a[1]));
+          const open = OPEN.has(k);
+          const caret = kids.length > 1 ? h('button', {type: 'button', class: 'caret', 'aria-expanded': String(open), 'aria-label': `Show categories in ${k}`,
+            onclick: () => { open ? OPEN.delete(k) : OPEN.add(k); render(); }}, '▶') : h('span');
+          list.append(line('', color, k, v, before, () => filterBy('group', k), caret));
+          if (open) for (const [cat, cr] of kids)
+            list.append(line('child', color, cat, sum(cr), prevCat ? sum(prevCat.get(k + '\u0000' + cat) || []) : undefined, () => filterBy('cat', cat)));
+        }
+        box.append(list);
+        if (c.prev) box.append(h('p', {class: 'note'}, `Arrows compare with ${c.prevLabel}.`));
+      }
+    },
+    payees: {
+      title: 'Top payees', size: 'half',
+      render(box, c) {
+        const rows = c.mrows;
+        if (!rows.length) return box.append(empty());
+        const total = sum(rows);
+        let list = [...groupBy(rows, r => r.payee)].map(([p, rs]) => {
+          const cats = groupBy(rs, r => r.cat), topCat = [...cats].sort((a, b) => b[1].length - a[1].length)[0][0];
+          return {payee: p, total: sum(rs), n: rs.length, avg: sum(rs) / rs.length, last: rs.reduce((a, r) => r.date > a ? r.date : a, ''), cat: topCat, group: rs[0].group};
+        });
+        const sortKey = SORT.payees || 'total', dir = SORT.payeesDir || -1;
+        list.sort((a, b) => (typeof a[sortKey] === 'string' ? a[sortKey].localeCompare(b[sortKey]) : a[sortKey] - b[sortKey]) * dir);
+        c.setCap(`${list.length} payee${list.length === 1 ? '' : 's'}`);
+        const max = Math.max(...list.map(x => x.total), 1), show = EXPAND.has('payees') ? list : list.slice(0, 12);
+        const th = (k, label, r) => h('th', {class: r ? 'r' : '', 'aria-sort': sortKey === k ? (dir > 0 ? 'ascending' : 'descending') : null},
+          h('button', {type: 'button', onclick: () => { SORT.payees = k; SORT.payeesDir = sortKey === k ? -dir : (typeof list[0][k] === 'string' ? 1 : -1); render(); }}, label + (sortKey === k ? (dir > 0 ? ' ↑' : ' ↓') : '')));
+        const t = h('table', {class: 't'}, h('thead', {}, h('tr', {}, th('payee', 'Payee'), th('total', 'Total', 1), h('th', {}, 'Share'), th('n', 'Count', 1), th('avg', 'Avg', 1), th('last', 'Last', 1))),
+          h('tbody', {}, show.map(x => h('tr', {class: 'click', onclick: () => filterBy('payee', x.payee), title: `Filter to ${x.payee}`},
+            h('td', {class: 'wrap'}, h('button', {type: 'button', class: 'lnk'}, x.payee), h('div', {class: 'muted', style: 'font-size:11.5px'}, x.cat)),
+            h('td', {class: 'r num'}, whole(x.total)),
+            h('td', {}, h('span', {class: 'mini'}, h('i', {style: `width:${Math.max(0, 100 * x.total / max)}%;background:${colorOf(seriesKey(x, S.mode))}`})), ' ', h('span', {class: 'muted', style: 'font-size:11.5px'}, total ? Math.round(100 * x.total / total) + '%' : '')),
+            h('td', {class: 'r num'}, x.n), h('td', {class: 'r num'}, whole(x.avg)), h('td', {class: 'r num muted'}, fmtDay(x.last))))));
+        box.append(h('div', {class: 'tw'}, t));
+        if (list.length > 12) box.append(h('button', {type: 'button', class: 'more', onclick: () => { EXPAND.has('payees') ? EXPAND.delete('payees') : EXPAND.add('payees'); render(); }},
+          EXPAND.has('payees') ? 'Show top 12' : `Show all ${list.length}`));
+      }
+    },
+    heat: {
+      title: 'Category by month', size: 'full', table: true,
+      render(box, c, asTable) {
+        const rows = c.mrows;
+        if (!rows.length) return box.append(empty());
+        let months = []; for (let m = monthStart(c.from); m <= c.to; m = addMonths(m, 1)) months.push(m);
+        if (months.length < 2) return box.append(empty('Pick a range of two months or more to compare months.'));
+        const cut = months.length > 24; if (cut) months = months.slice(-24);
+        const byCat = [...groupBy(rows, r => r.cat)].map(([k, rs]) => ({k, group: rs[0].group, total: sum(rs), m: groupBy(rs, r => monthStart(r.date))}))
+          .sort((a, b) => b.total - a.total);
+        const LIMIT = EXPAND.has('heat') ? byCat.length : 14;
+        const shown = byCat.slice(0, LIMIT), rest = byCat.slice(LIMIT);
+        const val = (cat, m) => sum(cat.m.get(m) || []);
+        const max = Math.max(...shown.flatMap(cat => months.map(m => val(cat, m))), 1);
+        c.setCap(`${shown.length} of ${byCat.length} categories · ${months.length} months${cut ? ' (latest 24)' : ''}`);
+        if (asTable) return box.append(table([{label: 'Category'}, ...months.map(m => ({label: fmtMonth(m), r: 1})), {label: 'Total', r: 1}],
+          byCat.map(cat => [cat.k, ...months.map(m => whole(val(cat, m))), whole(cat.total)])));
+        const cw = Math.max(34, Math.min(70, ((box.clientWidth || 700) - 170) / months.length));
+        const showVals = cw >= 50;
+        const grid = h('div', {class: 'heat', style: `grid-template-columns: minmax(120px, 170px) repeat(${months.length}, minmax(0, ${cw}px))`});
+        grid.append(h('span'), ...months.map(m => h('span', {class: 'cl'}, fmtMonth(m))));
+        for (const cat of shown) {
+          grid.append(h('span', {class: 'rl', title: `${cat.group} › ${cat.k}`}, h('i', {class: 'sw', style: `background:${S.mode === 'spend' ? colorOf(cat.group) : colorOf(cat.k)}`}), h('span', {}, cat.k)));
+          for (const m of months) {
+            const v = val(cat, m), i = seqVar(v, max);
+            const cell = h('button', {type: 'button', class: 'cell' + (i ? '' : ' z'), style: i ? `background:var(--q${i});color:${cellInk(i)}` : '',
+              'aria-label': `${cat.k}, ${fmtMonth(m, true)}: ${whole(v)}`, onclick: () => { hideTip(); if (!S.cat.includes(cat.k)) S.cat.push(cat.k); setRange(m < c.from ? c.from : m, monthEnd(m) > c.to ? c.to : monthEnd(m)); }},
+              showVals && v ? compact(v) : '');
+            tipOn(cell, e => showTip(e, `${cat.k} · ${fmtMonth(m, true)}`, [{value: whole(v), label: (cat.m.get(m) || []).length + ' transactions'},
+              {value: whole(cat.total / months.length), label: 'avg month in this range'}], 'Click to filter to this month'));
+            grid.append(cell);
+          }
+        }
+        box.append(h('div', {class: 'tw'}, grid));
+        const sc = h('div', {class: 'scale'}, 'Less');
+        for (let i = 1; i <= 7; i++) sc.append(h('i', {style: `background:var(--q${i})`}));
+        sc.append('More', h('span', {style: 'margin-left:auto'}));
+        if (rest.length || EXPAND.has('heat')) sc.append(h('button', {type: 'button', class: 'more', style: 'padding:0', onclick: () => { EXPAND.has('heat') ? EXPAND.delete('heat') : EXPAND.add('heat'); render(); }},
+          EXPAND.has('heat') ? 'Show top 14' : `+ ${rest.length} smaller (${whole(sum(rest, x => x.total))})`));
+        box.append(sc);
+      }
+    },
+    rhythm: {
+      title: 'Daily rhythm', size: 'half',
+      render(box, c) {
+        const rows = c.mrows;
+        if (!rows.length) return box.append(empty());
+        const to = c.to > TODAY && c.from <= TODAY ? TODAY : c.to;
+        const byDay = new Map(); for (const r of rows) byDay.set(r.date, (byDay.get(r.date) || 0) + r.val);
+        const nDays = daysBetween(c.from, to) + 1;
+        // Weekday averages: total on that weekday ÷ how many of that weekday the range has.
+        const wk = Array(7).fill(0), wkN = Array(7).fill(0);
+        for (let d = c.from; d <= to; d = addDays(d, 1)) { const i = (toD(d).getUTCDay() + 6) % 7; wkN[i]++; wk[i] += byDay.get(d) || 0; }
+        const wkAvg = wk.map((v, i) => wkN[i] ? v / wkN[i] : 0), wmax = Math.max(...wkAvg, 1);
+        const busiest = wkAvg.indexOf(Math.max(...wkAvg));
+        c.setCap(`avg ${whole(sum(rows) / nDays)} a day · busiest ${WEEKDAYS[busiest]}`);
+        const wrap = h('div', {class: 'rhythm'});
+        if (nDays <= 400) {
+          const max = Math.max(...byDay.values(), 1), cal = h('div', {class: 'cal'});
+          for (let d = weekStart(c.from); d <= to; d = addDays(d, 1)) {
+            if (d < c.from) { cal.append(h('span', {class: 'day out'})); continue; }
+            const v = byDay.get(d) || 0, i = seqVar(v, max);
+            const cell = h('button', {type: 'button', class: 'day', style: `background:var(--q${i || 0})`, 'aria-label': `${fmtDay(d, true)}: ${whole(v)}`,
+              onclick: () => { hideTip(); setRange(d, d); }});
+            tipOn(cell, e => showTip(e, toD(d).toLocaleDateString(undefined, {weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC'}),
+              [{value: whole(v), label: rows.filter(r => r.date === d).length + ' transactions'}], 'Click to see this day'));
+            cal.append(cell);
+          }
+          wrap.append(h('div', {class: 'cal-wrap'}, h('div', {class: 'cal-days'}, WEEKDAYS.map((w, i) => h('span', {}, i % 2 ? '' : w))), cal));
+        } else wrap.append(h('p', {class: 'note'}, 'The calendar shows ranges up to about a year.'));
+        wrap.append(h('div', {class: 'wk', 'aria-label': 'Average per weekday'}, h('div', {class: 'muted', style: 'font-size:12px;margin-bottom:2px'}, 'Average by weekday'),
+          WEEKDAYS.map((w, i) => h('div', {class: 'r'}, h('span', {class: 'muted'}, w), h('div', {class: 'track'}, h('i', {style: `width:${100 * wkAvg[i] / wmax}%;background:var(--s1)`})), h('b', {}, whole(wkAvg[i]))))));
+        box.append(wrap);
+        const cal = wrap.querySelector('.cal'); if (cal) requestAnimationFrame(() => { cal.scrollLeft = cal.scrollWidth; });  // newest weeks in view
+      }
+    },
+    flow: {
+      title: 'Income vs spending', size: 'half', table: true,
+      render(box, c, asTable) {
+        const rows = c.rows;  // both directions, regardless of the Spending/Income switch
+        if (!rows.length) return box.append(empty());
+        let b = buckets(c.from, c.to);
+        if (b.unit === 'day') {  // income lands a few times a month; daily pairs would be mostly empty
+          const list = [];
+          for (let d = weekStart(c.from); d <= c.to; d = addDays(d, 7))
+            list.push({k: d, from: d < c.from ? c.from : d, to: addDays(d, 6) > c.to ? c.to : addDays(d, 6), label: fmtDay(d)});
+          b = {unit: 'week', list, keyOf: weekStart};
+        }
+        const inc = new Map(), out = new Map();
+        for (const r of rows) { const k = b.keyOf(r.date), m = r.kind === 'income' ? inc : out; m.set(k, (m.get(k) || 0) + r.val); }
+        const net = sum(rows.filter(r => r.kind === 'income')) - sum(rows.filter(r => r.kind === 'spend'));
+        const ahead = b.list.filter(x => (inc.get(x.k) || 0) >= (out.get(x.k) || 0)).length;
+        c.setCap(`net ${whole(net)} · ${ahead} of ${b.list.length} ${b.unit}s ahead`);
+        if (asTable) return box.append(table([{label: b.unit[0].toUpperCase() + b.unit.slice(1)}, {label: 'Income', r: 1}, {label: 'Spending', r: 1}, {label: 'Net', r: 1}],
+          b.list.map(x => [x.label, whole(inc.get(x.k) || 0), whole(out.get(x.k) || 0), whole((inc.get(x.k) || 0) - (out.get(x.k) || 0))])));
+        box.append(h('div', {class: 'legend'}, h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: 'sw', style: 'background:var(--s1)'}), 'Income'),
+          h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: 'sw', style: 'background:var(--s2)'}), 'Spending')));
+        const chart = h('div'); box.append(chart);
+        columnChart(chart, b.list.map(x => {
+          const i = inc.get(x.k) || 0, o = out.get(x.k) || 0;
+          const title = b.unit === 'week' ? `Week of ${fmtDay(x.k, true)}` : fmtMonth(x.k, true);
+          return {label: x.label, title: `${title}: income ${whole(i)}, spending ${whole(o)}`,
+            parts: [{key: 'Income', value: i, color: 'var(--s1)'}, {key: 'Spending', value: o, color: 'var(--s2)'}],
+            tip: e => showTip(e, title, [{color: 'var(--s1)', value: whole(i), label: 'Income'}, {color: 'var(--s2)', value: whole(o), label: 'Spending'},
+                                          {tot: 1, value: whole(i - o), label: i >= o ? 'Net (ahead)' : 'Net (behind)'}], 'Click to zoom in'),
+            onclick: () => setRange(x.from < c.from ? c.from : x.from, x.to > c.to ? c.to : x.to)};
+        }), {grouped: true, height: 200});
+      }
+    },
+    big: {
+      title: 'Largest transactions', size: 'half',
+      render(box, c) {
+        const rows = [...c.mrows].sort((a, b) => b.val - a.val).slice(0, EXPAND.has('big') ? 40 : 10);
+        if (!rows.length) return box.append(empty());
+        c.setCap(`top ${rows.length}`);
+        box.append(h('div', {class: 'tw'}, h('table', {class: 't'}, h('tbody', {}, rows.map(r => h('tr', {},
+          h('td', {class: 'muted num'}, fmtDay(r.date)),
+          h('td', {class: 'wrap'}, h('button', {type: 'button', class: 'lnk', onclick: () => filterBy('payee', r.payee), title: `Filter to ${r.payee}`}, r.payee),
+            h('div', {class: 'muted', style: 'font-size:11.5px'}, r.cat)),
+          h('td', {class: 'r num', style: 'font-weight:600'}, whole(r.val))))))));
+        box.append(h('button', {type: 'button', class: 'more', onclick: () => { EXPAND.has('big') ? EXPAND.delete('big') : EXPAND.add('big'); render(); }}, EXPAND.has('big') ? 'Show top 10' : 'Show top 40'));
+      }
+    },
+    ledger: {
+      title: 'Transactions', size: 'full',
+      render(box, c) {
+        const rows = [...c.mrows];
+        if (!rows.length) return box.append(empty());
+        const k = SORT.ledger || 'date', dir = SORT.ledgerDir || -1;
+        const get = {date: r => r.date, payee: r => r.payee.toLowerCase(), cat: r => (r.group + r.cat).toLowerCase(), acct: r => ACCTS.get(r.aid) || '', val: r => r.val};
+        rows.sort((a, b) => { const x = get[k](a), y = get[k](b); return (x < y ? -1 : x > y ? 1 : b.id - a.id) * dir; });
+        const total = sum(rows);
+        c.setCap(`${rows.length.toLocaleString()} · ${cents(total)}`);
+        const limit = PAGE.ledger || 50, show = rows.slice(0, limit);
+        const th = (key, label, r) => h('th', {class: r ? 'r' : '', 'aria-sort': k === key ? (dir > 0 ? 'ascending' : 'descending') : null},
+          h('button', {type: 'button', onclick: () => { SORT.ledger = key; SORT.ledgerDir = k === key ? -dir : (key === 'date' || key === 'val' ? -1 : 1); render(); }}, label + (k === key ? (dir > 0 ? ' ↑' : ' ↓') : '')));
+        box.append(h('div', {class: 'tw'}, h('table', {class: 't'},
+          h('thead', {}, h('tr', {}, th('date', 'Date'), th('payee', 'Payee'), th('cat', 'Category'), h('th', {class: 'acct'}, h('button', {type: 'button', onclick: () => { SORT.ledger = 'acct'; SORT.ledgerDir = k === 'acct' ? -dir : 1; render(); }}, 'Account' + (k === 'acct' ? (dir > 0 ? ' ↑' : ' ↓') : ''))), th('val', S.mode === 'spend' ? 'Spent' : 'Received', 1))),
+          h('tbody', {}, show.map(r => h('tr', {},
+            h('td', {class: 'muted num'}, fmtDay(r.date, r.date.slice(0, 4) !== TODAY.slice(0, 4)), r.manual ? h('span', {class: 'tag', title: 'Date set by hand'}, 'set') : null),
+            h('td', {class: 'wrap'}, h('button', {type: 'button', class: 'lnk', onclick: () => filterBy('payee', r.payee)}, r.payee), r.pending ? h('span', {class: 'tag'}, 'pending') : null, r.transfer ? h('span', {class: 'tag'}, 'transfer') : null),
+            h('td', {}, h('button', {type: 'button', class: 'lnk', onclick: () => filterBy('cat', r.cat), style: 'display:inline-flex;gap:6px;align-items:center'},
+              h('i', {class: 'sw', style: `background:${colorOf(seriesKey(r, S.mode))}`}), h('span', {class: 'muted gp'}, r.group + ' › '), r.cat + (r.retired ? ' (retired)' : ''))),
+            h('td', {class: 'muted acct'}, ACCTS.get(r.aid) || ''),
+            h('td', {class: 'r num' + (r.val < 0 ? ' in' : '')}, cents(r.val))))),
+          h('tfoot', {}, h('tr', {}, h('td', {colspan: 3}, `${rows.length.toLocaleString()} transactions`), h('td', {class: 'acct'}), h('td', {class: 'r num'}, cents(total)))))));
+        const bar = h('div', {style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap'});
+        if (rows.length > limit) bar.append(h('button', {type: 'button', class: 'more', onclick: () => { PAGE.ledger = limit + 100; render(); }}, `Show 100 more (${(rows.length - limit).toLocaleString()} left)`));
+        bar.append(h('button', {type: 'button', class: 'more', onclick: () => exportCSV(rows)}, '⇩ Download CSV'));
+        box.append(bar);
+      }
+    },
+  };
+  const ORDER0 = ['trend', 'where', 'payees', 'heat', 'flow', 'rhythm', 'big', 'ledger'];
+  const OPEN = new Set(), EXPAND = new Set(), SORT = {}, PAGE = {}, TABLES = new Set();
+
+  function exportCSV(rows) {
+    const q = v => /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v;
+    const lines = [['Date', 'Payee', 'Group', 'Category', 'Account', 'Amount', 'Pending', 'Transfer'].join(',')];
+    for (const r of rows) lines.push([r.date, q(r.payee), q(r.group), q(r.cat), q(ACCTS.get(r.aid) || ''), (r.amt / 100).toFixed(2), r.pending ? 'yes' : '', r.transfer ? 'yes' : ''].join(','));
+    const p = period();
+    const a = h('a', {href: URL.createObjectURL(new Blob([lines.join('\n')], {type: 'text/csv'})), download: `transactions-${p.from}-to-${p.to}.csv`});
+    document.body.append(a); a.click(); a.remove();
+  }
+
+  // ---------- layout: order, size and visibility per card, remembered on this device ----------
+  const LAYOUT_KEY = 'v2-reports-layout';
+  let LAYOUT = null;
+  function loadLayout() {
+    let saved = null; try { saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); } catch (e) {}
+    const known = Array.isArray(saved) ? saved.filter(x => WIDGETS[x.id]) : [];
+    for (const id of ORDER0) if (!known.some(x => x.id === id)) known.push({id, size: WIDGETS[id].size, hidden: false});
+    LAYOUT = known;
+  }
+  function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(LAYOUT)); } catch (e) {} }
+
+  // ---------- render ----------
+  let cards = new Map();
+  function buildBoard() {
+    const board = h('div', {class: 'board', id: 'board'});
+    cards = new Map();
+    for (const L of LAYOUT) {
+      const W = WIDGETS[L.id];
+      const cap = h('span', {class: 'cap'});
+      const tools = h('div', {class: 'tools'});
+      if (W.table) tools.append(h('button', {type: 'button', class: 'ibtn', 'aria-pressed': String(TABLES.has(L.id)), title: 'Show the numbers as a table',
+        onclick: e => { TABLES.has(L.id) ? TABLES.delete(L.id) : TABLES.add(L.id); e.currentTarget.setAttribute('aria-pressed', TABLES.has(L.id)); renderCard(L.id); }}, 'Table'));
+      tools.append(h('button', {type: 'button', class: 'ibtn', title: 'Toggle wide / half width', onclick: () => { L.size = L.size === 'full' ? 'half' : 'full'; saveLayout(); applyLayout(); renderCard(L.id); }},
+        L.size === 'full' ? 'Half' : 'Wide'));
+      tools.append(h('button', {type: 'button', class: 'ibtn', title: 'Hide this card (bring it back from Customize)', 'aria-label': `Hide ${W.title}`,
+        onclick: () => { L.hidden = true; saveLayout(); applyLayout(); }}, '✕'));
+      const handle = h('button', {type: 'button', class: 'handle', title: 'Drag to move (or focus and use arrow keys)', 'aria-label': `Move ${W.title}`}, '⋮⋮');
+      const title = h('h2', {}, W.title);
+      const body = h('div', {class: 'wb'});
+      const card = h('section', {class: 'w', 'data-id': L.id, 'aria-label': W.title}, h('div', {class: 'wh'}, handle, title, cap, tools), body);
+      cards.set(L.id, {card, body, cap, title, tools});
+      wireDrag(card, handle, L.id);
+      board.append(card);
+    }
+    return board;
+  }
+  function applyLayout() {
+    const board = $('board');
+    for (const L of LAYOUT) {
+      const c = cards.get(L.id); if (!c) continue;
+      c.card.hidden = !!L.hidden;
+      c.card.classList.toggle('full', L.size === 'full');
+      const sizeBtn = [...c.tools.children].find(b => b.textContent === 'Half' || b.textContent === 'Wide');
+      if (sizeBtn) sizeBtn.textContent = L.size === 'full' ? 'Half' : 'Wide';
+      board.append(c.card);
+    }
+  }
+
+  let CTX = null;
+  function renderCard(id) {
+    const c = cards.get(id), W = WIDGETS[id];
+    if (!c || !CTX) return;
+    c.body.replaceChildren(); c.cap.textContent = '';
+    c.title.textContent = S.mode === 'income' && W.titleIncome ? W.titleIncome : W.title;
+    W.render(c.body, {...CTX, setCap: t => c.cap.textContent = t}, TABLES.has(id));
+  }
+
+  function render() {
+    writeHash();
+    const p = period();
+    const all = ROWS.filter(r => matches(r, p.from, p.to));
+    const prev = p.prev ? ROWS.filter(r => matches(r, p.prev[0], p.prev[1])) : null;
+    CTX = {from: p.from, to: p.to, rows: all, mrows: all.filter(r => r.kind === S.mode), prev, prevM: prev && prev.filter(r => r.kind === S.mode), prevLabel: p.prevLabel};
+    renderControls(p);
+    renderKpis(all, prev, p);
+    for (const L of LAYOUT) if (!L.hidden) renderCard(L.id);
+  }
+
+  function renderKpis(all, prev, p) {
+    const spent = sum(all.filter(r => r.kind === 'spend')), inc = sum(all.filter(r => r.kind === 'income'));
+    const pS = prev && sum(prev.filter(r => r.kind === 'spend')), pI = prev && sum(prev.filter(r => r.kind === 'income'));
+    const end = p.to > TODAY && p.from <= TODAY ? TODAY : p.to, days = daysBetween(p.from, end) + 1;
+    const pdays = prev ? daysBetween(p.prev[0], p.prev[1]) + 1 : 0;
+    const tile = (l, v, d) => h('div', {class: 'kpi'}, h('div', {class: 'l'}, l), h('div', {class: 'v'}, v), h('div', {class: 'd'}, d || ' '));
+    const vs = (now, before, good, dollars) => prev ? [delta(now, before, good, dollars), ` vs ${p.prevLabel}`] : (S.range === 'all' ? '' : 'not enough history to compare');
+    $('kpis').replaceChildren(
+      tile('Spent', whole(spent), vs(spent, pS, false)),
+      tile('Income', whole(inc), vs(inc, pI, true)),
+      tile('Net', whole(inc - spent), vs(inc - spent, prev ? pI - pS : null, true, true)),
+      tile('Spent per day', whole(days ? spent / days : 0), vs(days ? spent / days : 0, prev && pdays ? pS / pdays : null, false)),
+      tile('Transactions', all.length.toLocaleString(), prev ? `${prev.length.toLocaleString()} in ${p.prevLabel}` : ''));
+    $('when').textContent = (p.from === p.to ? fmtDay(p.from, true) : `${fmtDay(p.from, true)} – ${fmtDay(p.to, true)}`) + (p.clipped ? ' (history starts here)' : '');
+  }
+
+  function renderControls(p) {
+    $$('#ranges button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === S.range)));
+    $('custom').classList.toggle('on', S.range === 'custom');
+    $('from').value = p.from; $('to').value = p.to;
+    $$('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
+    if ($('q') !== document.activeElement) $('q').value = S.q;
+    $('acct').value = S.acct; $('transfers').checked = S.transfers;
+    const chips = $('chips'); chips.replaceChildren();
+    const chip = (k, label, color, onx) => h('button', {type: 'button', class: 'chip', onclick: onx, title: 'Remove this filter'},
+      color ? h('i', {class: 'sw', style: `background:${color}`}) : null, h('span', {class: 'k'}, k), label, h('span', {class: 'x', 'aria-hidden': 'true'}, '×'));
+    for (const g of S.group) chips.append(chip('Group', g, colorOf(g, 'spend'), () => { toggleIn('group', g); render(); }));
+    for (const c of S.cat) chips.append(chip('Category', c, null, () => { toggleIn('cat', c); render(); }));
+    for (const pz of S.payee) chips.append(chip('Payee', pz, null, () => { toggleIn('payee', pz); render(); }));
+    if (S.acct) chips.append(chip('Account', ACCTS.get(+S.acct) || '?', null, () => { S.acct = ''; render(); }));
+    if (S.q) chips.append(chip('Search', `“${S.q}”`, null, () => { S.q = ''; render(); }));
+    if (chips.children.length) chips.append(h('button', {type: 'button', class: 'clear', onclick: () => { S.group = []; S.cat = []; S.payee = []; S.acct = ''; S.q = ''; render(); }}, 'Clear filters'));
+  }
+
+  // ---------- controls ----------
+  for (const r of RANGES) $('ranges').append(h('button', {type: 'button', 'data-k': r.k, 'aria-pressed': 'false', onclick: () => {
+    if (r.k === 'custom') { const p = period(); S.from = p.from; S.to = p.to; }
+    S.range = r.k; PAGE.ledger = 50; render(); }}, r.label));
+  $('from').addEventListener('change', () => { if ($('from').value) { S.range = 'custom'; S.from = $('from').value; S.to = $('to').value; render(); } });
+  $('to').addEventListener('change', () => { if ($('to').value) { S.range = 'custom'; S.from = $('from').value; S.to = $('to').value; render(); } });
+  $$('.seg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; S.group = []; S.cat = []; render(); }));
+  let qT; $('q').addEventListener('input', () => { clearTimeout(qT); qT = setTimeout(() => { S.q = $('q').value.trim(); PAGE.ledger = 50; render(); }, 180); });
+  $('acct').addEventListener('change', () => { S.acct = $('acct').value; render(); });
+  $('transfers').addEventListener('change', () => { S.transfers = $('transfers').checked; render(); });
+  addEventListener('hashchange', () => { readHash(); render(); });
+  let rz, lastW = innerWidth; addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(render, 150); });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+
+  // ---------- drag and drop (plus arrow keys on the handle) ----------
+  let dragId = null;
+  function wireDrag(card, handle, id) {
+    handle.addEventListener('pointerdown', () => { card.draggable = true; });
+    card.addEventListener('dragstart', e => { dragId = id; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', id); hideTip(); });
+    card.addEventListener('dragend', () => { card.draggable = false; card.classList.remove('dragging'); clearMarks(); dragId = null; });
+    card.addEventListener('dragover', e => {
+      if (!dragId || dragId === id) return;
+      e.preventDefault(); clearMarks();
+      const where = dropSide(card, e);
+      card.classList.add(where.before ? 'drop-before' : 'drop-after', where.axis);
+    });
+    card.addEventListener('dragleave', e => { if (!card.contains(e.relatedTarget)) card.classList.remove('drop-before', 'drop-after', 'dx', 'dy'); });
+    card.addEventListener('drop', e => {
+      if (!dragId || dragId === id) return;
+      e.preventDefault();
+      const where = dropSide(card, e);
+      move(dragId, id, where.before); clearMarks();
+    });
+    handle.addEventListener('keydown', e => {
+      const vis = LAYOUT.filter(x => !x.hidden), i = vis.findIndex(x => x.id === id);
+      if (['ArrowUp', 'ArrowLeft'].includes(e.key) && i > 0) { e.preventDefault(); move(id, vis[i - 1].id, true); handle.focus(); }
+      if (['ArrowDown', 'ArrowRight'].includes(e.key) && i < vis.length - 1) { e.preventDefault(); move(id, vis[i + 1].id, false); handle.focus(); }
+    });
+  }
+  // Side-by-side half cards split left/right; anything else splits top/bottom.
+  function dropSide(card, e) {
+    const r = card.getBoundingClientRect(), board = $('board').getBoundingClientRect();
+    if (r.width < board.width * 0.75) return {axis: 'dx', before: e.clientX < r.left + r.width / 2};
+    return {axis: 'dy', before: e.clientY < r.top + r.height / 2};
+  }
+  const clearMarks = () => $$('.w').forEach(c => c.classList.remove('drop-before', 'drop-after', 'dx', 'dy'));
+  function move(id, targetId, before) {
+    const from = LAYOUT.findIndex(x => x.id === id), item = LAYOUT.splice(from, 1)[0];
+    let to = LAYOUT.findIndex(x => x.id === targetId) + (before ? 0 : 1);
+    LAYOUT.splice(to, 0, item); saveLayout(); applyLayout();
+    for (const L of LAYOUT) if (!L.hidden) renderCard(L.id);  // widths may have changed
+  }
+
+  // ---------- customize dialog ----------
+  function renderCust() {
+    const ul = $('cust-list'); ul.replaceChildren();
+    LAYOUT.forEach((L, i) => {
+      const W = WIDGETS[L.id];
+      ul.append(h('li', {},
+        h('input', {type: 'checkbox', id: 'cv-' + L.id, checked: !L.hidden, onchange: e => { L.hidden = !e.target.checked; saveLayout(); applyLayout(); if (!L.hidden) renderCard(L.id); }}),
+        h('label', {for: 'cv-' + L.id}, W.title),
+        h('button', {type: 'button', class: 'ibtn', onclick: () => { L.size = L.size === 'full' ? 'half' : 'full'; saveLayout(); applyLayout(); renderCard(L.id); renderCust(); }}, L.size === 'full' ? 'Wide' : 'Half'),
+        h('button', {type: 'button', class: 'ibtn', disabled: i === 0, 'aria-label': `Move ${W.title} up`, onclick: () => { move(L.id, LAYOUT[i - 1].id, true); renderCust(); }}, '↑'),
+        h('button', {type: 'button', class: 'ibtn', disabled: i === LAYOUT.length - 1, 'aria-label': `Move ${W.title} down`, onclick: () => { move(L.id, LAYOUT[i + 1].id, false); renderCust(); }}, '↓')));
+    });
+  }
+  $('cust-btn').addEventListener('click', () => { renderCust(); $('cust').showModal(); });
+  $('cust-done').addEventListener('click', () => $('cust').close());
+  $('cust-reset').addEventListener('click', () => { try { localStorage.removeItem(LAYOUT_KEY); } catch (e) {} loadLayout(); $('board').replaceWith(buildBoard()); applyLayout(); render(); renderCust(); });
+
+  // ---------- go ----------
+  fetch('{{ url_for("v2.reports_data") }}').then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }).then(d => {
+    prepare(d);
+    readHash(); loadLayout();
+    $('app').replaceChildren(h('div', {class: 'kpis', id: 'kpis'}), buildBoard());
+    applyLayout(); render();
+  }).catch(err => { $('app').replaceChildren(h('div', {class: 'loading'}, 'Couldn’t load your transactions: ' + err.message)); });
+})();
+</script>
+{% endblock %}

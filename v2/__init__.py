@@ -704,6 +704,53 @@ def review():
                            category_groups=_category_options())
 
 
+# ---------- reports ----------
+
+@v2_bp.route("/reports")
+@login_required
+def reports():
+    """Reporting: totals by payee, category and time, with filters and drill-down.
+    The page fetches /reports/data once and does all slicing in the browser."""
+    return render_template("v2/reports.html")
+
+
+@v2_bp.route("/reports/data")
+@login_required
+def reports_data():
+    """Every transaction in a compact form for the Reports page.
+
+    Split parents are left out: their line-items carry the categories and the
+    same money, so counting both would double it. Transfers are included but
+    flagged, so the page can leave them out by default.
+    tx rows: [id, "YYYY-MM-DD", amount_cents (signed), category_id or 0,
+              account_id, payee_index, flags]  flags: 1 pending, 2 transfer, 4 date set by hand
+    """
+    parents = {pid for (pid,) in db.session.query(Transaction.parent_id)
+               .filter(Transaction.parent_id.isnot(None)).distinct()}
+    payees, payee_ix, rows = [], {}, []
+    q = (db.session.query(Transaction.id, Transaction.date, Transaction.amount, Transaction.category_id,
+                          Transaction.account_id, Transaction.payee, Transaction.source, Transaction.cleared,
+                          Transaction.transfer_id, Transaction.date_manual)
+         .order_by(Transaction.date.desc(), Transaction.id.desc()))
+    for tid, d, amt, cid, aid, payee, source, cleared, transfer, manual in q:
+        if tid in parents:
+            continue
+        name = (payee or "").strip() or "(no payee)"
+        ix = payee_ix.get(name)
+        if ix is None:
+            ix = payee_ix[name] = len(payees)
+            payees.append(name)
+        flags = (1 if source == "plaid" and not cleared else 0) | (2 if transfer else 0) | (4 if manual else 0)
+        rows.append([tid, d.isoformat(), amt or 0, cid or 0, aid, ix, flags])
+    cats = [[c.id, c.name, c.group_name, bool(c.is_income), bool(c.hidden)]
+            for c in Category.query.order_by(Category.group_name, Category.name)]
+    accounts = [[a.id, a.name] for a in Account.query.order_by(Account.name)]
+    resp = jsonify({"today": date.today().isoformat(), "cats": cats, "accounts": accounts,
+                    "payees": payees, "tx": rows})
+    resp.headers["Cache-Control"] = "no-store"
+    return resp
+
+
 @v2_bp.route("/review/save", methods=["POST"])
 @login_required
 def review_save():
