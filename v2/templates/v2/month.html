@@ -249,12 +249,12 @@
     <button type="button" data-view="andy" role="radio">Andy</button>
     <button type="button" data-view="libby" role="radio">Libby</button>
   </div>
-  <button type="button" class="foldall" id="charts-btn" aria-expanded="false">Show charts</button>
+  <button type="button" class="foldall" id="charts-btn" aria-expanded="false"{% if is_future %} hidden{% endif %}>Show charts</button>
   <button type="button" class="foldall" id="foldall">Collapse all</button>
   <a class="arrow" href="{{ url_for('v2.progress', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
-  {% if not is_current %}<a class="arrow" href="{{ url_for('v2.progress', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% endif %}
+  {% if can_next %}<a class="arrow" href="{{ url_for('v2.progress', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% endif %}
 </div>
-<p class="sub">{% if editable %}Type a new amount to change it. It saves right away and applies from {{ month_name }} on. Click a row to see its transactions.{% else %}{{ month_label }} as it was budgeted. Click a row to see its transactions; amounts can only be changed in the current month.{% endif %}
+<p class="sub">{% if is_future %}<b>Planning {{ month_label }}.</b> Type an amount to set it; it applies from {{ month_name }} on, and earlier months keep theirs. Income plans are the same every month.{% elif editable %}Type a new amount to change it. It saves right away and applies from {{ month_name }} on. Click a row to see its transactions.{% else %}{{ month_label }} as it was budgeted. Click a row to see its transactions; amounts can be changed in this month or future ones.{% endif %}
   <a href="{{ url_for('v2.plan') }}">Plan vs actual →</a></p>
 
 {% if v2_uncategorized and is_current %}
@@ -424,7 +424,7 @@
       const oldNext = +tr.dataset.next;
       tr.dataset.plan = cents; tr.dataset.next = cents; totals(); tr.classList.remove('err', 'saved');
       try {
-        await postJSON('{{ url_for("v2.budgets_save") }}', {budgets: {[tr.dataset.cid]: cents}});
+        await postJSON('{{ url_for("v2.budgets_save") }}', {budgets: {[tr.dataset.cid]: cents}, y: {{ y }}, m: {{ m }}});
         void tr.offsetWidth; tr.classList.add('saved');
       } catch (err) {
         tr.dataset.plan = old; tr.dataset.next = oldNext; inp.value = money2(old); totals(); tr.classList.add('err');
@@ -640,6 +640,7 @@
   const DAYS = {{ days_in_month }}, ELAPSED = {{ days_elapsed }};
   const DAILY = {{ daily|tojson }};
   const IS_CURRENT = {{ 'true' if is_current else 'false' }};
+  const IS_FUTURE = {{ 'true' if is_future else 'false' }};
   const CH = {{ charts|tojson }};
   const MONTH = {{ month_name|tojson }};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -935,6 +936,7 @@
   }
   const CHARTS_KEY = 'v2-home-charts';
   function setCharts(on) {
+    on = on && !IS_FUTURE;  // nothing to chart before a month starts
     $('bento').hidden = !on;
     document.documentElement.classList.toggle('charts-on', on);
     $('charts-btn').textContent = on ? 'Hide charts' : 'Show charts';

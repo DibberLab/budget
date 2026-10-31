@@ -294,9 +294,11 @@ def progress():
         date(y, m, 1)
     except ValueError:
         y, m = today.year, today.month
-    if (y, m) > (today.year, today.month):
-        y, m = today.year, today.month
+    limit = _month_add(today.year, today.month, 12)
+    if (y, m) > limit:
+        y, m = limit
     is_current = (y, m) == (today.year, today.month)
+    is_future = (y, m) > (today.year, today.month)
 
     cats = Category.query.order_by(Category.group_name, Category.name).all()
     ids = [c.id for c in cats]
@@ -342,7 +344,7 @@ def progress():
     ordered = sorted(groups.items(), key=lambda kv: (kv[0] == "Retired", -sum(r["plan"] for r in kv[1]), kv[0].lower()))
 
     days_in_month = monthrange(y, m)[1]
-    days_elapsed = today.day if is_current else days_in_month
+    days_elapsed = today.day if is_current else (0 if is_future else days_in_month)
     pace = round(100 * days_elapsed / days_in_month)
     daily = [0] * days_in_month
     for d, total in (db.session.query(Transaction.date, func.sum(Transaction.amount))
@@ -357,7 +359,8 @@ def progress():
         "v2/month.html", y=y, m=m, income=income, groups=ordered,
         month_name=date(y, m, 1).strftime("%B"), month_label=date(y, m, 1).strftime("%B %Y"),
         next_label=date(ny, nm, 1).strftime("%B"),
-        prev=prev, nxt=(ny, nm), is_current=is_current, editable=is_current,
+        prev=prev, nxt=(ny, nm), is_current=is_current, is_future=is_future,
+        editable=is_current or is_future, can_next=(ny, nm) <= limit,
         avg_label=f"{a_start:%b}–{(first - timedelta(days=1)):%b}",
         cat_options=[(g, [{"id": c.id, "name": c.name} for c in cs]) for g, cs in _category_options()],
         pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed,
@@ -482,12 +485,22 @@ def budgets():
 @v2_bp.route("/budgets/save", methods=["POST"])
 @login_required
 def budgets_save():
-    """Body: {"budgets": {category_id: cents}}. Sets the budget from the current
-    month onward; earlier months keep the budget they had at the time."""
-    data = (request.get_json(silent=True) or {}).get("budgets", {})
+    """Body: {"budgets": {category_id: cents}, "y": int?, "m": int?}. Sets each
+    budget from that month (default: this month) onward; earlier months keep
+    what they had. Past months can't be changed."""
+    body = request.get_json(silent=True) or {}
+    data = body.get("budgets", {})
     income = {c.id for c in Category.query.filter_by(is_income=True)}
-    valid = {c.id for c in Category.query}
+    cats = {c.id: c for c in Category.query}
+    valid = set(cats)
     today = date.today()
+    try:
+        y, m = int(body.get("y") or today.year), int(body.get("m") or today.month)
+        date(y, m, 1)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Bad month."}), 400
+    if (y, m) < (today.year, today.month):
+        return jsonify({"error": "Past months can't be changed."}), 400
     changed = 0
     for cid, cents in data.items():
         try:
@@ -502,15 +515,7 @@ def budgets_save():
             db.session.add(plan)
             changed += 1
             continue
-        row = (BudgetMonth.query.filter_by(year=today.year, month=today.month, category_id=cid).first()
-               or BudgetMonth(year=today.year, month=today.month, category_id=cid))
-        row.assigned = cents
-        db.session.add(row)
-        # Drop any budgets already set for future months so this one carries forward.
-        (BudgetMonth.query
-         .filter(BudgetMonth.category_id == cid,
-                 (BudgetMonth.year * 12 + BudgetMonth.month) > today.year * 12 + today.month)
-         .delete(synchronize_session=False))
+        set_budget(cats[cid], cents, y=y, m=m)
         changed += 1
     db.session.commit()
     return jsonify({"ok": True, "changed": changed})
@@ -937,19 +942,21 @@ def save_category(cat: "Category | None", name: str, group: str, hidden=None, is
     return cat
 
 
-def set_budget(cat: "Category", cents: int, this_month_only: bool = False) -> None:
-    """Budget from this month onward (carrying forward), or for this month only
-    with next month going back to what it was. Caller commits."""
+def set_budget(cat: "Category", cents: int, this_month_only: bool = False, y: int = None, m: int = None) -> None:
+    """Budget from month (y, m) onward (default: this month), carrying forward;
+    or for that month only, with the next month going back to what it was.
+    Caller commits."""
     today = date.today()
+    y, m = (y, m) if y and m else (today.year, today.month)
     if cat.is_income:
         plan = db.session.get(IncomePlan, cat.id) or IncomePlan(category_id=cat.id)
         plan.amount = cents
         db.session.add(plan)
         return
-    ny, nm = (today.year + (today.month == 12), today.month % 12 + 1)
-    prior = _budgets_as_of(today.year, today.month, [cat.id])[0].get(cat.id, 0)
-    row = (BudgetMonth.query.filter_by(year=today.year, month=today.month, category_id=cat.id).first()
-           or BudgetMonth(year=today.year, month=today.month, category_id=cat.id))
+    ny, nm = (y + (m == 12), m % 12 + 1)
+    prior = _budgets_as_of(y, m, [cat.id])[0].get(cat.id, 0)
+    row = (BudgetMonth.query.filter_by(year=y, month=m, category_id=cat.id).first()
+           or BudgetMonth(year=y, month=m, category_id=cat.id))
     row.assigned = cents
     db.session.add(row)
     if this_month_only:
@@ -957,10 +964,10 @@ def set_budget(cat: "Category", cents: int, this_month_only: bool = False) -> No
         if not nxt:
             db.session.add(BudgetMonth(year=ny, month=nm, category_id=cat.id, assigned=prior))
     else:
-        # Drop any budgets already set for future months so this one carries forward.
+        # Drop budgets already set for later months so this one carries forward.
         (BudgetMonth.query
          .filter(BudgetMonth.category_id == cat.id,
-                 (BudgetMonth.year * 12 + BudgetMonth.month) > today.year * 12 + today.month)
+                 (BudgetMonth.year * 12 + BudgetMonth.month) > y * 12 + m)
          .delete(synchronize_session=False))
 
 
