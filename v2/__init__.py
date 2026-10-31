@@ -561,8 +561,9 @@ def budgets():
 @login_required
 def budgets_save():
     """Body: {"budgets": {category_id: cents}, "y": int?, "m": int?}. Sets each
-    budget for that month (default: this month); later months follow unless
-    they have their own amount. Past months can't be changed."""
+    budget for that month only (default: this month): the next month keeps the
+    amount it had, so editing October never changes November. Past months
+    can't be changed."""
     body = request.get_json(silent=True) or {}
     data = body.get("budgets", {})
     income = {c.id for c in Category.query.filter_by(is_income=True)}
@@ -590,7 +591,7 @@ def budgets_save():
             db.session.add(plan)
             changed += 1
             continue
-        set_budget(cats[cid], cents, y=y, m=m)
+        set_budget(cats[cid], cents, this_month_only=True, y=y, m=m)
         changed += 1
     db.session.commit()
     return jsonify({"ok": True, "changed": changed})
