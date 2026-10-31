@@ -288,6 +288,129 @@
   .extra .v.good { color: var(--ok); } .extra .v.bad { color: var(--bad); }
   .extra .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
 
+  .main { display: grid; gap: 14px; min-width: 0; }
+
+  /* ---------- Money in: its own card, lighter and green-edged, so it never reads as an expense ---------- */
+  .income { background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 9%, var(--card)), var(--card) 70%);
+            border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line)); border-radius: 16px; overflow: hidden; }
+  .inc-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding: 14px 16px 12px; }
+  .inc-head h2 { margin: 0; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--ink); }
+  .inc-ic { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 999px; font-size: 13px;
+            background: color-mix(in srgb, var(--ok) 20%, transparent); color: var(--ok); }
+  .inc-sum { margin-top: 4px; font-size: 13.5px; color: var(--muted); }
+  .inc-sum b { color: var(--ok); font-size: 20px; font-weight: 750; letter-spacing: -.02em; margin-right: 4px; font-variant-numeric: tabular-nums; }
+  .inc-meter { flex: 0 1 240px; height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--ok) 14%, var(--track)); position: relative; overflow: hidden; margin-bottom: 6px; }
+  .inc-meter[hidden] { display: none; }
+  .inc-meter i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--ok); transition: width .9s cubic-bezier(.2,.8,.2,1); }
+  .income th { background: transparent; color: var(--muted); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em;
+               border-top: 1px solid color-mix(in srgb, var(--ok) 25%, var(--line)); padding: 7px 14px; white-space: nowrap; }
+  .income tbody tr[data-cid] td, .income tbody tr[data-cid].alt td { background-color: transparent; }
+  .income tr.inc td.what { padding-left: 16px; }
+  .income tr.inc td { border-top: 1px solid color-mix(in srgb, var(--ok) 14%, var(--line)); }
+  .income .spent { color: var(--ok); font-weight: 600; font-size: 13.5px; }
+  .income tr.txrow td { box-shadow: none; background: transparent !important; padding-left: 16px; }
+
+  /* ---------- Money out: heading + List / Cards switch ---------- */
+  .exp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 2px -4px; }
+  .exp-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+  .seg { display: inline-flex; padding: 3px; border-radius: 10px; background: var(--track); }
+  .seg button { font: inherit; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 5px 14px; border-radius: 8px; cursor: pointer; }
+  .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 600; }
+  .sheet[hidden], .cards[hidden] { display: none; }
+
+  /* ---------- Cards view: one card per group ---------- */
+  /* Columns, not a grid: cards of different heights pack without gaps. */
+  .cards { columns: 2 290px; column-gap: 12px; }
+  .cards > .gcard { break-inside: avoid; margin-bottom: 12px; display: block; }
+  .gcard { --st: var(--accent); background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 16px 16px 10px;
+           position: relative; overflow: hidden; }
+  .gcard::before { content: ''; position: absolute; inset: 0 0 auto 0; height: 4px; background: var(--st); opacity: .85; }
+  .gcard.st-ok { --st: var(--ok); } .gcard.st-warn { --st: var(--warn); } .gcard.st-bad { --st: var(--bad); } .gcard.st-none { --st: var(--line); }
+  .gc-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .gc-top h3 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pill { flex: none; font-size: 11.5px; font-weight: 650; padding: 3px 9px; border-radius: 999px; white-space: nowrap;
+          background: color-mix(in srgb, var(--st) 16%, transparent); color: color-mix(in srgb, var(--st) 75%, var(--ink)); }
+  .gc-big { margin: 10px 0 2px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+  .gc-big b { font-size: 30px; font-weight: 750; letter-spacing: -.03em; line-height: 1; font-variant-numeric: tabular-nums; }
+  .gc-big .w { font-size: 14px; color: var(--ink); }
+  .gc-big .of { font-size: 13px; color: var(--muted); }
+  .gcard.st-bad .gc-big b { color: var(--bad); }
+  .bar { position: relative; height: 10px; border-radius: 999px; background: var(--track); margin: 12px 0 6px; }
+  .bar i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--st); transition: width .9s cubic-bezier(.2,.8,.2,1); }
+  .bar .pace { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--pace); opacity: .7; }
+  .gc-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .gc-cats { list-style: none; margin: 12px -8px 0; padding: 6px 0 0; border-top: 1px solid var(--line); }
+  .gc-cats li[hidden] { display: none; }
+  .cat { --st: var(--accent); display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; width: 100%;
+         font: inherit; color: inherit; text-align: left; background: none; border: 0; border-radius: 10px; padding: 7px 8px; cursor: pointer; }
+  .cat:hover, .cat:focus-visible { background: var(--track); outline: none; }
+  .cat.st-ok { --st: var(--ok); } .cat.st-warn { --st: var(--warn); } .cat.st-bad { --st: var(--bad); } .cat.st-none { --st: var(--muted); }
+  .cat .n { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cat .v { font-size: 13px; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .cat.st-bad .v { color: var(--bad); font-weight: 600; } .cat.st-warn .v { color: color-mix(in srgb, var(--warn) 80%, var(--ink)); }
+  .cat .mini { grid-column: 1 / -1; height: 4px; border-radius: 999px; background: var(--track); position: relative; overflow: hidden; }
+  .cat:hover .mini { background: color-mix(in srgb, var(--ink) 10%, var(--track)); }
+  .cat .mini i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--st); }
+  .gc-more { font: inherit; font-size: 12.5px; color: var(--muted); background: none; border: 0; padding: 8px 0 4px; cursor: pointer; width: 100%; text-align: left; }
+  .gc-more:hover { color: var(--ink); }
+
+  /* ---------- Category panel (cards view): side panel on wide screens, bottom sheet on phones ---------- */
+  dialog.panel { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(660px, 100vw); border: 0; padding: 0;
+                 background: var(--card); color: var(--ink); box-shadow: -12px 0 40px rgba(0,0,0,.18); }
+  dialog.panel::backdrop { background: rgba(0,0,0,.28); }
+  dialog.panel[open] { animation: slidein .22s cubic-bezier(.2,.8,.2,1); }
+  @keyframes slidein { from { transform: translateX(40px); opacity: 0; } }
+  .pn { --st: var(--accent); display: flex; flex-direction: column; height: 100%; }
+  .pn.st-ok { --st: var(--ok); } .pn.st-warn { --st: var(--warn); } .pn.st-bad { --st: var(--bad); } .pn.st-none { --st: var(--muted); }
+  .pn-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); }
+  .pn-top { display: flex; align-items: center; gap: 8px; }
+  .pn-top .crumb { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin-right: auto; }
+  .pn-close { font: inherit; font-size: 20px; line-height: 1; border: 0; background: var(--track); color: var(--muted); width: 32px; height: 32px; border-radius: 999px; cursor: pointer; }
+  .pn-close:hover { color: var(--ink); }
+  .pn h2 { margin: 4px 0 0; font-size: 22px; letter-spacing: -.02em; }
+  .pn .gc-big b { font-size: 36px; }
+  .pn.st-bad .gc-big b { color: var(--bad); }
+  .pn-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  .pn-facts div { background: var(--bg); border-radius: 10px; padding: 8px 10px; min-width: 0; }
+  .pn-facts dt { font-size: 11.5px; color: var(--muted); }
+  .pn-facts dd { margin: 2px 0 0; font-size: 15px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .pn-facts .money::before { left: 6px; font-size: 13px; }
+  .pn-facts .money input { font-size: 15px; font-weight: 650; padding: 2px 6px 2px 16px; text-align: left; border-color: var(--line); background: var(--card); }
+  .pn-body { overflow: auto; padding: 8px 20px 20px; flex: 1; }
+  .pn-body h3 { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; }
+  /* One row per transaction: date · payee · amount · category, each editable in place. */
+  .pn-tx, .pn-cols { display: grid; grid-template-columns: 124px minmax(0, 1fr) 104px 150px; gap: 6px; align-items: center; }
+  .pn-cols { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 0 0 4px; }
+  .pn-cols span:nth-child(3) { text-align: right; padding-right: 8px; }
+  .pn-tx { padding: 5px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .pn-tx input, .pn-tx select { font: inherit; font-size: 13.5px; color: var(--ink); width: 100%; min-width: 0; padding: 5px 7px; border-radius: 8px;
+                                border: 1px solid transparent; background: transparent; transition: border-color .15s, background .15s; }
+  .pn-tx input:hover, .pn-tx select:hover { border-color: color-mix(in srgb, var(--ink) 18%, transparent); background: var(--card); }
+  .pn-tx input:focus, .pn-tx select:focus { outline: none; border-color: var(--accent); background: var(--card); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+  .pn-tx select { background: var(--bg); }
+  .pn-tx .pay { font-weight: 550; text-overflow: ellipsis; }
+  .pn-tx .dt { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pn-tx .money::before { left: 8px; font-size: 13px; }
+  .pn-tx .money input { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; padding-left: 18px; }
+  .pn-tx input:disabled { color: var(--muted); cursor: not-allowed; }
+  .pn-tx input:disabled:hover { border-color: transparent; background: transparent; }
+  .pn-tx.pending .money input { box-shadow: inset 3px 0 0 var(--warn); }
+  .pn-tx.saved { animation: saved 1.4s ease-out; border-radius: 8px; }
+  .pn-tx.err input:focus { border-color: var(--bad); }
+  @media (max-width: 600px) {  /* phones: two lines (payee + amount, then date + category) */
+    .pn-cols { display: none; }
+    .pn-tx { grid-template-columns: minmax(0, 1fr) 100px; }
+    .pn-tx .pay { grid-column: 1; grid-row: 1; } .pn-tx .money { grid-column: 2; grid-row: 1; }
+    .pn-tx .dt { grid-column: 1; grid-row: 2; width: auto; } .pn-tx select { grid-column: 2; grid-row: 2; }
+  }
+  .pn-empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
+  @media (max-width: 600px) {
+    dialog.panel { margin: auto 0 0; width: 100vw; max-width: 100vw; height: auto; max-height: 88dvh; border-radius: 18px 18px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.2); }
+    dialog.panel[open] { animation-name: slideup; }
+    @keyframes slideup { from { transform: translateY(40px); opacity: 0; } }
+  }
+  @media (prefers-reduced-motion: reduce) { dialog.panel[open] { animation: none; } .bar i, .inc-meter i { transition: none; } }
+
   @media (max-width: 820px) {
     .layout { grid-template-columns: minmax(0, 1fr); }
     .summary { position: static; order: -1; }
@@ -373,13 +496,31 @@
 </section>
 
 <div class="layout">
+  <div class="main">
+  {% if income %}
+  <section class="income" id="income" aria-labelledby="income-h">
+    <header class="inc-head">
+      <div><h2 id="income-h"><span class="inc-ic" aria-hidden="true">↓</span>Money in</h2>
+        <div class="inc-sum" id="inc-sum"></div></div>
+      <div class="inc-meter" id="inc-meter" role="img"><i></i></div>
+    </header>
+    <table>
+      <thead><tr><th>Source</th><th class="r">Received{{ " so far" if is_current }}</th><th class="r">Expected</th></tr></thead>
+      <tbody>{% for r in income %}{{ line(r, 'inc') }}{% endfor %}</tbody>
+    </table>
+  </section>
+  {% endif %}
+  <div class="exp-head">
+    <h2>Money out</h2>
+    <div class="seg" role="group" aria-label="Expenses view">
+      <button type="button" data-view="list" aria-pressed="true">List</button>
+      <button type="button" data-view="cards" aria-pressed="false">Cards</button>
+    </div>
+  </div>
   <div class="sheet" id="sheet">
     <table>
       <thead><tr><th>Item</th><th class="r">Spent in {{ month_name }}</th><th class="r">Monthly</th></tr></thead>
       <tbody>
-        <tr class="section"><td colspan="3">Income</td></tr>
-        {% for r in income %}{{ line(r, 'inc') }}{% endfor %}
-        <tr class="section"><td colspan="3">Expenses</td></tr>
         {% for g, rows in groups %}
         {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="3"></td></tr>{% endif %}
         <tr class="gbar"><td colspan="3"><div class="gb" role="img" aria-label="{{ g }} spending by category"></div></td></tr>
@@ -391,6 +532,8 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+  <div class="cards" id="cards" hidden></div>
   </div>
 
   <aside class="summary">
@@ -419,6 +562,7 @@
   <div class="copy-f"><button type="button" class="btn ghost" id="copy-cancel">Cancel</button>
     <button type="button" class="btn" id="copy-apply">Copy selected</button></div>
 </dialog>
+<dialog class="panel" id="panel" aria-labelledby="pn-title"></dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 {% endblock %}
 {% block scripts %}
@@ -517,6 +661,7 @@
 
   // ---- fill each row by how much of its monthly amount is spent ----
   const PACE = {{ pace }};
+  const EDITABLE = {{ 'true' if editable else 'false' }};
   const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   function rowStatus(plan, spent, income) {
     if (income) return 'ok';
@@ -528,9 +673,9 @@
   }
   function paintFill(tr, plan, spent, income) {
     const st = rowStatus(plan, spent, income);
-    const frac = st === 'none' ? 0 : !plan ? 1 : Math.min(1, spent / plan);
-    const color = css({ok: '--accent', warn: '--warn', bad: '--bad', none: '--accent'}[st]);
-    const fill = `color-mix(in srgb, ${color} ${st === 'ok' ? 26 : 30}%, transparent)`;
+    const frac = st === 'none' || (income && !plan) ? 0 : !plan ? 1 : Math.min(1, spent / plan);
+    const color = css(income ? '--ok' : {ok: '--accent', warn: '--warn', bad: '--bad', none: '--accent'}[st]);
+    const fill = `color-mix(in srgb, ${color} ${income ? 16 : st === 'ok' ? 26 : 30}%, transparent)`;
     const edge = `color-mix(in srgb, ${color} 65%, transparent)`;
     const cells = [...tr.children];
     const left = cells[0].getBoundingClientRect().left;
@@ -1228,6 +1373,213 @@
   $('know-text').addEventListener('keydown', e => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('know-form').requestSubmit(); }
   });
+
+  // ---- Money in: the header's received vs expected ----
+  function paintIncome() {
+    if (!$('income')) return;
+    let plan = 0, got = 0;
+    $$('#income tr[data-cid]').forEach(tr => { plan += +tr.dataset.plan; got += +tr.dataset.spent; });
+    const sum = $('inc-sum'); sum.innerHTML = '';
+    const b = document.createElement('b'); b.textContent = whole(got); sum.append(b);
+    sum.append(plan ? `received of ${whole(plan)} expected` : 'received');
+    const pct = plan ? Math.min(100, 100 * got / plan) : (got ? 100 : 0);
+    $('inc-meter').hidden = !plan;
+    $('inc-meter').querySelector('i').style.width = pct + '%';
+    $('inc-meter').setAttribute('aria-label', plan ? `${Math.round(100 * got / plan)}% of expected income received` : '');
+  }
+
+  // ---- Cards view: one card per group, built from the same rows as the list ----
+  const VIEW_KEY = 'v2-home-layout';
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const PAST = !IS_CURRENT && !IS_FUTURE;
+  const ORDER = {bad: 0, warn: 1, ok: 2, none: 3};
+  const groupLabel = (st, plan, spent) =>
+    IS_FUTURE ? 'Planned'
+    : st === 'bad' ? (plan ? 'Over' : 'No budget')
+    : st === 'warn' ? (plan ? 'Running fast' : 'Unbudgeted')
+    : st === 'none' ? 'Nothing yet'
+    : PAST ? 'Under budget' : 'On track';
+  // "$212 left" / "$40 over" / "$300 spent" (no budget) / "$500 planned" (future)
+  function leftWords(plan, spent) {
+    if (IS_FUTURE) return {big: whole(plan), word: 'planned', of: ''};
+    if (!plan) return {big: whole(spent), word: 'spent', of: 'no budget'};
+    const left = plan - spent;
+    return left >= 0 ? {big: whole(left), word: PAST ? 'under' : 'left', of: 'of ' + whole(plan)}
+                     : {big: whole(-left), word: 'over', of: 'of ' + whole(plan)};
+  }
+  const catRows = () => $$('#sheet tr[data-cid]');
+  const rowData = tr => ({tr, cid: tr.dataset.cid, name: tr.querySelector('.nm').textContent,
+                          plan: +tr.dataset.plan, spent: +tr.dataset.spent, avg: +tr.dataset.avg});
+  const SHOW = 4;
+  const openCards = new Set();  // groups showing all their categories
+  function renderCards() {
+    const box = $('cards'); if (box.hidden) return;
+    box.innerHTML = '';
+    for (const g of $$('#sheet tr.group')) {
+      const name = g.dataset.group, rows = itemRows(g).map(rowData);
+      const plan = rows.reduce((a, r) => a + r.plan, 0), spent = rows.reduce((a, r) => a + r.spent, 0);
+      let st = IS_FUTURE ? 'ok' : rowStatus(plan, spent, false); const lw = leftWords(plan, spent);
+      // A group can be fine overall with one category blown: say so instead of "On track".
+      const nOver = IS_FUTURE ? 0 : rows.filter(r => r.plan && r.spent > r.plan).length;
+      let label = groupLabel(st, plan, spent);
+      if (st === 'ok' && nOver) { st = 'warn'; label = `${nOver} over`; }
+      const pct = plan ? Math.min(100, 100 * spent / plan) : (spent ? 100 : 0);
+      const card = document.createElement('article');
+      card.className = 'gcard st-' + st; card.dataset.group = name;
+      const avg = rows.reduce((a, r) => a + r.avg, 0);
+      card.innerHTML = `
+        <div class="gc-top"><h3>${esc(name)}</h3><span class="pill">${label}</span></div>
+        <div class="gc-big"><b>${lw.big}</b><span class="w">${lw.word}</span><span class="of">${lw.of}</span></div>
+        ${IS_FUTURE ? '' : `<div class="bar" role="img" aria-label="${Math.round(pct)}% spent"><i style="width:${pct}%"></i>${IS_CURRENT ? `<span class="pace" style="left:${PACE}%" title="${PACE}% of the month gone"></span>` : ''}</div>`}
+        <div class="gc-meta"><span>${IS_FUTURE ? '' : (plan ? Math.round(100 * spent / plan) + '% spent' : whole(spent) + ' spent')}</span><span>${avg ? 'usually ' + whole(avg) : ''}</span></div>
+        <ul class="gc-cats"></ul>`;
+      // Most urgent first, then biggest budgets; untouched zero rows last.
+      const sorted = rows.slice().sort((a, b) => {
+        const sa = IS_FUTURE ? 'ok' : rowStatus(a.plan, a.spent, false), sb = IS_FUTURE ? 'ok' : rowStatus(b.plan, b.spent, false);
+        return ORDER[sa] - ORDER[sb] || b.plan - a.plan || b.spent - a.spent || a.name.localeCompare(b.name);
+      });
+      const ul = card.querySelector('.gc-cats');
+      sorted.forEach((r, i) => {
+        const cst = IS_FUTURE ? 'ok' : rowStatus(r.plan, r.spent, false), w = leftWords(r.plan, r.spent);
+        const cp = r.plan ? Math.min(100, 100 * r.spent / r.plan) : (r.spent ? 100 : 0);
+        const li = document.createElement('li');
+        li.hidden = i >= SHOW && !openCards.has(name);
+        li.innerHTML = `<button type="button" class="cat st-${cst}" data-cid="${r.cid}"><span class="n">${esc(r.name)}</span>`
+          + `<span class="v">${w.big} ${w.word}</span>${IS_FUTURE ? '' : `<span class="mini"><i style="width:${cp}%"></i></span>`}</button>`;
+        ul.append(li);
+      });
+      if (sorted.length > SHOW) {
+        const more = document.createElement('button'); more.type = 'button'; more.className = 'gc-more';
+        const open = openCards.has(name);
+        more.textContent = open ? 'Show fewer' : `Show ${sorted.length - SHOW} more`;
+        more.addEventListener('click', () => { open ? openCards.delete(name) : openCards.add(name); renderCards(); });
+        card.append(more);
+      }
+      box.append(card);
+    }
+  }
+  $('cards').addEventListener('click', e => {
+    const b = e.target.closest('.cat'); if (b) openPanel(b.dataset.cid);
+  });
+
+  // ---- category panel ----
+  let panelCid = null;
+  const panel = $('panel');
+  async function renderPanel() {
+    const tr = document.querySelector(`#sheet tr[data-cid="${panelCid}"]`); if (!tr) { panel.close(); return; }
+    const r = rowData(tr), st = IS_FUTURE ? 'ok' : rowStatus(r.plan, r.spent, false), w = leftWords(r.plan, r.spent);
+    const pct = r.plan ? Math.min(100, 100 * r.spent / r.plan) : (r.spent ? 100 : 0);
+    panel.innerHTML = `<div class="pn st-${st}">
+      <div class="pn-head">
+        <div class="pn-top"><span class="crumb">${esc(tr.dataset.gname)}</span><button type="button" class="pn-close" aria-label="Close">×</button></div>
+        <h2 id="pn-title">${esc(r.name)}</h2>
+        <div class="gc-big"><b>${w.big}</b><span class="w">${w.word}</span><span class="of">${w.of}</span></div>
+        ${IS_FUTURE ? '' : `<div class="bar"><i style="width:${pct}%"></i>${IS_CURRENT ? `<span class="pace" style="left:${PACE}%"></span>` : ''}</div>`}
+        <dl class="pn-facts">
+          <div><dt>Budget</dt><dd>${EDITABLE ? `<label class="money"><input inputmode="decimal" class="num" value="${money2(r.plan)}" aria-label="${esc(r.name)} monthly budget"></label>` : whole(r.plan)}</dd></div>
+          <div><dt>Spent</dt><dd>${whole(r.spent)}</dd></div>
+          <div><dt>Usually</dt><dd>${r.avg ? whole(r.avg) : '—'}</dd></div>
+        </dl>
+      </div>
+      <div class="pn-body"><h3>${MONTH}${IS_CURRENT ? ' so far' : ''}</h3><div id="pn-list"><p class="pn-empty">Loading…</p></div></div>
+    </div>`;
+    panel.querySelector('.pn-close').addEventListener('click', () => panel.close());
+    const inp = panel.querySelector('.pn-facts input');
+    if (inp) {
+      inp.addEventListener('focus', () => inp.select());
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+      inp.addEventListener('change', () => {  // hand off to the list's own input, which saves and recalculates
+        const src = tr.querySelector('.money input'); src.value = inp.value; src.dispatchEvent(new Event('change'));
+      });
+    }
+    const list = panel.querySelector('#pn-list'), cid = panelCid;
+    try {
+      if (!txCache[cid]) {
+        const res = await fetch(`{{ url_for('v2.category_detail', cid=0) }}`.replace('/0', '/' + cid) + `?y=${Y}&m=${M}`);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        txCache[cid] = await res.json();
+      }
+      if (cid !== panelCid) return;
+      const txs = txCache[cid];
+      list.innerHTML = '';
+      if (!txs.length) { list.innerHTML = `<p class="pn-empty">Nothing in ${MONTH}${IS_CURRENT ? ' yet' : ''}.</p>`; return; }
+      const cols = document.createElement('div'); cols.className = 'pn-cols';
+      cols.innerHTML = '<span>Date</span><span>Payee</span><span>Amount</span><span>Category</span>';
+      list.append(cols);
+      for (const t of txs) list.append(txRow(t, tr));
+    } catch (err) { list.innerHTML = '<p class="pn-empty"></p>'; list.firstChild.textContent = 'Couldn\'t load transactions: ' + err.message; }
+  }
+  // A transaction row in the panel. t.amount is spending as positive (refunds negative).
+  const TX_URL = id => `{{ url_for('v2.transaction_edit', tid=0) }}`.replace('/0/', '/' + id + '/');
+  const DATE_URL = id => `{{ url_for('v2.transaction_date', tid=0) }}`.replace('/0/', '/' + id + '/');
+  const MONTH_KEY = `${Y}-${String(M).padStart(2, '0')}`;
+  function txRow(t, tr) {
+    const row = document.createElement('div'); row.className = 'pn-tx' + (t.pending ? ' pending' : '');
+    if (t.pending) row.title = 'Pending: the bank may still change it';
+    const date = document.createElement('input'); date.type = 'date'; date.className = 'dt'; date.value = t.iso;
+    date.setAttribute('aria-label', 'Date'); date.disabled = t.locked;
+    if (t.locked) date.title = 'Split or transfer: change it from the Transactions page';
+    const pay = document.createElement('input'); pay.className = 'pay'; pay.value = t.payee || ''; pay.placeholder = '(no payee)';
+    pay.setAttribute('aria-label', 'Payee'); pay.maxLength = 200;
+    const lab = document.createElement('label'); lab.className = 'money';
+    const amt = document.createElement('input'); amt.inputMode = 'decimal'; amt.value = money2(t.amount);
+    amt.setAttribute('aria-label', 'Amount spent'); amt.disabled = t.locked; lab.append(amt);
+    if (t.locked) amt.title = 'Split or transfer: the amount is tied to the other part';
+    row.append(date, pay, lab, catPicker(t, tr));
+
+    const flash = () => { row.classList.remove('saved', 'err'); void row.offsetWidth; row.classList.add('saved'); };
+    const fail = (inp, old, e) => { inp.value = old; row.classList.add('err'); toast('Couldn\'t save: ' + e.message, true); };
+    const refresh = () => { delete txCache[tr.dataset.cid]; totals(); };
+    for (const inp of [date, pay, amt]) {
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = inp.dataset.orig; inp.blur(); } });
+      inp.dataset.orig = inp.value;
+    }
+    amt.addEventListener('focus', () => amt.select());
+    pay.addEventListener('change', async () => {
+      const v = pay.value.trim();
+      if (!v) { pay.value = pay.dataset.orig; return; }
+      try { await postJSON(TX_URL(t.id), {payee: v}); t.payee = v; pay.dataset.orig = v; flash(); }
+      catch (e) { fail(pay, pay.dataset.orig, e); }
+    });
+    amt.addEventListener('change', async () => {
+      const n = parseFloat(amt.value.replace(/[$,\s]/g, ''));
+      if (isNaN(n)) { amt.value = amt.dataset.orig; return; }
+      const cents = Math.round(n * 100), delta = cents - t.amount;
+      if (!delta) { amt.value = money2(cents); return; }
+      try {
+        await postJSON(TX_URL(t.id), {amount: -cents});
+        tr.dataset.spent = +tr.dataset.spent + delta; toast(`Amount set to ${fmt(cents)}`); refresh();
+      } catch (e) { fail(amt, amt.dataset.orig, e); }
+    });
+    date.addEventListener('change', async () => {
+      if (!date.value || date.value === t.iso) return;
+      try {
+        const r = await postJSON(DATE_URL(t.id), {date: date.value});
+        if (!r.date.startsWith(MONTH_KEY)) {  // moved to another month: it no longer counts here
+          tr.dataset.spent = +tr.dataset.spent - t.amount;
+          toast(`Moved to ${new Date(r.date + 'T00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}. It now counts in ${new Date(r.date + 'T00:00').toLocaleDateString(undefined, {month: 'long'})}.`);
+        } else toast('Date saved');
+        refresh();
+      } catch (e) { fail(date, t.iso, e); }
+    });
+    return row;
+  }
+  function openPanel(cid) { panelCid = cid; renderPanel(); if (!panel.open) panel.showModal(); }
+  panel.addEventListener('click', e => { if (e.target === panel) panel.close(); });  // click the backdrop
+  panel.addEventListener('close', () => { panelCid = null; });
+
+  // ---- List / Cards switch (remembered on this device) ----
+  function setView(v) {
+    v = v === 'cards' ? 'cards' : 'list';
+    $('sheet').hidden = v !== 'list'; $('cards').hidden = v !== 'cards';
+    $('foldall').hidden = v !== 'list';
+    $$('.seg button').forEach(b => b.setAttribute('aria-pressed', b.dataset.view === v));
+    try { localStorage.setItem(VIEW_KEY, v); } catch (e) {}
+    if (v === 'cards') renderCards(); else fillRows();
+  }
+  $$('.seg button').forEach(b => b.addEventListener('click', () => setView(b.dataset.view)));
+  { const _t = totals; totals = () => { _t(); paintIncome(); renderCards(); if (panel.open && panelCid) renderPanel(); }; }
+  { let v = 'list'; try { v = localStorage.getItem(VIEW_KEY) || 'list'; } catch (e) {} setView(v); }
 
   totals();
   // Charts open and every group expanded on each visit.
