@@ -197,6 +197,20 @@
            max-width: calc(100vw - 32px); }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
   .toast.err { background: var(--bad); color: #fff; }
+  #copy-prev { margin-right: auto; }
+  .head h1:has(+ #copy-prev) { margin-right: 0; }
+  dialog.copy { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(520px, calc(100vw - 32px));
+                background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  dialog.copy::backdrop { background: rgba(0,0,0,.35); }
+  .copy-h { padding: 16px 18px 6px; } .copy-h h2 { margin: 0 0 4px; font-size: 17px; } .copy-h p { margin: 0; font-size: 13px; color: var(--muted); }
+  .copy-list { max-height: 55vh; overflow: auto; padding: 6px 18px; }
+  .copy-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px 0;
+              border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); cursor: pointer; font-size: 14px; }
+  .copy-row input { width: auto; }
+  .copy-row .g { display: block; font-size: 11.5px; color: var(--muted); }
+  .copy-row .v { font-variant-numeric: tabular-nums; white-space: nowrap; font-size: 13px; color: var(--muted); }
+  .copy-row .v b { color: var(--ink); font-weight: 650; }
+  .copy-f { display: flex; justify-content: flex-end; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--line); }
   .foldall { font: inherit; font-size: 13px; border: 0; background: var(--track); color: var(--muted); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
   .foldall:hover { color: var(--ink); }
   tr.zero .nm { color: var(--muted); }
@@ -245,6 +259,7 @@
 {% block content %}
 <div class="head">
   <h1>{{ month_label }}</h1>
+  {% if is_future %}<button type="button" class="foldall" id="copy-prev" title="Use the budgets from {{ prev_label }} for {{ month_name }}">Copy from {{ prev_label }}</button>{% endif %}
   <div class="views who" role="radiogroup" aria-label="View">
     <button type="button" data-view="andy" role="radio">Andy</button>
     <button type="button" data-view="libby" role="radio">Libby</button>
@@ -338,6 +353,12 @@
     </div>
   </aside>
 </div>
+<dialog class="copy" id="copy-dlg" aria-labelledby="copy-title">
+  <div class="copy-h"><h2 id="copy-title"></h2><p id="copy-sub"></p></div>
+  <div class="copy-list" id="copy-list"></div>
+  <div class="copy-f"><button type="button" class="btn ghost" id="copy-cancel">Cancel</button>
+    <button type="button" class="btn" id="copy-apply">Copy selected</button></div>
+</dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 {% endblock %}
 {% block scripts %}
@@ -604,6 +625,43 @@
     });
   }));
   $$('tr.group .ren').forEach(b => b.addEventListener('keydown', e => e.stopPropagation()));
+
+
+  // ---- future months: copy budgets from the previous month (with a preview) ----
+  if ($('copy-prev')) {
+    const dlg = $('copy-dlg');
+    $('copy-cancel').addEventListener('click', () => dlg.close());
+    $('copy-prev').addEventListener('click', async () => {
+      let r;
+      try {
+        const res = await fetch(`{{ url_for('v2.budgets_copy_preview') }}?y={{ y }}&m={{ m }}`);
+        r = await res.json(); if (!res.ok || r.error) throw new Error(r.error || 'HTTP ' + res.status);
+      } catch (e) { toast('Couldn\'t load: ' + e.message, true); return; }
+      if (!r.changes.length) { toast(`${r.month} already matches ${r.prev}.`); return; }
+      $('copy-title').textContent = `Copy ${r.prev}'s budgets into ${r.month}?`;
+      $('copy-sub').textContent = `${r.changes.length} amount${r.changes.length === 1 ? '' : 's'} differ. Untick any you want to keep as they are, like a one-time payment in ${r.prev}.`;
+      const list = $('copy-list'); list.innerHTML = '';
+      for (const c of r.changes) {
+        const row = document.createElement('label'); row.className = 'copy-row';
+        const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = true; cb.value = c.id;
+        const name = document.createElement('span'); name.textContent = c.name;
+        const g = document.createElement('span'); g.className = 'g'; g.textContent = c.group; name.append(g);
+        const v = document.createElement('span'); v.className = 'v';
+        v.append(fmt(c.cur) + ' → '); const b = document.createElement('b'); b.textContent = fmt(c.prev); v.append(b);
+        row.append(cb, name, v); list.append(row);
+      }
+      dlg.showModal();
+    });
+    $('copy-apply').addEventListener('click', async () => {
+      const ids = $$('#copy-list input:checked').map(x => +x.value);
+      if (!ids.length) { dlg.close(); return; }
+      $('copy-apply').disabled = true;
+      try {
+        await postJSON('{{ url_for("v2.budgets_copy") }}', {y: {{ y }}, m: {{ m }}, ids});
+        location.reload();
+      } catch (e) { $('copy-apply').disabled = false; toast('Couldn\'t copy: ' + e.message, true); }
+    });
+  }
 
   // ---- collapsible groups (remembered on this device) ----
   const FOLD_KEY = 'v2-sheet-collapsed';

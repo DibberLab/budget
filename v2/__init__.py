@@ -401,6 +401,7 @@ def progress():
         "v2/month.html", y=y, m=m, income=income, groups=ordered,
         month_name=date(y, m, 1).strftime("%B"), month_label=date(y, m, 1).strftime("%B %Y"),
         next_label=date(ny, nm, 1).strftime("%B"),
+        prev_label=date(prev[0], prev[1], 1).strftime("%B"),
         prev=prev, nxt=(ny, nm), is_current=is_current, is_future=is_future,
         editable=is_current or is_future, can_next=(ny, nm) <= limit,
         avg_label=(f"{mname(months[0])}–{mname(months[-1])}" if months else "no earlier months"),
@@ -558,6 +559,72 @@ def budgets_save():
             changed += 1
             continue
         set_budget(cats[cid], cents, y=y, m=m)
+        changed += 1
+    db.session.commit()
+    return jsonify({"ok": True, "changed": changed})
+
+
+def _copy_month_args():
+    """(y, m, prev_y, prev_m) from the request, or an error response. Only
+    the current month or later can be changed."""
+    body = request.get_json(silent=True) or {}
+    src = request.args if request.method == "GET" else body
+    today = date.today()
+    try:
+        y, m = int(src.get("y")), int(src.get("m"))
+        date(y, m, 1)
+    except (TypeError, ValueError):
+        return None, (jsonify({"error": "Bad month."}), 400)
+    if (y, m) < (today.year, today.month):
+        return None, (jsonify({"error": "Past months can't be changed."}), 400)
+    py, pm = _month_add(y, m, -1)
+    return (y, m, py, pm), None
+
+
+def _copy_month_diffs(y, m, py, pm):
+    """Active expense categories whose budget for (y, m) differs from (py, pm)."""
+    cats = (Category.query.filter_by(hidden=False, is_income=False)
+            .order_by(Category.group_name, Category.name).all())
+    ids = [c.id for c in cats]
+    prev, _ = _budgets_as_of(py, pm, ids)
+    cur, _ = _budgets_as_of(y, m, ids)
+    return [{"id": c.id, "name": c.name, "group": c.group_name,
+             "prev": prev.get(c.id, 0), "cur": cur.get(c.id, 0)}
+            for c in cats if prev.get(c.id, 0) != cur.get(c.id, 0)], cats
+
+
+@v2_bp.route("/budgets/copy-preview")
+@login_required
+def budgets_copy_preview():
+    """What "copy from the previous month" would change for ?y=&m=."""
+    args, err = _copy_month_args()
+    if err:
+        return err
+    y, m, py, pm = args
+    diffs, _ = _copy_month_diffs(y, m, py, pm)
+    return jsonify({"month": date(y, m, 1).strftime("%B"), "prev": date(py, pm, 1).strftime("%B"), "changes": diffs})
+
+
+@v2_bp.route("/budgets/copy", methods=["POST"])
+@login_required
+def budgets_copy():
+    """Body: {"y", "m", "ids": [category ids]}. Sets those categories' budgets
+    for (y, m) to what the previous month had. Only that month is written:
+    later months that have their own amounts keep them."""
+    args, err = _copy_month_args()
+    if err:
+        return err
+    y, m, py, pm = args
+    want = {int(i) for i in (request.get_json(silent=True) or {}).get("ids") or [] if str(i).isdigit()}
+    diffs, _ = _copy_month_diffs(y, m, py, pm)
+    changed = 0
+    for d in diffs:
+        if d["id"] not in want:
+            continue
+        row = (BudgetMonth.query.filter_by(year=y, month=m, category_id=d["id"]).first()
+               or BudgetMonth(year=y, month=m, category_id=d["id"]))
+        row.assigned = d["prev"]
+        db.session.add(row)
         changed += 1
     db.session.commit()
     return jsonify({"ok": True, "changed": changed})
