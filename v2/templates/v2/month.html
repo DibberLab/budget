@@ -16,7 +16,6 @@
 {% macro line(r, kind) -%}
 <tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}"
     data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}">
-  <td class="gut" aria-hidden="true"></td>
   <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<span class="once" hidden></span></td>
   <td class="spent num"></td>
   <td class="avg num"></td>
@@ -42,31 +41,20 @@
   .view-libby tr.group, .view-libby tr.gap, .view-libby #foldall, .view-libby #charts-btn { display: none !important; }
   .view-libby tr.exp td.what, .view-libby tr.txrow td { padding-left: 24px !important; box-shadow: none !important; }
   .foldall.on, .foldall.on:hover { background: var(--ink); color: var(--bg); }
-  /* Group rings: only while charts are shown. */
-  /* Donut column: one donut per group, left of the rows, spanning the group's height. Charts-on only. */
-  .gut { display: none; }
-  .charts-on .gut { display: table-cell; }
-  th.gut { width: 150px; background: var(--bg); }
-  td.gut { width: 150px; padding: 0 !important; background-color: var(--bg) !important; background-image: none !important;
-           box-shadow: none !important; border: 0 !important; vertical-align: top; position: relative; overflow: visible; }
-  tr.group td.gut { cursor: pointer; z-index: 1; }
-  tr.group td.gut { border-top: 1px solid var(--line) !important; }
-  /* Height is set to the group's height by drawDonut(); it overlaps the empty gutter cells below. */
-  .dwrap { position: absolute; top: 0; left: 0; width: 150px; display: grid; place-items: center; pointer-events: none; }
-  .dwrap svg { pointer-events: auto; }
-  .dwrap svg { display: block; transform: rotate(-90deg); overflow: visible; }
-  .dwrap circle { fill: none; transition: stroke-dasharray .9s cubic-bezier(.2,.8,.2,1); }
-  .dc { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; pointer-events: none; }
-  .dc b { font-size: 22px; font-weight: 750; letter-spacing: -.03em; line-height: 1; }
-  .dc span { font-size: 11px; color: var(--muted); margin-top: 3px; }
-  .dc.small b { font-size: 12px; letter-spacing: -.02em; } .dc.small span { display: none; } .dc.tiny { display: none; }
-  /* With charts on, each row's rail takes its slice's shade. */
+  /* Group bars (charts on): a stacked bar above each group, one segment per category. */
+  tr.gbar { display: none; }
+  .charts-on tr.gbar { display: table-row; }
+  .view-libby tr.gbar { display: none !important; }
+  tr.gbar td { background-color: var(--card) !important; background-image: none !important; padding: 12px 14px 8px; height: auto;
+               border-top: 1px solid var(--line); }
+  .gb { display: flex; gap: 2px; height: 26px; border-radius: 8px; overflow: hidden; background: var(--track); }
+  .gb .seg { position: relative; min-width: 4px; overflow: hidden; display: flex; align-items: center; cursor: default; }
+  .gb .seg i { position: absolute; top: 0; bottom: 0; left: 0; transition: width .9s cubic-bezier(.2,.8,.2,1); }
+  .gb .seg span { position: relative; margin-left: 5px; max-width: calc(100% - 10px); padding: 2px 6px; border-radius: 5px;
+                  font-size: 11px; font-weight: 600; line-height: 1.1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                  background: color-mix(in srgb, var(--card) 85%, transparent); color: var(--ink); }
+  /* With charts on, each row's left edge takes its segment's shade. */
   .charts-on tr.exp td.what { box-shadow: inset 6px 0 0 var(--shade, color-mix(in srgb, var(--accent) 45%, transparent)); }
-  .charts-on tr.exp td.what { padding-left: 20px; }
-  .charts-on tr.txrow:not(.inc-tx) td { padding-left: 20px; }
-  @media (max-width: 820px) { th.gut, td.gut { width: 96px; } .dwrap { width: 96px; } }
-  /* Phones: no room for a fourth column; the charts panel above still shows. */
-  @media (max-width: 600px) { .charts-on .gut { display: none; } .charts-on tr.exp td.what { padding-left: 36px; } }
   .ring circle { fill: none; }
   .ring .track { stroke: var(--track); }
   .ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1), stroke .3s; }
@@ -321,15 +309,15 @@
 <div class="layout">
   <div class="sheet" id="sheet">
     <table>
-      <thead><tr><th class="gut" aria-hidden="true"></th><th>Item</th><th class="r">Spent in {{ month_name }}</th><th class="r avg" title="Average per month, {{ avg_label }}">3-mo avg</th><th class="r">Monthly</th></tr></thead>
+      <thead><tr><th>Item</th><th class="r">Spent in {{ month_name }}</th><th class="r avg" title="Average per month, {{ avg_label }}">3-mo avg</th><th class="r">Monthly</th></tr></thead>
       <tbody>
-        <tr class="section"><td colspan="5">Income</td></tr>
+        <tr class="section"><td colspan="4">Income</td></tr>
         {% for r in income %}{{ line(r, 'inc') }}{% endfor %}
-        <tr class="section"><td colspan="5">Expenses</td></tr>
+        <tr class="section"><td colspan="4">Expenses</td></tr>
         {% for g, rows in groups %}
-        {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="5"></td></tr>{% endif %}
+        {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="4"></td></tr>{% endif %}
+        <tr class="gbar"><td colspan="4"><div class="gb" role="img" aria-label="{{ g }} spending by category"></div></td></tr>
         <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
-          <td class="gut" aria-hidden="true"><div class="dwrap"><svg class="donut"></svg><div class="dc"></div></div></td>
           <td><span class="gname"><span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span></span></td>
           <td class="sub spent-sub"></td><td class="sub avg avg-sub"></td><td class="sub plan"></td>
         </tr>
@@ -374,7 +362,7 @@
   // A group's category rows (skipping open transaction lists between them).
   function itemRows(g) {
     const out = [];
-    for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .section'); tr = tr.nextElementSibling)
+    for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .gbar, .section'); tr = tr.nextElementSibling)
       if (tr.dataset.cid) out.push(tr);
     return out;
   } // a coffee run, for the leftover line
@@ -470,7 +458,7 @@
     const color = css({ok: '--accent', warn: '--warn', bad: '--bad', none: '--accent'}[st]);
     const fill = `color-mix(in srgb, ${color} ${st === 'ok' ? 26 : 30}%, transparent)`;
     const edge = `color-mix(in srgb, ${color} 65%, transparent)`;
-    const cells = [...tr.children].filter(td => !td.classList.contains('gut'));
+    const cells = [...tr.children];
     const left = cells[0].getBoundingClientRect().left;
     const width = cells.at(-1).getBoundingClientRect().right - left;
     const end = frac * width;
@@ -521,7 +509,6 @@
     const td = document.createElement('td'); td.colSpan = 4;
     const list = document.createElement('div'); list.className = 'txlist';
     list.innerHTML = '<span class="none">Loading…</span>';
-    const gut = document.createElement('td'); gut.className = 'gut'; row.append(gut);
     td.append(list); row.append(td); tr.after(row);
     fillRows();
     try {
@@ -631,7 +618,7 @@
   let folded = [];
   try { folded = JSON.parse(localStorage.getItem(FOLD_KEY) || '[]'); } catch (e) {}
   // Everything under a group header up to the next header: its rows plus any open transaction lists.
-  const groupRows = g => { const out = []; for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .section'); tr = tr.nextElementSibling) out.push(tr); return out; };
+  const groupRows = g => { const out = []; for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .gbar, .section'); tr = tr.nextElementSibling) out.push(tr); return out; };
   function setFold(g, fold) {
     g.classList.toggle('collapsed', fold);
     g.setAttribute('aria-expanded', !fold);
@@ -772,67 +759,39 @@
     if (overs.length > 5) box.insertAdjacentHTML('beforeend', `<div class="calm" style="font-size:12px">+ ${overs.length - 5} more</div>`);
   }
 
-  // ---- group donuts: a slice per category in its own shade, sized by its share of the group's budget ----
+  // ---- group bars: one segment per category, in its own shade, sized by its share of the group's budget ----
   const shade = (i, n) => {
     const t = n < 2 ? 0 : i / (n - 1);
     return `color-mix(in oklab, color-mix(in oklab, var(--accent), var(--ink) 38%), color-mix(in oklab, var(--accent), var(--card) 58%) ${Math.round(t * 100)}%)`;
   };
-  function drawDonut(g) {
-    const cell = g.querySelector('td.gut'), svg = cell.querySelector('svg'), dc = cell.querySelector('.dc');
-    const rows = itemRows(g);
-    // Match the group's height (header plus whatever rows are showing), within the column's width.
-    // Shrink first so the donut's old size doesn't prop the rows open while measuring.
-    svg.setAttribute('width', 36); svg.setAttribute('height', 36);
-    let h = g.getBoundingClientRect().height;
-    for (const tr of groupRows(g)) h += tr.getBoundingClientRect().height;
-    const maxW = cell.querySelector('.dwrap').clientWidth - 14;
-    const size = Math.max(36, Math.min(h - 16, maxW));
-    const stroke = Math.max(6, Math.round(size * 0.15)), r = (size - stroke) / 2, C = 2 * Math.PI * r;
-    svg.setAttribute('width', size); svg.setAttribute('height', size);
-    cell.querySelector('.dwrap').style.height = h + 'px';
-    svg.setAttribute('viewBox', `0 0 ${size} ${size}`);
-
-    const plans = rows.map(tr => +tr.dataset.plan), spents = rows.map(tr => +tr.dataset.spent);
-    const tp = plans.reduce((a, b) => a + b, 0), ts = spents.reduce((a, b) => a + b, 0);
-    // Slice sizes follow the budget; a group with no budget at all falls back to spending.
-    const weights = tp ? plans : spents;
-    const total = weights.reduce((a, b) => a + b, 0);
-    const live = rows.map((tr, i) => ({tr, w: weights[i], plan: plans[i], spent: spents[i]})).filter(x => x.w > 0);
-    const gap = live.length > 1 ? Math.min(3, C * 0.012) : 0;
-    let parts = `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${stroke}" stroke="var(--track)"/>`;
-    let at = 0;
-    rows.forEach((tr, i) => tr.style.setProperty('--shade', shade(i, rows.length)));
-    live.forEach(x => {
-      const i = rows.indexOf(x.tr), col = shade(i, rows.length);
-      const len = total ? C * x.w / total : 0, seg = Math.max(0, len - gap);
-      const over = x.plan > 0 && x.spent > x.plan;
-      const frac = !x.plan ? 1 : Math.min(1, x.spent / x.plan);
-      const offset = -at;
-      // Slice background (what's left), then the spent part over it.
-      parts += `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${stroke}" stroke="color-mix(in srgb, ${col} 28%, var(--card))"
-                 stroke-dasharray="${seg} ${C - seg}" stroke-dashoffset="${offset}"/>`;
-      parts += `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${stroke}" stroke="${over ? 'var(--bad)' : col}"
-                 stroke-dasharray="${seg * frac} ${C - seg * frac}" stroke-dashoffset="${offset}"><title></title></circle>`;
-      at += len;
+  function drawBars() {
+    $$('tr.gbar').forEach(bar => {
+      const g = bar.nextElementSibling, rows = itemRows(g);
+      rows.forEach((tr, i) => tr.style.setProperty('--shade', shade(i, rows.length)));
+      const plans = rows.map(tr => +tr.dataset.plan), spents = rows.map(tr => +tr.dataset.spent);
+      const tp = plans.reduce((a, b) => a + b, 0);
+      // Segment sizes follow the budget; a group with no budget at all falls back to spending.
+      const weights = tp ? plans : spents, total = weights.reduce((a, b) => a + b, 0);
+      const box = bar.querySelector('.gb'); box.innerHTML = '';
+      rows.forEach((tr, i) => {
+        const w = weights[i]; if (!(w > 0)) return;
+        const plan = plans[i], spent = spents[i], col = shade(i, rows.length);
+        const over = plan > 0 && spent > plan, frac = !plan ? 1 : Math.min(1, spent / plan);
+        const seg = document.createElement('div'); seg.className = 'seg';
+        seg.style.flex = `${w} 1 0`;
+        seg.style.background = `color-mix(in srgb, ${col} 26%, var(--card))`;
+        const fill = document.createElement('i');
+        fill.style.background = over ? 'var(--bad)' : col;
+        fill.style.width = (100 * frac) + '%';
+        seg.append(fill);
+        const name = tr.querySelector('.nm').textContent;
+        if (total && w / total >= 0.12) { const l = document.createElement('span'); l.textContent = name; seg.append(l); }
+        seg.title = `${name}: ${fmt(spent)}` + (plan ? ` of ${fmt(plan)} (${Math.round(100 * spent / plan)}%)` : ' (no budget)');
+        box.append(seg);
+      });
     });
-    svg.innerHTML = parts;
-    // Hover titles, set as text so category names are never parsed as markup.
-    const titles = svg.querySelectorAll('title');
-    live.forEach((x, k) => {
-      titles[k].textContent = `${x.tr.querySelector('.nm').textContent}: ${fmt(x.spent)}` + (x.plan ? ` of ${fmt(x.plan)}` : ' (no budget)');
-    });
-    dc.className = 'dc' + (size < 50 ? ' tiny' : size < 100 ? ' small' : '');
-    dc.innerHTML = '<b></b><span></span>';
-    dc.firstChild.textContent = tp ? `${Math.round(100 * ts / tp)}%` : fmt(ts);
-    dc.lastChild.textContent = tp ? `of ${whole(tp)}` : 'no budget';
   }
-  function layoutDonuts() {
-    if ($('bento').hidden) return;
-    const first = document.querySelector('tr.group td.gut');
-    if (!first || getComputedStyle(first).display === 'none') return;
-    $$('tr.group').forEach(drawDonut);
-  }
-  { const _f = fillRows; fillRows = () => { _f(); layoutDonuts(); }; }
+  { const _f = fillRows; fillRows = () => { _f(); drawBars(); }; }
   // Redraw when the sheet itself changes width (window resize, phone rotation, pane resize).
   if ('ResizeObserver' in window) {
     let lastW = 0, t;
