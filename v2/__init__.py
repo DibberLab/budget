@@ -312,21 +312,55 @@ def progress():
                      extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
              .group_by(Transaction.category_id)}
 
-    # Average per month over the six full months before this one. Six, not
-    # three, so bills paid at a month's edge (the mortgage goes out on the
-    # 28th-1st) don't make one month look empty and the next look double.
-    # Months before the household's history begins aren't counted.
+    # "avg": a typical month for each category, from the six full months
+    # before this one (months before the household's history began don't
+    # count). Unusual months - a month the mortgage skipped or paid twice
+    # because it goes out on the 28th-1st, a three-paycheck month, a one-off
+    # splurge - are left out: only months within ±40% of the category's
+    # median month are averaged. A category that's usually empty (median $0)
+    # just averages every month, so occasional spending still shows up.
     first = date(y, m, 1)
     a_start = date(*_month_add(y, m, -6), 1)
     earliest = db.session.query(func.min(Transaction.date)).scalar()
     if earliest:
         hist_start = earliest if earliest.day == 1 else date(*_month_add(earliest.year, earliest.month, 1), 1)
         a_start = max(a_start, hist_start)
-    n_avg = max(1, (first.year - a_start.year) * 12 + first.month - a_start.month)
-    avg3 = {cid: int(total or 0) / n_avg for cid, total in
-            db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-            .filter(Transaction.category_id.in_(ids), Transaction.date >= a_start, Transaction.date < first)
-            .group_by(Transaction.category_id)} if a_start < first else {}
+    months = []
+    cy, cm = a_start.year, a_start.month
+    while (cy, cm) < (y, m):
+        months.append((cy, cm)); cy, cm = _month_add(cy, cm, 1)
+    monthly = defaultdict(lambda: defaultdict(int))
+    if months:
+        for cid, yy, mo, total in (db.session.query(Transaction.category_id, extract("year", Transaction.date),
+                                                     extract("month", Transaction.date), func.sum(Transaction.amount))
+                                   .filter(Transaction.category_id.in_(ids), Transaction.date >= a_start, Transaction.date < first)
+                                   .group_by(Transaction.category_id, extract("year", Transaction.date), extract("month", Transaction.date))):
+            monthly[cid][(int(yy), int(mo))] = int(total or 0)
+    mname = lambda ym: date(ym[0], ym[1], 1).strftime("%b")
+
+    def typical(cid):
+        """(average in cents, signed like the transactions; hover note)."""
+        if not months:
+            return 0, "No earlier months to average yet"
+        vals = [(ym, abs(monthly[cid].get(ym, 0))) for ym in months]
+        amounts = sorted(v for _, v in vals)
+        n = len(amounts)
+        med = amounts[n // 2] if n % 2 else (amounts[n // 2 - 1] + amounts[n // 2]) / 2
+        keep = [(ym, v) for ym, v in vals if med and 0.6 * med <= v <= 1.4 * med]
+        sign = -1 if sum(monthly[cid].values()) < 0 else 1
+        if not keep:
+            avg = sum(v for _, v in vals) / n
+            return sign * avg, f"Average of {mname(months[0])}–{mname(months[-1])} (spending here is occasional)"
+        avg = sum(v for _, v in keep) / len(keep)
+        skipped = [ym for ym, _ in vals if (ym, dict(vals)[ym]) not in keep]
+        note = "Typical month, from " + ", ".join(mname(ym) for ym, _ in keep)
+        if skipped:
+            note += " · left out as unusual: " + ", ".join(mname(ym) for ym in skipped)
+        return sign * avg, note
+
+    avg3, avg_note = {}, {}
+    for cid in ids:
+        avg3[cid], avg_note[cid] = typical(cid)
 
     income, groups = [], defaultdict(list)
     for c in cats:
@@ -334,18 +368,18 @@ def progress():
             if not c.hidden or spent.get(c.id):
                 p = income_plan.get(c.id, 0)
                 income.append({"cat": c, "plan": p, "next": p, "spent": spent.get(c.id, 0),
-                               "avg": round(avg3.get(c.id, 0))})
+                               "avg": round(avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, "")})
             continue
         s_ = -spent.get(c.id, 0)  # outflow as positive
         if c.hidden:
             # Retired categories only show in months where they still have spending.
             if s_:
                 groups["Retired"].append({"cat": c, "plan": 0, "next": 0, "spent": s_,
-                                          "avg": round(-avg3.get(c.id, 0))})
+                                          "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, "")})
             continue
         groups[c.group_name].append({"cat": c, "plan": plan.get(c.id, 0),
                                      "next": nxt_plan.get(c.id, 0) if is_current else plan.get(c.id, 0),
-                                     "spent": s_, "avg": round(-avg3.get(c.id, 0))})
+                                     "spent": s_, "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, "")})
     for items in groups.values():
         items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
     # Biggest groups first; Retired (spending with no budget) last.
@@ -369,7 +403,7 @@ def progress():
         next_label=date(ny, nm, 1).strftime("%B"),
         prev=prev, nxt=(ny, nm), is_current=is_current, is_future=is_future,
         editable=is_current or is_future, can_next=(ny, nm) <= limit,
-        avg_label=f"{a_start:%b}–{(first - timedelta(days=1)):%b} ({n_avg} month{'s' if n_avg != 1 else ''})",
+        avg_label=(f"{mname(months[0])}–{mname(months[-1])}" if months else "no earlier months"),
         cat_options=[(g, [{"id": c.id, "name": c.name} for c in cs]) for g, cs in _category_options()],
         pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed,
         charts=_chart_history(y, m, cats))
