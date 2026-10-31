@@ -9,6 +9,12 @@ facts into a handful of short, specific notes; it's told to use no number
 that isn't in the facts. If Claude can't be reached, the same facts become
 plain rule-based notes, so the card never comes up empty.
 
+The household can answer a note in the card's reply box ("the extra CC Loan
+money is on purpose, we're paying it off by March"). Claude checks the reply
+against the notes and facts: if it settles the point, it's saved as a short
+household fact (HouseholdFact) that every later review takes into account,
+and the card is rebuilt; if not, Claude asks a follow-up and nothing is saved.
+
 Notes are cached per month in a JSON file next to the database and rebuilt
 when the facts change (at most every few hours) or on Refresh, so opening
 Home doesn't cost a Claude call each time.
@@ -19,16 +25,27 @@ import os
 import time
 from calendar import monthrange
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import current_app, jsonify, request
-from flask_login import login_required
+from flask_login import current_user, login_required
 from sqlalchemy import extract, func
 
 from models import Category, Transaction, db
 from v2 import (IncomePlan, _bill_rhythm, _budgets_as_of, _chart_history, _late_bills, _month_add,
                 _typical_averages, v2_bp)
 from v2.assistant import MODEL, _claude
+
+class HouseholdFact(db.Model):
+    """Something the household told the review, kept for every later review."""
+    __tablename__ = "household_facts"
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    author = db.Column(db.String(120), nullable=False, default="")
+    month = db.Column(db.String(7), nullable=False, default="")   # "2026-11": the card it was answered on
+    said = db.Column(db.Text, nullable=False)                     # their words
+    fact = db.Column(db.Text, nullable=False)                     # Claude's one-line summary, used in reviews
+
 
 MAX_AGE = 6 * 3600        # rebuild changed facts at most this often
 MIN_REFRESH = 120         # seconds between forced refreshes
@@ -51,6 +68,7 @@ Rules:
 - Prioritize: a plan that can't hold (typical spending well above budget), spending above income, rising bills, upcoming three-paycheck months to plan for, seasonal costs ahead for their month and location, and money left unassigned. Mention what's working only if it's notable.
 - Don't flag things the context explains (e.g. CC Debt dropping to $0 because the cards are paid off; Amex Loan having no history because it's new).
 - Don't nag about things that are fine, and don't repeat the same point twice.
+- "What the household told us" answers earlier notes. Treat those points as settled: don't raise them again unless the facts now clearly contradict what they said (then say so plainly), and use them to look for what's next instead.
 
 Always answer by calling the insights tool (no other text): 4 to 6 notes, most important first, plus a one-sentence headline that sums up where the budget stands."""
 
@@ -215,10 +233,20 @@ def rule_notes(f: dict) -> dict:
     return {"headline": head, "notes": notes[:6]}
 
 
+def _told() -> list[str]:
+    return [f"{h.created_at:%b %-d, %Y} ({h.month}): {h.fact}" for h in HouseholdFact.query.order_by(HouseholdFact.id)]
+
+
+def _context_text() -> str:
+    told = _told()
+    return ("Known context from the household:\n" + CONTEXT
+            + ("\n\nWhat the household told us (answers to earlier notes):\n" + "\n".join("- " + t for t in told) if told else ""))
+
+
 def ask_claude(f: dict) -> dict:
     resp = _claude().beta.messages.create(
         model=MODEL, max_tokens=4000, system=SYSTEM, tools=[TOOL],
-        messages=[{"role": "user", "content": "Known context from the household:\n" + CONTEXT
+        messages=[{"role": "user", "content": _context_text()
                    + "\n\nFacts (amounts in whole dollars):\n" + json.dumps(f, indent=1)}],
         betas=["server-side-fallback-2026-07-01"], fallbacks="default",
     )
@@ -247,13 +275,14 @@ def insights():
     refresh = request.args.get("refresh") == "1"
     facts = build_facts(y, m)
     digest = hashlib.sha256(json.dumps({k: v for k, v in facts.items() if k != "today"}, sort_keys=True).encode()).hexdigest()
+    ctx = hashlib.sha256(_context_text().encode()).hexdigest()
     path, cached = _cache_path(y, m), None
     try:
         with open(path) as fh:
             cached = json.load(fh)
     except (OSError, ValueError):
         pass
-    if cached and cached.get("source") == "claude":
+    if cached and cached.get("source") == "claude" and cached.get("ctx") == ctx:  # something new was told: rebuild
         age = time.time() - cached["at"]
         if (not refresh and (cached["hash"] == digest or age < MAX_AGE)) or (refresh and age < MIN_REFRESH):
             return jsonify({**cached["result"], "source": "claude", "at": cached["at"], "stale": cached["hash"] != digest})
@@ -266,8 +295,85 @@ def insights():
     if source == "claude":
         try:
             with open(path + ".tmp", "w") as fh:
-                json.dump({"hash": digest, "at": time.time(), "result": result, "source": source}, fh)
+                json.dump({"hash": digest, "ctx": ctx, "at": time.time(), "result": result, "source": source}, fh)
             os.replace(path + ".tmp", path)
         except OSError:
             pass
     return jsonify({**result, "source": source, "at": time.time(), "stale": False})
+
+
+REPLY_SYSTEM = """You look after a household's budget review. The household is answering one or more of the review's notes in their own words. Decide whether the reply settles something, using the notes, the facts and what they've told you before.
+
+- If it settles or explains a point (why a number is what it is, a decision they've made, a plan, a one-off cause), record it with the record tool: settled=true and a fact that is one clear sentence a future reviewer can rely on. Name categories and amounts, and include dates when a time limit applies, e.g. "CC Loan's $600 budget is deliberate: paying it off early, done by March 2027." Keep their decision, not your opinion of it.
+- If it's too vague to rely on, contradicts the data in a way they should check, or doesn't relate to the budget, use settled=false and ask one short, specific follow-up question in reply.
+- If they ask you to change something (a budget amount, a category), you can't do that from here. Say where to do it: the amount box on the sheet, or Manage > Ask Claude. Still record any explanation they gave.
+- reply: one or two friendly sentences to them saying what you recorded (or what you need). No filler."""
+
+RECORD_TOOL = {
+    "name": "record",
+    "description": "Record the outcome of the household's reply.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "settled": {"type": "boolean", "description": "True if the reply settles or explains a point well enough to rely on."},
+            "fact": {"type": "string", "description": "When settled: one sentence for future reviews. Empty otherwise."},
+            "reply": {"type": "string", "description": "What to tell the household (1-2 sentences)."},
+        },
+        "required": ["settled", "reply"],
+    },
+}
+
+
+@v2_bp.route("/insights/reply", methods=["POST"])
+@login_required
+def insights_reply():
+    body = request.get_json(silent=True) or {}
+    text = str(body.get("text", "")).strip()[:2000]
+    y, m = int(body.get("y", 0)), int(body.get("m", 0))
+    if not text or not (1 <= m <= 12):
+        return jsonify({"error": "Write a reply first."}), 400
+    notes = body.get("notes") or []  # the notes on screen, so "the snow one" makes sense
+    facts = build_facts(y, m)
+    try:
+        resp = _claude().beta.messages.create(
+            model=MODEL, max_tokens=2000, system=REPLY_SYSTEM, tools=[RECORD_TOOL],
+            messages=[{"role": "user", "content": _context_text()
+                       + "\n\nThe review's notes they're looking at:\n" + json.dumps(notes[:8], indent=1)[:6000]
+                       + "\n\nFacts (amounts in whole dollars):\n" + json.dumps(facts, indent=1)
+                       + "\n\nTheir reply:\n" + text
+                       + "\n\nAnswer only by calling the record tool."}],
+            betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+        )
+        out = next((b.input for b in resp.content if b.type == "tool_use" and b.name == "record"), None)
+        if not isinstance(out, dict):
+            raise ValueError("no record call")
+    except Exception as exc:
+        current_app.logger.warning("insights reply: Claude call failed: %r", exc)
+        return jsonify({"error": "Claude couldn't read that just now. Try again in a minute."}), 502
+    saved = None
+    fact = str(out.get("fact") or "").strip()
+    if out.get("settled") and fact:
+        h = HouseholdFact(author=getattr(current_user, "display_name", "") or "", month=f"{y}-{m:02d}",
+                          said=text, fact=fact[:500])
+        db.session.add(h)
+        db.session.commit()
+        saved = {"id": h.id, "fact": h.fact}
+    return jsonify({"settled": bool(saved), "reply": str(out.get("reply", "")), "saved": saved})
+
+
+@v2_bp.route("/insights/facts")
+@login_required
+def insights_facts():
+    return jsonify({"facts": [{"id": h.id, "fact": h.fact, "said": h.said, "author": h.author,
+                               "when": h.created_at.strftime("%b %-d")}
+                              for h in HouseholdFact.query.order_by(HouseholdFact.id.desc())]})
+
+
+@v2_bp.route("/insights/facts/<int:fid>", methods=["DELETE"])
+@login_required
+def insights_fact_delete(fid):
+    h = db.session.get(HouseholdFact, fid)
+    if h:
+        db.session.delete(h)
+        db.session.commit()
+    return jsonify({"ok": True})

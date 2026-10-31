@@ -36,6 +36,23 @@
   .note.idea { border-left: 3px solid var(--accent); } .note.good { border-left: 3px solid var(--ok); }
   .note b { display: block; font-size: 14.5px; margin-bottom: 3px; }
   .note p { margin: 0; font-size: 13.5px; color: var(--ink); line-height: 1.45; }
+  .know-reply { margin-top: 14px; }
+  .know-reply label { display: block; font-size: 12.5px; font-weight: 600; color: var(--muted); margin-bottom: 5px; }
+  .know-reply .row { display: flex; gap: 8px; align-items: flex-end; }
+  .know-reply textarea { flex: 1; font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+                         border-radius: 10px; padding: 8px 12px; resize: vertical; min-height: 42px; }
+  .know-reply textarea:focus { outline: none; border-color: var(--accent); }
+  .know-reply .btn { flex: none; }
+  .know-ack { margin: 8px 0 0; font-size: 13.5px; padding: 8px 12px; border-radius: 10px; background: var(--track); }
+  .know-ack.ok { background: color-mix(in srgb, var(--ok) 14%, var(--card)); }
+  .know-told { margin-top: 12px; font-size: 13px; }
+  .know-told summary { cursor: pointer; color: var(--muted); font-weight: 600; }
+  .know-told ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+  .know-told li { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 7px 10px;
+                  border: 1px solid var(--line); border-radius: 10px; }
+  .know-told li small { display: block; color: var(--muted); margin-top: 2px; }
+  .know-told li button { font: inherit; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 16px; line-height: 1; }
+  .know-told li button:hover { color: var(--bad); }
   .note.skel { min-height: 92px; background: linear-gradient(90deg, var(--track), var(--card), var(--track)) 0 0 / 200% 100%;
                animation: shimmer 1.4s linear infinite; border-color: transparent; }
   @keyframes shimmer { to { background-position: -200% 0; } }
@@ -340,6 +357,18 @@
     <div class="know-meta"><span id="know-when"></span><button type="button" class="foldall" id="know-refresh">Refresh</button></div></div>
   <p class="know-head" id="know-head"></p>
   <div class="know-notes" id="know-notes" aria-live="polite"></div>
+  <form class="know-reply" id="know-form">
+    <label for="know-text">Answer a note</label>
+    <div class="row">
+      <textarea id="know-text" rows="2" maxlength="2000" placeholder="e.g. The extra on CC Loan is on purpose, we're paying it off by March. Snow removal is billed once in December."></textarea>
+      <button type="submit" class="btn" id="know-send">Send</button>
+    </div>
+    <p class="know-ack" id="know-ack" aria-live="polite" hidden></p>
+  </form>
+  <details class="know-told" id="know-told" hidden>
+    <summary>What you've told it (<span id="know-told-n">0</span>)</summary>
+    <ul id="know-told-list"></ul>
+  </details>
   <p class="cap" id="know-foot"></p>
 </section>
 
@@ -1107,7 +1136,7 @@
     if (on) paintCharts();
     // Worth knowing sits with the charts; when planning a future month (no charts yet) it shows on its own.
     $('know').hidden = !(on || IS_FUTURE);
-    if (!$('know').hidden) loadKnow(false);
+    if (!$('know').hidden) { loadKnow(false); loadTold(); }
     // Showing or hiding the donut column changes every cell's width, so repaint the fills (and donuts).
     fillRows();
   }
@@ -1119,7 +1148,7 @@
 
   // ---- Worth knowing: Claude's read of the plan against your history (cached server-side) ----
   const KNOW_LABEL = {flag: 'Red flag', watch: 'Watch', idea: 'Idea', good: 'Working'};
-  let knowLoaded = false, knowBusy = false;
+  let knowLoaded = false, knowBusy = false, knowNotes = [];
   async function loadKnow(refresh) {
     if ((knowLoaded && !refresh) || knowBusy) return;
     knowBusy = true;
@@ -1133,6 +1162,7 @@
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = await r.json();
       $('know-head').textContent = d.headline || '';
+      knowNotes = (d.notes || []).map(n => ({kind: n.kind, title: n.title, body: n.body}));
       notes.innerHTML = '';
       for (const n of d.notes || []) {
         const el = document.createElement('div'); el.className = 'note ' + n.kind;
@@ -1152,6 +1182,52 @@
     btn.disabled = false; knowBusy = false;
   }
   $('know-refresh').addEventListener('click', () => loadKnow(true));
+
+  // Answering a note: Claude decides if it settles the point; settled answers are saved and the card is rebuilt with them.
+  async function loadTold() {
+    try {
+      const d = await (await fetch({{ url_for('v2.insights_facts')|tojson }})).json();
+      const list = $('know-told-list'); list.innerHTML = '';
+      for (const f of d.facts) {
+        const li = document.createElement('li'), txt = document.createElement('span'), sm = document.createElement('small');
+        txt.textContent = f.fact; sm.textContent = `${f.author ? f.author + ', ' : ''}${f.when}: “${f.said}”`; txt.append(sm);
+        const x = document.createElement('button'); x.type = 'button'; x.textContent = '×';
+        x.title = 'Forget this'; x.setAttribute('aria-label', 'Forget: ' + f.fact);
+        x.addEventListener('click', async () => {
+          x.disabled = true;
+          try {
+            const r = await fetch({{ url_for('v2.insights_fact_delete', fid=0)|tojson }}.replace(/0$/, f.id), {method: 'DELETE', headers: {'X-CSRFToken': CSRF}});
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            await loadTold(); knowLoaded = false; loadKnow(false);
+          } catch (e) { x.disabled = false; toast('Couldn\'t remove it: ' + e.message, true); }
+        });
+        li.append(txt, x); list.append(li);
+      }
+      $('know-told-n').textContent = d.facts.length;
+      $('know-told').hidden = !d.facts.length;
+    } catch (e) {}
+  }
+  $('know-form').addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = $('know-text').value.trim(); if (!text) return;
+    const ack = $('know-ack'), send = $('know-send');
+    send.disabled = true; send.textContent = 'Reading…';
+    ack.hidden = false; ack.className = 'know-ack'; ack.textContent = 'Claude is checking that against your numbers…';
+    try {
+      const d = await postJSON({{ url_for('v2.insights_reply')|tojson }}, {y: Y, m: M, text, notes: knowNotes});
+      ack.textContent = d.reply || (d.settled ? 'Got it.' : '');
+      ack.classList.toggle('ok', d.settled);
+      if (d.settled) {
+        $('know-text').value = '';
+        await loadTold();
+        knowLoaded = false; loadKnow(false);  // what they told it changed, so the server rebuilds the notes
+      }
+    } catch (err) { ack.textContent = err.message; }
+    send.disabled = false; send.textContent = 'Send';
+  });
+  $('know-text').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); $('know-form').requestSubmit(); }
+  });
 
   totals();
   // Charts open and every group expanded on each visit.
