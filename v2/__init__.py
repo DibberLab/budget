@@ -312,13 +312,21 @@ def progress():
                      extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
              .group_by(Transaction.category_id)}
 
-    # Average per month over the three full months before this one.
+    # Average per month over the six full months before this one. Six, not
+    # three, so bills paid at a month's edge (the mortgage goes out on the
+    # 28th-1st) don't make one month look empty and the next look double.
+    # Months before the household's history begins aren't counted.
     first = date(y, m, 1)
-    a_start = date(y - (m <= 3), (m - 4) % 12 + 1, 1)
-    avg3 = {cid: int(total or 0) / 3 for cid, total in
+    a_start = date(*_month_add(y, m, -6), 1)
+    earliest = db.session.query(func.min(Transaction.date)).scalar()
+    if earliest:
+        hist_start = earliest if earliest.day == 1 else date(*_month_add(earliest.year, earliest.month, 1), 1)
+        a_start = max(a_start, hist_start)
+    n_avg = max(1, (first.year - a_start.year) * 12 + first.month - a_start.month)
+    avg3 = {cid: int(total or 0) / n_avg for cid, total in
             db.session.query(Transaction.category_id, func.sum(Transaction.amount))
             .filter(Transaction.category_id.in_(ids), Transaction.date >= a_start, Transaction.date < first)
-            .group_by(Transaction.category_id)}
+            .group_by(Transaction.category_id)} if a_start < first else {}
 
     income, groups = [], defaultdict(list)
     for c in cats:
@@ -361,7 +369,7 @@ def progress():
         next_label=date(ny, nm, 1).strftime("%B"),
         prev=prev, nxt=(ny, nm), is_current=is_current, is_future=is_future,
         editable=is_current or is_future, can_next=(ny, nm) <= limit,
-        avg_label=f"{a_start:%b}–{(first - timedelta(days=1)):%b}",
+        avg_label=f"{a_start:%b}–{(first - timedelta(days=1)):%b} ({n_avg} month{'s' if n_avg != 1 else ''})",
         cat_options=[(g, [{"id": c.id, "name": c.name} for c in cs]) for g, cs in _category_options()],
         pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed,
         charts=_chart_history(y, m, cats))
