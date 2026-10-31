@@ -246,8 +246,8 @@
 <div class="head">
   <h1>{{ month_label }}</h1>
   <div class="views who" role="radiogroup" aria-label="View">
-    <button type="button" data-view="libby" role="radio">Libby</button>
     <button type="button" data-view="andy" role="radio">Andy</button>
+    <button type="button" data-view="libby" role="radio">Libby</button>
   </div>
   <button type="button" class="foldall" id="charts-btn" aria-expanded="false">Show charts</button>
   <button type="button" class="foldall" id="foldall">Collapse all</button>
@@ -820,10 +820,10 @@
   addEventListener('resize', () => { if (!$('bento').hidden) drawChart([...$$('tr.exp')].reduce((a, t) => a + +t.dataset.plan, 0)); });
 
   totals();
-  // ---- views: Libby (default) = flat list, no charts; Andy = charts on, everything expanded ----
+  // ---- views: Andy (default) = charts on, everything expanded; Libby = flat list, no charts ----
   const VIEW_KEY = 'v2-home-view';
   function applyView(v) {
-    v = v === 'andy' ? 'andy' : 'libby';
+    v = v === 'libby' ? 'libby' : 'andy';
     const root = document.documentElement;
     root.classList.toggle('view-libby', v === 'libby');
     root.classList.toggle('view-andy', v === 'andy');
@@ -838,8 +838,8 @@
     applyView(b.dataset.view);
     try { localStorage.setItem(VIEW_KEY, b.dataset.view); } catch (e) {}
   }));
-  let view = 'libby';
-  try { view = localStorage.getItem(VIEW_KEY) || 'libby'; } catch (e) {}
+  let view = 'andy';
+  try { view = localStorage.getItem(VIEW_KEY) || 'andy'; } catch (e) {}
   applyView(view);
 </script>
 {% endblock %}
