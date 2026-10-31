@@ -1,0 +1,32 @@
+[Unit]
+Description=Household Budget: scheduled bank sync (Plaid) + AI filing
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/budget
+EnvironmentFile=/var/www/budget/.env
+Environment=FLASK_ENV=production
+Environment=PYTHONUNBUFFERED=1
+Environment=DATABASE_URL=sqlite:////var/lib/budget/budget.db
+ExecStart=/var/www/budget/.venv/bin/python scripts/sync_cron.py
+TimeoutStartSec=15min
+
+# Same sandbox as budget.service
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadWritePaths=/var/lib/budget /var/log/budget /var/www/budget/instance

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Household Budget bank sync every 4 hours
+
+[Timer]
+OnCalendar=*-*-* 00/4:20:00
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
