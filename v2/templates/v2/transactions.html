@@ -27,7 +27,7 @@
   tr:nth-child(even) td { background: color-mix(in srgb, var(--accent) 4%, var(--card)); }
   .date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 1%; }
   .payee { font-weight: 550; }
-  .memo, .acct { font-size: 12px; color: var(--muted); }
+  .memo { font-size: 12px; color: var(--muted); }
   .pend { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 1px 6px; border-radius: 999px; font-style: normal;
           background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); vertical-align: 1px; }
   .dbtn { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; border-bottom: 1px dashed transparent; }
@@ -57,7 +57,6 @@
     td.date { grid-column: 1; grid-row: 1; }
     td.pay { grid-column: 1; grid-row: 2; }
     td.amt { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-    td.acct { display: none; }
     td.cat { grid-column: 1 / -1; margin-top: 6px; }
     tr.mh { display: block !important; padding: 0; }
     tr.mh td { display: block; }
@@ -86,16 +85,15 @@
 <div class="list">
   {% if rows %}
   <table>
-    <thead><tr><th>Date</th><th>Payee</th><th>Account</th><th class="r">Amount</th><th>Category</th></tr></thead>
+    <thead><tr><th>Date</th><th>Payee</th><th class="r">Amount</th><th>Category</th></tr></thead>
     <tbody id="rows">
       {% for r in rows %}{% set t = r.t %}{% set mk = t.date.strftime('%Y-%m') %}
-      {% if loop.first or mk != loop.previtem.t.date.strftime('%Y-%m') %}<tr class="mh" data-month="{{ mk }}"><td colspan="5">{{ t.date.strftime('%B %Y') }}</td></tr>{% endif %}
+      {% if loop.first or mk != loop.previtem.t.date.strftime('%Y-%m') %}<tr class="mh" data-month="{{ mk }}"><td colspan="4">{{ t.date.strftime('%B %Y') }}</td></tr>{% endif %}
       {% set dfmt = '%b %-d' if t.date.year == this_year else '%b %-d, %Y' %}
       <tr class="tx" data-id="{{ t.id }}" data-cid="{{ t.category_id or '' }}" data-amount="{{ t.amount }}"
           data-search="{{ (t.payee ~ ' ' ~ (t.memo or '') ~ ' ' ~ '%.2f'|format((t.amount|abs) / 100))|lower }}">
         <td class="date">{% if r.kind == 'transfer' %}{{ t.date.strftime(dfmt) }}{% else %}<button type="button" class="dbtn" data-date="{{ t.date.isoformat() }}" title="Change date">{{ t.date.strftime(dfmt) }}</button>{% endif %}{% if t.date_manual %}<span class="manual" title="Date set by hand. The bank says {{ t.bank_date.strftime('%b %-d, %Y') if t.bank_date else 'something else' }}.">set by hand</span>{% endif %}{% if t.source == 'plaid' and not t.cleared %}<span class="pend" title="Not posted by the bank yet; the amount can still change">pending</span>{% endif %}</td>
         <td class="pay"><div class="payee">{{ t.payee or '(no payee)' }}</div>{% if t.memo %}<div class="memo">{{ t.memo }}</div>{% endif %}</td>
-        <td class="acct">{{ r.account }}</td>
         <td class="amt r num{% if t.amount > 0 %} in{% endif %}">{{ t.amount|money }}</td>
         <td class="cat">
           {% if r.kind == 'transfer' %}<span class="tag">Transfer</span>

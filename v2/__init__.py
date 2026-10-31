@@ -744,8 +744,7 @@ def reports_data():
         rows.append([tid, d.isoformat(), amt or 0, cid or 0, aid, ix, flags])
     cats = [[c.id, c.name, c.group_name, bool(c.is_income), bool(c.hidden)]
             for c in Category.query.order_by(Category.group_name, Category.name)]
-    accounts = [[a.id, a.name] for a in Account.query.order_by(Account.name)]
-    resp = jsonify({"today": date.today().isoformat(), "cats": cats, "accounts": accounts,
+    resp = jsonify({"today": date.today().isoformat(), "cats": cats,
                     "payees": payees, "tx": rows})
     resp.headers["Cache-Control"] = "no-store"
     return resp
@@ -986,12 +985,11 @@ def transactions():
         q = q.filter(Transaction.date < end)
     txns = q.order_by(Transaction.date.desc(), Transaction.id.desc()).all()
     cats = {c.id: c for c in Category.query}
-    accounts = {a.id: a.name for a in Account.query}
     split_parents = {t.parent_id for t in Transaction.query.filter(Transaction.parent_id.isnot(None))}
     rows = []
     for t in txns:
         kind = "transfer" if t.transfer_id else ("split" if t.id in split_parents else "")
-        rows.append({"t": t, "kind": kind, "cat": cats.get(t.category_id), "account": accounts.get(t.account_id, "")})
+        rows.append({"t": t, "kind": kind, "cat": cats.get(t.category_id)})
     return render_template("v2/transactions.html", rows=rows, range=rng, ranges=TXN_RANGES,
                            start=start.isoformat() if start else "", end=end.isoformat() if end else "",
                            this_year=today.year,
