@@ -52,7 +52,7 @@ Rules:
 - Don't flag things the context explains (e.g. CC Debt dropping to $0 because the cards are paid off; Amex Loan having no history because it's new).
 - Don't nag about things that are fine, and don't repeat the same point twice.
 
-Write 4 to 6 notes with the insights tool, most important first, plus a one-sentence headline that sums up where the budget stands."""
+Always answer by calling the insights tool (no other text): 4 to 6 notes, most important first, plus a one-sentence headline that sums up where the budget stands."""
 
 TOOL = {
     "name": "insights",
@@ -218,12 +218,14 @@ def rule_notes(f: dict) -> dict:
 def ask_claude(f: dict) -> dict:
     resp = _claude().beta.messages.create(
         model=MODEL, max_tokens=4000, system=SYSTEM, tools=[TOOL],
-        tool_choice={"type": "tool", "name": "insights"},
         messages=[{"role": "user", "content": "Known context from the household:\n" + CONTEXT
                    + "\n\nFacts (amounts in whole dollars):\n" + json.dumps(f, indent=1)}],
         betas=["server-side-fallback-2026-07-01"], fallbacks="default",
     )
-    out = next(b.input for b in resp.content if b.type == "tool_use")
+    # This model doesn't accept a forced tool_choice; the system prompt asks for the tool instead.
+    out = next((b.input for b in resp.content if b.type == "tool_use" and b.name == "insights"), None)
+    if not isinstance(out, dict):
+        raise ValueError("Claude answered without the insights tool")
     notes = [n for n in out.get("notes", []) if n.get("kind") in KINDS and n.get("title") and n.get("body")]
     if not notes:
         raise ValueError("no notes")
@@ -260,7 +262,7 @@ def insights():
     except Exception as exc:  # anything from the API: fall back, never an empty card
         current_app.logger.warning("insights: Claude call failed: %r", exc)
         result, source = rule_notes(facts), "rules"
-        result["note"] = "Claude couldn't be reached, so these are the basic checks."
+        result["note"] = "Claude's notes aren't available right now, so these are the basic checks."
     if source == "claude":
         try:
             with open(path + ".tmp", "w") as fh:
