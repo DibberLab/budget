@@ -205,6 +205,82 @@ def _inject_counts():
 
 # ---------- progress ----------
 
+def _month_add(y: int, m: int, k: int) -> tuple[int, int]:
+    i = y * 12 + (m - 1) + k
+    return i // 12, i % 12 + 1
+
+
+def _chart_history(y: int, m: int, cats) -> dict:
+    """Data for the Home charts: six months of spending/budget/income, the
+    household's usual within-month spending path (from the three full months
+    before this one, so bills on fixed dates are part of "normal"), last
+    month's day-by-day spending, and which categories are everyday spending
+    (three or more charges a month on average) rather than bills."""
+    expense_ids = [c.id for c in cats if not c.is_income]
+    income_ids = [c.id for c in cats if c.is_income]
+    start_y, start_m = _month_add(y, m, -5)
+    end_y, end_m = _month_add(y, m, 1)
+    rows = (db.session.query(Transaction.date, Transaction.category_id, Transaction.amount)
+            .filter(Transaction.category_id.isnot(None),
+                    Transaction.date >= date(start_y, start_m, 1), Transaction.date < date(end_y, end_m, 1))
+            .all())
+    by_month = defaultdict(lambda: {"daily": defaultdict(int), "spent": 0, "income": 0, "amounts": defaultdict(list)})
+    exp_set, inc_set = set(expense_ids), set(income_ids)
+    for d, cid, amt in rows:
+        mm = by_month[(d.year, d.month)]
+        if cid in exp_set:
+            mm["daily"][d.day] -= amt
+            mm["spent"] -= amt
+            mm["amounts"][cid].append(-amt)
+        elif cid in inc_set:
+            mm["income"] += amt
+
+    history = []
+    for k in range(-5, 1):
+        yy, mo = _month_add(y, m, k)
+        b, _ = _budgets_as_of(yy, mo, expense_ids)
+        mm = by_month.get((yy, mo))
+        history.append({"label": date(yy, mo, 1).strftime("%b"), "full": date(yy, mo, 1).strftime("%B %Y"),
+                        "spent": mm["spent"] if mm else 0, "income": mm["income"] if mm else 0,
+                        "budget": sum(b.values())})
+
+    days = monthrange(y, m)[1]
+    curves = []
+    for k in (-3, -2, -1):
+        yy, mo = _month_add(y, m, k)
+        mm = by_month.get((yy, mo))
+        if not mm or mm["spent"] <= 0:
+            continue
+        dm = monthrange(yy, mo)[1]
+        cum, run = [0.0] * (dm + 1), 0
+        for day in range(1, dm + 1):
+            run += mm["daily"].get(day, 0)
+            cum[day] = run / mm["spent"]
+        curves.append([cum[min(dm, round(d * dm / days))] for d in range(days + 1)])
+    usual = [sum(c[d] for c in curves) / len(curves) for d in range(days + 1)] if curves else None
+
+    py, pm = _month_add(y, m, -1)
+    last = by_month.get((py, pm))
+    last_days = monthrange(py, pm)[1]
+    last_cum, run = [], 0
+    for day in range(1, last_days + 1):
+        run += last["daily"].get(day, 0) if last else 0
+        last_cum.append(run)
+
+    # Everyday = frequent AND small: 3+ charges a month with a typical (median)
+    # charge under $150. Loan or card payments that happen often aren't everyday.
+    amounts = defaultdict(list)
+    for k in (-3, -2, -1):
+        mm = by_month.get(_month_add(y, m, k))
+        if mm:
+            for cid, xs in mm["amounts"].items():
+                amounts[cid].extend(xs)
+    everyday = sorted(cid for cid, xs in amounts.items()
+                      if len(xs) / 3 >= 3 and sorted(xs)[len(xs) // 2] < 15000)
+    return {"history": history, "usual": usual, "usual_months": len(curves),
+            "last": last_cum, "last_label": date(py, pm, 1).strftime("%B"), "everyday": everyday}
+
+
 @v2_bp.route("/")
 @login_required
 def progress():
@@ -284,7 +360,8 @@ def progress():
         prev=prev, nxt=(ny, nm), is_current=is_current, editable=is_current,
         avg_label=f"{a_start:%b}–{(first - timedelta(days=1)):%b}",
         cat_options=[(g, [{"id": c.id, "name": c.name} for c in cs]) for g, cs in _category_options()],
-        pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed)
+        pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed,
+        charts=_chart_history(y, m, cats))
 
 
 @v2_bp.route("/category/<int:cid>")

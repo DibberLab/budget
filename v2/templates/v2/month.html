@@ -1,21 +1,9 @@
 {% extends "v2/base.html" %}
 {% block title %}{{ month_label }} · Budget{% endblock %}
 {% block wrap_class %}wide{% endblock %}
-{% macro ring(size, stroke, cls='') -%}
-{% set r = (size - stroke) / 2 - (3 if size > 60 else 1) %}
-<svg class="ring {{ cls }}" viewBox="0 0 {{ size }} {{ size }}" width="{{ size }}" height="{{ size }}" aria-hidden="true">
-  <circle class="track" cx="{{ size/2 }}" cy="{{ size/2 }}" r="{{ r }}" stroke-width="{{ stroke }}"/>
-  <circle class="arc" cx="{{ size/2 }}" cy="{{ size/2 }}" r="{{ r }}" stroke-width="{{ stroke }}"/>
-  <circle class="arc-over" cx="{{ size/2 }}" cy="{{ size/2 }}" r="{{ r }}" stroke-width="{{ stroke }}"/>
-  {% if size > 60 and 0 < pace < 100 %}
-  <line class="tick" x1="{{ size/2 + r - stroke/2 - 4 }}" y1="{{ size/2 }}" x2="{{ size/2 + r + stroke/2 + 4 }}" y2="{{ size/2 }}"
-        transform="rotate({{ pace * 3.6 }} {{ size/2 }} {{ size/2 }})"/>
-  {% endif %}
-</svg>
-{%- endmacro %}
 {% macro line(r, kind) -%}
 <tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}"
-    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}">
+    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}" data-everyday="{{ 1 if r.cat.id in charts.everyday else 0 }}" data-retired="{{ 1 if r.cat.hidden else 0 }}">
   <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<span class="avgnote num" title="Average per month, {{ avg_label }}"></span><span class="once" hidden></span></td>
   <td class="spent num"></td>
   <td class="amt"><label class="money"><input inputmode="decimal" class="num"{% if not editable %} readonly tabindex="-1"{% endif %} value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
@@ -54,73 +42,84 @@
                   background: color-mix(in srgb, var(--card) 85%, transparent); color: var(--ink); }
   /* With charts on, each row's left edge takes its segment's shade. */
   .charts-on tr.exp td.what { box-shadow: inset 6px 0 0 var(--shade, color-mix(in srgb, var(--accent) 45%, transparent)); }
-  .ring circle { fill: none; }
-  .ring .track { stroke: var(--track); }
-  .ring .arc { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1), stroke .3s; }
-  .ring .arc-over { stroke: var(--bad); stroke-linecap: round; transition: stroke-dashoffset 1.1s .5s cubic-bezier(.2,.8,.2,1); }
   .money input[readonly] { cursor: inherit; }
   .money input[readonly]:hover { border-color: transparent; background: transparent; }
-  /* ---------- bento ---------- */
-  .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
-  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 20px; position: relative; overflow: hidden; }
-  .tile h3 { margin: 0 0 12px; font-size: 13px; font-weight: 550; color: var(--muted); letter-spacing: .01em; }
-  .t-ring { grid-column: span 5; grid-row: span 2; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
-            background: radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, var(--st) 14%, var(--card)) 0%, var(--card) 70%); }
-  .t-chart { grid-column: span 7; grid-row: span 2; display: flex; flex-direction: column; }
-  .t-daily, .t-income, .t-overs { grid-column: span 4; }
-
-  .ring-wrap { position: relative; width: 230px; max-width: 100%; aspect-ratio: 1; }
-  .ring-wrap svg { width: 100%; height: 100%; }
-  .ring { transform: rotate(-90deg); overflow: visible; }
-  .ring circle { fill: none; }
-  .ring .track { stroke: var(--track); }
-  .ring .arc { stroke: var(--st); stroke-linecap: round; transition: stroke-dashoffset 1.1s cubic-bezier(.2,.8,.2,1), stroke .3s; }
-  .ring .arc-over { stroke: var(--bad); stroke-linecap: round; transition: stroke-dashoffset 1.1s .5s cubic-bezier(.2,.8,.2,1); }
-  .ring .tick { stroke: var(--ink); stroke-width: 3; stroke-linecap: round; opacity: .55; }
-  .ring-center { position: absolute; inset: 0; display: grid; place-content: center; gap: 2px; }
-  .ring-center .lbl { font-size: 13px; color: var(--muted); }
-  .ring-center .big { font-size: 44px; font-weight: 750; letter-spacing: -.04em; line-height: 1; }
-  .ring-center .big.over { color: var(--bad); }
-  .ring-center .of { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .ring-foot { margin-top: 14px; font-size: 13px; color: var(--muted); display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
-  .ring-foot .k { display: inline-block; width: 10px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
-
-  .stat { font-size: 32px; font-weight: 750; letter-spacing: -.035em; line-height: 1.05; }
-  .stat small { font-size: 15px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
-  .stat-sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
-  .good { color: var(--ok); } .bad { color: var(--bad); }
-
-  .split { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--track); margin: 12px 0 8px; }
-  .split i { display: block; height: 100%; transition: width 1s cubic-bezier(.2,.8,.2,1); width: 0; }
-  .split .sp { background: var(--st); } .split .sv { background: color-mix(in srgb, var(--ok) 55%, transparent); }
-  .bento .kv { display: flex; justify-content: space-between; font-size: 13px; color: var(--muted); }
-  .bento .kv b { color: var(--ink); font-weight: 600; }
-
-  .chart { flex: 1; display: flex; align-items: center; margin: 0 -6px; }
-  .chart svg { width: 100%; height: auto; display: block; overflow: visible; }
-  .chart .grid line { stroke: var(--line); }
-  .chart .axis text { fill: var(--muted); font-size: 11px; font-family: inherit; }
-  .chart .plan { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 4 5; fill: none; opacity: .8; }
-  .chart .actual { stroke: var(--st); stroke-width: 2.5; fill: none; stroke-linejoin: round; stroke-linecap: round; }
-  .chart .area { fill: url(#areaGrad); }
-  .chart .today { stroke: var(--ink); stroke-width: 1; opacity: .25; }
-  .chart .dot { fill: var(--card); stroke: var(--st); stroke-width: 3; }
-  .chart .budget-line { stroke: var(--bad); stroke-width: 1; opacity: .5; }
-  .chart-cap { font-size: 13px; color: var(--muted); margin-top: 8px; }
-  .chart-cap b { color: var(--ink); font-weight: 600; }
-  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin: -4px 0 6px; }
-  .legend i { display: inline-block; width: 14px; height: 0; border-top: 2.5px solid var(--st); vertical-align: middle; margin-right: 5px; }
-  .legend i.dash { border-top: 1.5px dashed var(--muted); }
-
-  .overs-list { display: grid; gap: 8px; }
-  .ov { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; font: inherit; color: inherit; text-align: left;
-        background: none; border: 0; padding: 0; cursor: pointer; }
-  .ov .n { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ov .a { font-size: 13px; color: var(--bad); font-weight: 600; }
-  .ov .b { grid-column: 1 / -1; height: 4px; border-radius: 999px; background: var(--track); overflow: hidden; }
-  .ov .b i { display: block; height: 100%; background: var(--bad); border-radius: 999px; }
-  .ov:hover .n { text-decoration: underline; }
+  /* ---------- charts panel ---------- */
+  .bento { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 12px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px 20px; min-width: 0; }
+  .tile h3 { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); letter-spacing: .01em; }
+  .th { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .t-hero { grid-column: span 5; display: flex; flex-direction: column; }
+  .t-pace { grid-column: span 7; }
+  .t-trend { grid-column: span 7; }
+  .t-watch { grid-column: span 5; }
   .calm { font-size: 14px; color: var(--muted); }
+
+  /* hero: the one number this panel leads with */
+  .hero { font-size: 52px; font-weight: 750; letter-spacing: -.035em; line-height: 1.05; margin: 10px 0 2px; }
+  .hero.neg { color: var(--bad); }
+  .hero-sub { font-size: 14px; color: var(--ink); }
+  .hero-sub .muted { color: var(--muted); }
+  .meter { position: relative; height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 16%, var(--track)); margin: 16px 0 6px; }
+  .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--accent); transition: width .9s cubic-bezier(.2,.8,.2,1); }
+  .meter b { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--ink); }
+  .meter-key { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+  .facts { margin: auto 0 0; padding-top: 16px; display: grid; gap: 0; }
+  .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+  .facts dd b { font-weight: 650; }
+  .sym { font-size: 10px; margin-right: 4px; vertical-align: 1px; }
+  .sym.good { color: var(--ok); } .sym.bad { color: var(--bad); } .sym.warn { color: var(--warn); }
+
+  /* charts */
+  .chart svg { display: block; width: 100%; overflow: visible; }
+  .chart .grid line { stroke: var(--line); stroke-width: 1; }
+  .chart text { font-family: inherit; }
+  .chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .chart .lbl { fill: var(--ink); font-size: 11.5px; font-weight: 600; }
+  .chart .lbl.muted { fill: var(--muted); font-weight: 500; }
+  .chart .xhair { stroke: var(--ink); stroke-width: 1; opacity: .35; }
+  .chart .hit { fill: transparent; cursor: crosshair; }
+  .chart .col-hit { fill: transparent; cursor: default; }
+  .chart .col-hit:hover + .col, .chart .col.hot { filter: brightness(1.12); }
+  .cap { margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+  .cap b { color: var(--ink); font-weight: 650; }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .key-line { width: 14px; height: 2px; border-radius: 2px; display: inline-block; }
+  .key-rect { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+  .key-tick { width: 12px; height: 2px; background: var(--ink); display: inline-block; }
+  .key-dot { width: 8px; height: 8px; border-radius: 50%; border: 2px solid var(--ink); display: inline-block; box-sizing: border-box; }
+
+  /* shared tooltip */
+  .tip { position: absolute; z-index: 5; pointer-events: none; min-width: 150px; background: var(--card); color: var(--ink);
+         border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; font-size: 12.5px;
+         box-shadow: 0 6px 24px rgba(0,0,0,.12); }
+  .tip .tt { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .tip .tr { display: grid; grid-template-columns: 14px auto 1fr; align-items: center; gap: 6px; padding: 1px 0; }
+  .tip .tr b { font-weight: 650; font-variant-numeric: tabular-nums; }
+  .tip .tr span:last-child { color: var(--muted); }
+
+  /* watch list */
+  .watch { display: grid; gap: 12px; margin-top: 10px; }
+  .w { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; font: inherit; color: inherit; text-align: left;
+       background: none; border: 0; padding: 0; cursor: pointer; }
+  .w .n { font-size: 14px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .w .s { font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+  .w:hover .n { text-decoration: underline; }
+  .bb { grid-column: 1 / -1; position: relative; height: 8px; border-radius: 999px; background: var(--track); }
+  .bb i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; }
+  .bb .proj { background: color-mix(in srgb, var(--warn) 35%, transparent); }
+  .bb .spent { background: var(--accent); }
+  .bb .spent.over { background: var(--bad); }
+  .bb b { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--ink); }
+  .w .sub2 { grid-column: 1 / -1; font-size: 11.5px; color: var(--muted); }
+
+  @media (max-width: 860px) {
+    .t-hero, .t-pace, .t-trend, .t-watch { grid-column: span 12; }
+    .hero { font-size: 44px; }
+  }
 
 
   .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
@@ -266,45 +265,36 @@
 {% endif %}
 
 <section class="bento" id="bento" hidden>
-  <div class="tile t-ring">
-    <div class="ring-wrap">
-      {{ ring(220, 18, 'main') }}
-      <div class="ring-center">
-        <span class="lbl" id="h-label">Left to spend</span>
-        <span class="big num" id="h-big">$0</span>
-        <span class="of num" id="h-of"></span>
-      </div>
-    </div>
-    <div class="ring-foot">
-      {% if 0 < pace < 100 %}<span><span class="k" style="background:var(--ink);opacity:.55;width:3px;height:10px"></span>{{ pace }}% through the month</span>{% endif %}
-      <span id="h-pct"></span>
-    </div>
+  <div class="tile t-hero">
+    <h3 id="hero-label">Left for everyday spending</h3>
+    <div class="hero" id="hero-big">$0</div>
+    <div class="hero-sub" id="hero-sub"></div>
+    <div class="meter" id="hero-meter" role="img"><i></i><b hidden></b></div>
+    <div class="meter-key"><span id="m-left"></span><span id="m-right"></span></div>
+    <dl class="facts">
+      <div><dt>Bills</dt><dd id="f-bills"></dd></div>
+      <div><dt id="f-proj-l">Projected month end</dt><dd id="f-proj"></dd></div>
+      <div><dt>Income</dt><dd id="f-inc"></dd></div>
+    </dl>
   </div>
-
-  <div class="tile t-chart">
-    <h3>Spending pace</h3>
-    <div class="legend"><span><i></i>Actual</span><span><i class="dash"></i>Even pace to budget</span></div>
-    <div class="chart" id="chart"></div>
-    <div class="chart-cap" id="chart-cap"></div>
+  <div class="tile t-pace">
+    <div class="th"><h3>Spending through {{ month_name }}</h3>
+      <div class="legend" id="pace-legend"></div></div>
+    <div class="chart" id="pace"></div>
+    <p class="cap" id="pace-cap"></p>
   </div>
-
-  <div class="tile t-daily">
-    <h3>{{ 'Daily allowance' if is_current else 'Daily average' }}</h3>
-    <div class="stat num" id="d-big">—</div>
-    <div class="stat-sub" id="d-sub"></div>
+  <div class="tile t-trend">
+    <div class="th"><h3>Last six months</h3>
+      <div class="legend"><span><i class="key-rect" style="background:var(--accent)"></i>Spent</span>
+        <span><i class="key-tick"></i>Budget</span><span><i class="key-dot"></i>Income</span></div></div>
+    <div class="chart" id="trend"></div>
+    <p class="cap" id="trend-cap"></p>
   </div>
-
-  <div class="tile t-income">
-    <h3>Income vs spending</h3>
-    <div class="stat num" id="i-net">—</div>
-    <div class="split"><i class="sp" id="i-sp"></i><i class="sv" id="i-sv"></i></div>
-    <div class="kv"><span>Spent <b class="num" id="i-spent"></b></span><span>Earned <b class="num" id="i-earned"></b></span></div>
+  <div class="tile t-watch">
+    <h3>Needs attention</h3>
+    <div class="watch" id="watch"></div>
   </div>
-
-  <div class="tile t-overs">
-    <h3>Over budget</h3>
-    <div class="overs-list" id="overs"></div>
-  </div>
+  <div class="tip" id="tip" hidden></div>
 </section>
 
 <div class="layout">
@@ -650,116 +640,256 @@
   const DAYS = {{ days_in_month }}, ELAPSED = {{ days_elapsed }};
   const DAILY = {{ daily|tojson }};
   const IS_CURRENT = {{ 'true' if is_current else 'false' }};
+  const CH = {{ charts|tojson }};
+  const MONTH = {{ month_name|tojson }};
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
   const whole = c => (c < 0 ? '-' : '') + '$' + Math.round(Math.abs(c) / 100).toLocaleString();
-  const later = fn => { let done = false; const run = () => { if (!done) { done = true; fn(); } };
-                        requestAnimationFrame(() => requestAnimationFrame(run)); setTimeout(run, 120); };
-  const stColor = st => ({bad: 'var(--bad)', warn: 'var(--warn)'}[st] || 'var(--accent)');
-  function setRing(svg, spent, budget) {
-    const arc = svg.querySelector('.arc'), ov = svg.querySelector('.arc-over');
-    const C = 2 * Math.PI * arc.r.baseVal.value;
-    const st = rowStatus(budget, spent, false);
-    const p = budget ? Math.min(1, spent / budget) : (spent > 0 ? 1 : 0);
-    const o = budget && spent > budget ? Math.min(1, (spent - budget) / budget) : 0;
-    for (const c of [arc, ov]) { c.style.strokeDasharray = C; if (!c.style.strokeDashoffset) c.style.strokeDashoffset = C; }
-    arc.style.stroke = st === 'bad' ? 'var(--accent)' : stColor(st);
-    later(() => { arc.style.strokeDashoffset = C * (1 - p); ov.style.strokeDashoffset = C * (1 - o); });
+  const compact = c => { const d = Math.abs(c) / 100, sg = c < 0 ? '-' : '';
+    return sg + '$' + (d >= 1000 ? (d / 1000).toFixed(d >= 100000 ? 0 : 1).replace(/\.0$/, '') + 'K' : Math.round(d)); };
+  const NS = 'http://www.w3.org/2000/svg';
+  const el = (tag, attrs = {}, parent) => { const e = document.createElementNS(NS, tag);
+    for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (parent) parent.append(e); return e; };
+  const txt = (parent, x, y, s, cls, anchor = 'start') => { const t = el('text', {x, y, class: cls, 'text-anchor': anchor}, parent); t.textContent = s; return t; };
+  function niceScale(maxCents, ticks = 4) {
+    const max = Math.max(maxCents, 100) / 100, raw = max / ticks, pow = 10 ** Math.floor(Math.log10(raw));
+    const step = [1, 2, 2.5, 5, 10].map(m => m * pow).find(v => v >= raw);
+    return {top: Math.ceil(max / step) * step * 100, step: step * 100};
   }
-  function countUp(el, cents, f = whole) {
-    const from = +(el.dataset.v || 0); el.dataset.v = cents;
-    if (reduced || from === cents) { el.textContent = f(cents); return; }
-    const t0 = performance.now(), dur = 900;
-    const step = t => { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3);
-                        el.textContent = f(from + (cents - from) * e); if (k < 1) requestAnimationFrame(step); };
-    requestAnimationFrame(step);
-    setTimeout(() => { if (+el.dataset.v === cents) el.textContent = f(cents); }, dur + 150);
-  }
-  function drawChart(budget) {
-    const el = $('chart'), W = Math.max(280, Math.round(el.clientWidth || 640)), H = W < 500 ? 170 : 220, pl = 46, pr = 14, pt = 12, pb = 24;
-    const cum = []; let run = 0;
-    for (let d = 0; d < ELAPSED; d++) { run += DAILY[d]; cum.push(run); }
-    const top = Math.max(budget, run, 1) * 1.1;
-    const x = d => pl + (d / DAYS) * (W - pl - pr);
-    const y = v => pt + (1 - v / top) * (H - pt - pb);
-    const pts = [[0, 0], ...cum.map((v, i) => [i + 1, v])];
-    const line = pts.map(([d, v], i) => `${i ? 'L' : 'M'}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join('');
-    const area = line + `L${x(pts.at(-1)[0]).toFixed(1)},${y(0)}L${x(0)},${y(0)}Z`;
-    const ticks = [0, top / 1.1 / 2, top / 1.1].filter((v, i, a) => a.indexOf(v) === i);
-    const col = stColor(rowStatus(budget, run, false));
-    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Cumulative spending this month">
-      <defs><linearGradient id="areaGrad" x1="0" x2="0" y1="0" y2="1">
-        <stop offset="0" stop-color="${col}" stop-opacity=".28"/><stop offset="1" stop-color="${col}" stop-opacity="0"/></linearGradient></defs>
-      <g class="grid">${ticks.map(v => `<line x1="${pl}" x2="${W - pr}" y1="${y(v)}" y2="${y(v)}"/>`).join('')}</g>
-      <g class="axis">${ticks.map(v => `<text x="${pl - 8}" y="${y(v) + 4}" text-anchor="end">${whole(v)}</text>`).join('')}
-        ${[1, 8, 15, 22, DAYS].map(d => `<text x="${x(d)}" y="${H - 4}" text-anchor="middle">${d}</text>`).join('')}</g>`;
-    if (budget) svg += `<line class="budget-line" x1="${pl}" x2="${W - pr}" y1="${y(budget)}" y2="${y(budget)}"/>
-      <path class="plan" d="M${x(0)},${y(0)}L${x(DAYS)},${y(budget)}"/>`;
-    if (ELAPSED) svg += `<path class="area" d="${area}"/><path class="actual" d="${line}"/>
-      ${IS_CURRENT ? `<line class="today" x1="${x(ELAPSED)}" x2="${x(ELAPSED)}" y1="${pt}" y2="${y(0)}"/>` : ''}
-      <circle class="dot" cx="${x(ELAPSED)}" cy="${y(run)}" r="5"/>`;
-    el.innerHTML = svg + '</svg>';
-    el.querySelector('.actual')?.style.setProperty('stroke', col);
-    const cap = $('chart-cap');
-    if (!budget || !ELAPSED) { cap.textContent = budget ? '' : 'Set budgets to see your pace.'; return; }
-    const even = budget * ELAPSED / DAYS, diff = run - even;
-    cap.innerHTML = IS_CURRENT
-      ? (diff > 0 ? `<b class="bad">${whole(diff)} ahead</b> of an even pace — slow down a little.`
-                  : `<b class="good">${whole(-diff)} under</b> an even pace — nicely done.`)
-      : (run > budget ? `Finished <b class="bad">${whole(run - budget)} over</b> budget.` : `Finished <b class="good">${whole(budget - run)} under</b> budget.`);
-  }
-  function paintCharts() {
-    if ($('bento').hidden) return;
-    let tSpent = 0, tBudget = 0, earned = 0;
-    const overs = [];
+  // Rows, read live so edits to amounts update the charts too.
+  function readRows() {
+    const exp = [], inc = [];
     $$('tr[data-cid]').forEach(tr => {
-      const p = +tr.dataset.plan, sp = +tr.dataset.spent;
-      if (tr.classList.contains('inc')) { earned += sp; return; }
-      tSpent += sp; tBudget += p;
-      if (p && sp > p) overs.push({tr, name: tr.querySelector('.nm').textContent, over: sp - p});
+      const r = {tr, name: tr.querySelector('.nm').textContent, plan: +tr.dataset.plan, spent: +tr.dataset.spent,
+                 everyday: tr.dataset.everyday === '1', retired: tr.dataset.retired === '1'};
+      (tr.classList.contains('inc') ? inc : exp).push(r);
     });
-    const left = tBudget - tSpent, st = rowStatus(tBudget, tSpent, false);
-    document.documentElement.style.setProperty('--st', stColor(st));
-    $('h-label').textContent = left >= 0 ? 'Left to spend' : 'Over budget';
-    $('h-big').classList.toggle('over', left < 0);
-    countUp($('h-big'), Math.abs(left));
-    $('h-of').textContent = tBudget ? `${whole(tSpent)} of ${whole(tBudget)}` : `${whole(tSpent)} spent`;
-    $('h-pct').textContent = tBudget ? `${Math.round(100 * tSpent / tBudget)}% of budget used` : 'No budgets yet';
-    setRing(document.querySelector('.ring.main'), tSpent, tBudget);
-    drawChart(tBudget);
+    return {exp, inc};
+  }
+  const FRAC = ELAPSED / DAYS;
+  // Month-end guess for one category: everyday spending continues at its current rate; bills land at their budget.
+  const projectOf = r => !IS_CURRENT ? r.spent : r.everyday ? (FRAC >= .15 ? r.spent / FRAC : Math.max(r.spent, r.plan)) : Math.max(r.spent, r.plan);
+
+  // ---- tooltip ----
+  const tip = $('tip');
+  function showTip(evt, title, rows) {
+    tip.innerHTML = ''; const tt = document.createElement('div'); tt.className = 'tt'; tt.textContent = title; tip.append(tt);
+    for (const r of rows) {
+      const row = document.createElement('div'); row.className = 'tr';
+      const k = document.createElement('i'); k.className = r.key; if (r.color) k.style.background = r.color; if (r.key === 'key-dot') k.style.background = 'transparent';
+      const v = document.createElement('b'); v.textContent = r.value;
+      const l = document.createElement('span'); l.textContent = r.label;
+      row.append(k, v, l); tip.append(row);
+    }
+    tip.hidden = false;
+    const box = $('bento').getBoundingClientRect(), tw = tip.offsetWidth, th = tip.offsetHeight;
+    let x = evt.clientX - box.left + 14, y = evt.clientY - box.top - th - 10;
+    if (x + tw > box.width) x = evt.clientX - box.left - tw - 14;
+    if (y < 0) y = evt.clientY - box.top + 16;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  const hideTip = () => { tip.hidden = true; };
+
+  // ---- 1. hero: what's left for everyday spending ----
+  function paintHero(exp, inc) {
+    const ev = exp.filter(r => r.everyday), bills = exp.filter(r => !r.everyday);
+    const evPlan = ev.reduce((a, r) => a + r.plan, 0), evSpent = ev.reduce((a, r) => a + r.spent, 0), left = evPlan - evSpent;
+    const daysLeft = DAYS - ELAPSED + 1;
+    const big = $('hero-big');
     if (IS_CURRENT) {
-      const daysLeft = DAYS - ELAPSED + 1;
-      if (tBudget && left > 0) {
-        countUp($('d-big'), left / daysLeft);
-        $('d-sub').textContent = `per day for the ${daysLeft} day${daysLeft === 1 ? '' : 's'} left (incl. today)`;
-      } else { $('d-big').textContent = tBudget ? '$0' : '—'; $('d-sub').textContent = tBudget ? 'Budget is used up for this month.' : 'Set budgets to see this.'; }
-    } else { countUp($('d-big'), ELAPSED ? tSpent / ELAPSED : 0); $('d-sub').textContent = `spent per day across ${ELAPSED} days`; }
-    const net = earned - tSpent, nEl = $('i-net');
-    countUp(nEl, net, c => (c >= 0 ? '+' : '−') + whole(Math.abs(c)));
-    nEl.classList.toggle('good', net >= 0); nEl.classList.toggle('bad', net < 0);
-    $('i-spent').textContent = whole(tSpent); $('i-earned').textContent = whole(earned);
-    const denom = Math.max(earned, tSpent, 1);
-    later(() => { $('i-sp').style.width = (100 * tSpent / denom) + '%'; $('i-sv').style.width = (100 * Math.max(0, net) / denom) + '%'; });
-    overs.sort((a, b) => b.over - a.over);
-    const box = $('overs'); box.innerHTML = '';
-    if (!overs.length) box.innerHTML = '<div class="calm">Nothing over budget — nice.</div>';
-    const maxO = overs[0]?.over || 1;
-    overs.slice(0, 5).forEach(o => {
-      const b = document.createElement('button'); b.type = 'button'; b.className = 'ov';
-      const n = document.createElement('span'); n.className = 'n'; n.textContent = o.name;
-      const a = document.createElement('span'); a.className = 'a num'; a.textContent = '+' + whole(o.over);
-      const bar = document.createElement('span'); bar.className = 'b';
-      const i = document.createElement('i'); i.style.width = (100 * o.over / maxO) + '%'; bar.append(i);
-      b.append(n, a, bar);
+      $('hero-label').textContent = left >= 0 ? 'Left for everyday spending' : 'Over on everyday spending';
+      big.textContent = whole(Math.abs(left)); big.classList.toggle('neg', left < 0);
+      $('hero-sub').innerHTML = '';
+      const s1 = document.createElement('span');
+      s1.textContent = left > 0 ? `${whole(left / daysLeft)} a day for the ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'Everyday budget is used up this month';
+      $('hero-sub').append(s1);
+    } else {
+      $('hero-label').textContent = 'Everyday spending';
+      big.textContent = whole(evSpent); big.classList.remove('neg');
+      $('hero-sub').textContent = evPlan ? `${left >= 0 ? whole(left) + ' under' : whole(-left) + ' over'} its ${whole(evPlan)} budget` : '';
+    }
+    $('hero-sub').title = 'Everyday: ' + ev.map(r => r.name).join(', ');
+    const m = $('hero-meter'), fill = m.querySelector('i'), mark = m.querySelector('b');
+    const pct = evPlan ? Math.min(1, evSpent / evPlan) : 0;
+    fill.style.width = (100 * pct) + '%';
+    fill.style.background = evSpent > evPlan ? 'var(--bad)' : (IS_CURRENT && pct > FRAC + .1 ? 'var(--warn)' : 'var(--accent)');
+    mark.hidden = !IS_CURRENT; mark.style.left = (100 * FRAC) + '%'; mark.title = `Day ${ELAPSED} of ${DAYS}`;
+    m.setAttribute('aria-label', `${whole(evSpent)} of ${whole(evPlan)} everyday budget spent`);
+    $('m-left').textContent = `${whole(evSpent)} spent of ${whole(evPlan)}`;
+    $('m-right').textContent = IS_CURRENT ? `${Math.round(100 * FRAC)}% through ${MONTH}` : '';
+
+    const paid = bills.reduce((a, r) => a + r.spent, 0), due = bills.reduce((a, r) => a + Math.max(0, r.plan - r.spent), 0);
+    $('f-bills').innerHTML = ''; const fb = document.createElement('span');
+    fb.innerHTML = '<b></b> paid'; fb.firstChild.textContent = whole(paid);
+    if (IS_CURRENT) fb.append(` · ${whole(due)} still to come`);
+    $('f-bills').append(fb);
+
+    const budget = exp.reduce((a, r) => a + r.plan, 0), proj = exp.reduce((a, r) => a + projectOf(r), 0), diff = budget - proj;
+    $('f-proj-l').textContent = IS_CURRENT ? 'Projected month end' : 'Month result';
+    const fp = $('f-proj'); fp.innerHTML = '';
+    const sym = document.createElement('span'); sym.className = 'sym ' + (diff >= 0 ? 'good' : 'bad'); sym.textContent = diff >= 0 ? '▼' : '▲';
+    const b = document.createElement('b'); b.textContent = whole(Math.abs(diff));
+    fp.append(sym, b, diff >= 0 ? ' under budget' : ' over budget');
+    fp.title = `${whole(IS_CURRENT ? proj : exp.reduce((a, r) => a + r.spent, 0))} vs ${whole(budget)} budgeted`;
+
+    const earned = inc.reduce((a, r) => a + r.spent, 0), planned = inc.reduce((a, r) => a + r.plan, 0);
+    const fi = $('f-inc'); fi.innerHTML = '<b></b>'; fi.firstChild.textContent = whole(earned);
+    fi.append(planned ? ` of ${whole(planned)} planned` : ' received');
+  }
+
+  // ---- 2. pace: cumulative spending vs the household's usual path ----
+  function paintPace(exp) {
+    const box = $('pace'); box.innerHTML = '';
+    const W = Math.max(300, box.clientWidth || 600), H = W < 520 ? 190 : 230, L = 44, R = 64, T = 12, B = 24;
+    const budget = exp.reduce((a, r) => a + r.plan, 0);
+    const actual = [0]; for (let d = 0; d < ELAPSED; d++) actual.push(actual[d] + (DAILY[d] || 0));
+    const usual = CH.usual ? CH.usual.map(f => f * budget) : Array.from({length: DAYS + 1}, (_, d) => budget * d / DAYS);
+    const last = [0, ...CH.last].slice(0, DAYS + 1);
+    const {top, step} = niceScale(Math.max(budget, actual.at(-1), last.at(-1) || 0) * 1.04);
+    const x = d => L + (d / DAYS) * (W - L - R), y = v => T + (1 - v / top) * (H - T - B);
+    const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img',
+      'aria-label': `Cumulative spending in ${MONTH}: ${whole(actual.at(-1))} by day ${ELAPSED}, compared with the usual path`}, box);
+    const g = el('g', {class: 'grid'}, svg);
+    for (let v = 0; v <= top + 1; v += step) { el('line', {x1: L, x2: W - R, y1: y(v), y2: y(v)}, g); txt(svg, L - 8, y(v) + 4, compact(v), 'tick', 'end'); }
+    for (const d of [1, 8, 15, 22, DAYS]) txt(svg, x(d), H - 6, String(d), 'tick', 'middle');
+    const path = arr => arr.map((v, d) => `${d ? 'L' : 'M'}${x(d).toFixed(1)},${y(v).toFixed(1)}`).join('');
+    const GREY_LAST = 'color-mix(in srgb, var(--muted) 45%, var(--card))';
+    if (CH.last.length) el('path', {d: path(last), fill: 'none', stroke: GREY_LAST, 'stroke-width': 2, 'stroke-linejoin': 'round'}, svg);
+    el('path', {d: path(usual), fill: 'none', stroke: 'var(--muted)', 'stroke-width': 2, 'stroke-linejoin': 'round'}, svg);
+    if (ELAPSED) {
+      el('path', {d: path(actual) + `L${x(ELAPSED)},${y(0)}L${x(0)},${y(0)}Z`, fill: 'var(--accent)', 'fill-opacity': .1}, svg);
+      el('path', {d: path(actual), fill: 'none', stroke: 'var(--accent)', 'stroke-width': 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round'}, svg);
+      el('circle', {cx: x(ELAPSED), cy: y(actual[ELAPSED]), r: 5, fill: 'var(--accent)', stroke: 'var(--card)', 'stroke-width': 2}, svg);
+    }
+    // Direct labels at the right edge: the usual path's end is the month's budget.
+    txt(svg, W - R + 6, y(usual[DAYS]) + 4, compact(usual[DAYS]), 'lbl muted');
+    if (ELAPSED) {
+      const ly = y(actual[ELAPSED]) + (Math.abs(y(actual[ELAPSED]) - y(usual[DAYS])) < 14 ? 16 : 4);
+      if (ELAPSED === DAYS) txt(svg, W - R + 6, ly, compact(actual[ELAPSED]), 'lbl');
+      else txt(svg, x(ELAPSED), y(actual[ELAPSED]) - 10, compact(actual[ELAPSED]), 'lbl', 'middle');
+    }
+    // Crosshair + tooltip
+    const xh = el('line', {class: 'xhair', y1: T, y2: H - B, visibility: 'hidden'}, svg);
+    const dots = ['var(--accent)', 'var(--muted)', GREY_LAST].map(c => el('circle', {r: 4, fill: c, stroke: 'var(--card)', 'stroke-width': 2, visibility: 'hidden'}, svg));
+    const hit = el('rect', {class: 'hit', x: L, y: T, width: W - L - R, height: H - T - B}, svg);
+    const move = e => {
+      const pt = svg.getBoundingClientRect(), sx = (e.clientX - pt.left) * (W / pt.width);
+      const d = Math.max(1, Math.min(DAYS, Math.round((sx - L) / (W - L - R) * DAYS)));
+      xh.setAttribute('x1', x(d)); xh.setAttribute('x2', x(d)); xh.setAttribute('visibility', 'visible');
+      const series = [[d <= ELAPSED ? actual[d] : null, MONTH], [usual[d], 'Usual path'], [CH.last.length && d < last.length ? last[d] : null, CH.last_label]];
+      series.forEach(([v], i) => { const c = dots[i]; if (v == null) { c.setAttribute('visibility', 'hidden'); return; }
+        c.setAttribute('cx', x(d)); c.setAttribute('cy', y(v)); c.setAttribute('visibility', 'visible'); });
+      showTip(e, `Day ${d}`, series.map(([v, label], i) => v == null ? null : {key: 'key-line', color: ['var(--accent)', 'var(--muted)', GREY_LAST][i], value: whole(v), label}).filter(Boolean));
+    };
+    hit.addEventListener('pointermove', move);
+    hit.addEventListener('pointerleave', () => { xh.setAttribute('visibility', 'hidden'); dots.forEach(c => c.setAttribute('visibility', 'hidden')); hideTip(); });
+
+    const lg = $('pace-legend'); lg.innerHTML = '';
+    for (const [c, label] of [['var(--accent)', MONTH], ['var(--muted)', CH.usual ? 'Usual path' : 'Even pace'], ...(CH.last.length ? [[GREY_LAST, CH.last_label]] : [])]) {
+      const sp = document.createElement('span'); const k = document.createElement('i'); k.className = 'key-line'; k.style.background = c;
+      sp.append(k, label); lg.append(sp);
+    }
+    const cap = $('pace-cap'); cap.innerHTML = '';
+    if (!budget || !ELAPSED) { cap.textContent = budget ? '' : 'Set budgets to see your pace.'; return; }
+    const now = actual[ELAPSED], expect = usual[ELAPSED], gap = now - expect;
+    const sym = document.createElement('span'); sym.className = 'sym ' + (gap <= 0 ? 'good' : 'bad'); sym.textContent = gap <= 0 ? '▼' : '▲';
+    const amt = document.createElement('b'); amt.textContent = whole(Math.abs(gap));
+    if (IS_CURRENT) cap.append(`By day ${ELAPSED} you've spent ${whole(now)}. `, sym, amt, gap <= 0 ? ' less than usual by this point.' : ' more than usual by this point.');
+    else cap.append(`Finished at ${whole(now)} against a ${whole(budget)} budget. `, sym, amt, now <= budget ? ' under.' : ' over.');
+    if (CH.usual) cap.title = `Usual path: how your spending built up through the month on average over the last ${CH.usual_months} months, scaled to this month's budget.`;
+  }
+
+  // ---- 3. last six months ----
+  function paintTrend(exp, inc) {
+    const box = $('trend'); box.innerHTML = '';
+    const hist = CH.history.map(h => ({...h}));
+    const cur = hist.at(-1);  // live numbers for the month on screen
+    cur.spent = exp.reduce((a, r) => a + r.spent, 0); cur.budget = exp.reduce((a, r) => a + r.plan, 0); cur.income = inc.reduce((a, r) => a + r.spent, 0);
+    const W = Math.max(300, box.clientWidth || 600), H = W < 520 ? 190 : 210, L = 44, R = 10, T = 18, B = 24;
+    const {top, step} = niceScale(Math.max(...hist.flatMap(h => [h.spent, h.budget, h.income])) * 1.04);
+    const band = (W - L - R) / hist.length, cw = Math.min(24, band * .45);
+    const xc = i => L + band * i + band / 2, y = v => T + (1 - v / top) * (H - T - B);
+    const svg = el('svg', {viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Spending, budget and income for the last six months'}, box);
+    const g = el('g', {class: 'grid'}, svg);
+    for (let v = 0; v <= top + 1; v += step) { el('line', {x1: L, x2: W - R, y1: y(v), y2: y(v)}, g); txt(svg, L - 8, y(v) + 4, compact(v), 'tick', 'end'); }
+    hist.forEach((h, i) => {
+      const cx = xc(i), x0 = cx - cw / 2, y0 = y(h.spent), yb = y(0), r = Math.min(4, (yb - y0) / 2);
+      const isCur = i === hist.length - 1 && IS_CURRENT;
+      txt(svg, cx, H - 6, h.label, 'tick', 'middle');
+      const hitR = el('rect', {class: 'col-hit', x: L + band * i, y: T, width: band, height: H - T - B}, svg);
+      const col = el('path', {class: 'col', fill: 'var(--accent)', 'fill-opacity': isCur ? .55 : 1,
+        d: `M${x0},${yb}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + cw - r}Q${x0 + cw},${y0} ${x0 + cw},${y0 + r}V${yb}Z`}, svg);
+      if (h.budget) el('line', {x1: cx - cw / 2 - 5, x2: cx + cw / 2 + 5, y1: y(h.budget), y2: y(h.budget), stroke: 'var(--ink)', 'stroke-width': 2, 'stroke-linecap': 'round', 'pointer-events': 'none'}, svg);
+      if (h.income) el('circle', {cx: cx + cw / 2 + 12, cy: y(h.income), r: 4, fill: 'var(--card)', stroke: 'var(--ink)', 'stroke-width': 2, 'pointer-events': 'none'}, svg);
+      if (i === hist.length - 1) txt(svg, cx, Math.min(y0, h.budget ? y(h.budget) : y0) - 7, compact(h.spent) + (isCur ? ' so far' : ''), 'lbl', 'middle');
+      const show = e => { col.classList.add('hot'); const net = h.income - h.spent;
+        showTip(e, h.full + (isCur ? ' (so far)' : ''), [
+          {key: 'key-rect', color: 'var(--accent)', value: whole(h.spent), label: 'Spent'},
+          {key: 'key-tick', value: h.budget ? whole(h.budget) : '—', label: 'Budget'},
+          {key: 'key-dot', value: whole(h.income), label: 'Income'},
+          {key: 'key-line', color: 'transparent', value: (net >= 0 ? '+' : '−') + whole(Math.abs(net)), label: net >= 0 ? 'Saved' : 'Short'}]); };
+      hitR.addEventListener('pointermove', show);
+      hitR.addEventListener('pointerleave', () => { col.classList.remove('hot'); hideTip(); });
+    });
+    // Caption: a typical month from the full months shown (skips the first, which may be partial, and the current one).
+    const full = hist.slice(1, -1).filter(h => h.spent);
+    const cap = $('trend-cap'); cap.innerHTML = '';
+    if (full.length) {
+      const avgS = full.reduce((a, h) => a + h.spent, 0) / full.length, avgI = full.reduce((a, h) => a + h.income, 0) / full.length;
+      const b1 = document.createElement('b'); b1.textContent = whole(avgS);
+      const b2 = document.createElement('b'); b2.textContent = whole(avgI);
+      cap.append(`Typical month (${full[0].label}–${full.at(-1).label}): `, b1, ' spent, ', b2, ' earned.');
+    }
+  }
+
+  // ---- 4. needs attention: over budget, or on pace to be ----
+  function paintWatch(exp) {
+    const box = $('watch'); box.innerHTML = '';
+    const items = [];
+    for (const r of exp) {
+      if (r.plan > 0 && r.spent > r.plan) items.push({r, sev: r.spent - r.plan, kind: 'over'});
+      else if (!r.plan && r.spent > 0 && !r.retired) items.push({r, sev: r.spent, kind: 'nobudget'});
+      else if (IS_CURRENT && r.everyday && r.plan > 0 && FRAC >= .15) {
+        const p = projectOf(r); if (p > r.plan * 1.05) items.push({r, sev: p - r.plan, kind: 'pace', proj: p});
+      }
+    }
+    items.sort((a, b) => b.sev - a.sev);
+    if (!items.length) { const d = document.createElement('div'); d.className = 'calm';
+      d.innerHTML = '<span class="sym good">●</span>'; d.append(IS_CURRENT ? 'Everything is on track.' : 'Every category finished within budget.'); box.append(d); return; }
+    for (const it of items.slice(0, 6)) {
+      const {r} = it, b = document.createElement('button'); b.type = 'button'; b.className = 'w';
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = r.name;
+      const s = document.createElement('span'); s.className = 's';
+      const sym = document.createElement('span'); sym.className = 'sym ' + (it.kind === 'over' ? 'bad' : 'warn'); sym.textContent = it.kind === 'over' ? '●' : '▲';
+      s.append(sym, it.kind === 'over' ? `Over by ${whole(r.spent - r.plan)}` : it.kind === 'nobudget' ? `${whole(r.spent)}, no budget` : `On pace for ${whole(it.proj)}`);
+      const bar = document.createElement('span'); bar.className = 'bb';
+      const scale = Math.max(r.plan, r.spent, it.proj || 0) || 1;
+      if (it.proj) { const pj = document.createElement('i'); pj.className = 'proj'; pj.style.width = (100 * it.proj / scale) + '%'; bar.append(pj); }
+      if (it.kind === 'over') {
+        const ov = document.createElement('i'); ov.className = 'spent over'; ov.style.width = (100 * r.spent / scale) + '%'; bar.append(ov);
+        const ok = document.createElement('i'); ok.className = 'spent'; ok.style.width = `calc(${100 * r.plan / scale}% - 1px)`;
+        ok.style.borderRadius = '999px 0 0 999px'; bar.append(ok);
+      } else { const sp = document.createElement('i'); sp.className = 'spent'; sp.style.width = (100 * r.spent / scale) + '%'; bar.append(sp); }
+      if (r.plan) { const tk = document.createElement('b'); tk.style.left = (100 * r.plan / scale) + '%'; bar.append(tk); }
+      const sub = document.createElement('span'); sub.className = 'sub2';
+      sub.textContent = `${whole(r.spent)} spent` + (r.plan ? ` of ${whole(r.plan)}` : '') + (it.proj ? ` · budget runs out around day ${Math.max(ELAPSED, Math.floor(r.plan / (r.spent / ELAPSED)))}` : '');
+      b.append(n, s, bar, sub);
       b.addEventListener('click', () => {
-        const g = o.tr.previousElementSibling && [...$$('tr.group')].find(g => itemRows(g).includes(o.tr));
+        const g = [...$$('tr.group')].find(g => itemRows(g).includes(r.tr));
         if (g && g.classList.contains('collapsed')) { setFold(g, false); saveFolds(); fillRows(); }
-        o.tr.scrollIntoView({behavior: reduced ? 'auto' : 'smooth', block: 'center'});
-        o.tr.classList.remove('saved'); void o.tr.offsetWidth; o.tr.classList.add('saved');
+        r.tr.scrollIntoView({behavior: reduced ? 'auto' : 'smooth', block: 'center'});
+        r.tr.classList.remove('saved'); void r.tr.offsetWidth; r.tr.classList.add('saved');
       });
       box.append(b);
-    });
-    if (overs.length > 5) box.insertAdjacentHTML('beforeend', `<div class="calm" style="font-size:12px">+ ${overs.length - 5} more</div>`);
+    }
+    if (items.length > 6) { const m = document.createElement('div'); m.className = 'calm'; m.style.fontSize = '12px'; m.textContent = `+ ${items.length - 6} more`; box.append(m); }
   }
+
+  function paintCharts() {
+    if ($('bento').hidden) return;
+    const {exp, inc} = readRows();
+    paintHero(exp, inc); paintPace(exp); paintTrend(exp, inc); paintWatch(exp);
+  }
+  { let t; addEventListener('resize', () => { clearTimeout(t); t = setTimeout(paintCharts, 120); }); }
 
   // ---- group bars: one segment per category, in its own shade, sized by its share of the group's budget ----
   const shade = (i, n) => {
@@ -819,7 +949,6 @@
     setCharts(on);
   });
   { const _t = totals; totals = () => { _t(); paintCharts(); }; }
-  addEventListener('resize', () => { if (!$('bento').hidden) drawChart([...$$('tr.exp')].reduce((a, t) => a + +t.dataset.plan, 0)); });
 
   totals();
   // ---- views: Andy (default) = charts on, everything expanded; Libby = flat list, no charts ----
