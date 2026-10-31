@@ -648,7 +648,8 @@
       inp.value = money2(cents);
       if (cents === old) return;
       const oldNext = +tr.dataset.next;
-      tr.dataset.plan = cents; tr.dataset.next = cents; totals(); tr.classList.remove('err', 'saved');
+      // Only this month changes; next month keeps its own amount (shown as a note when they differ).
+      tr.dataset.plan = cents; if (!IS_CURRENT) tr.dataset.next = cents; totals(); tr.classList.remove('err', 'saved');
       try {
         await postJSON('{{ url_for("v2.budgets_save") }}', {budgets: {[tr.dataset.cid]: cents}, y: {{ y }}, m: {{ m }}});
         void tr.offsetWidth; tr.classList.add('saved');
