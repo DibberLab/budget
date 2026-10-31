@@ -355,7 +355,7 @@
   .gc-more:hover { color: var(--ink); }
 
   /* ---------- Category panel (cards view): side panel on wide screens, bottom sheet on phones ---------- */
-  dialog.panel { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(440px, 100vw); border: 0; padding: 0;
+  dialog.panel { margin: 0 0 0 auto; height: 100dvh; max-height: 100dvh; width: min(660px, 100vw); border: 0; padding: 0;
                  background: var(--card); color: var(--ink); box-shadow: -12px 0 40px rgba(0,0,0,.18); }
   dialog.panel::backdrop { background: rgba(0,0,0,.28); }
   dialog.panel[open] { animation: slidein .22s cubic-bezier(.2,.8,.2,1); }
@@ -378,11 +378,31 @@
   .pn-facts .money input { font-size: 15px; font-weight: 650; padding: 2px 6px 2px 16px; text-align: left; border-color: var(--line); background: var(--card); }
   .pn-body { overflow: auto; padding: 8px 20px 20px; flex: 1; }
   .pn-body h3 { font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; margin: 12px 0 6px; }
-  .pn-tx { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
-  .pn-tx .p { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .pn-tx .a { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-  .pn-tx .d { font-size: 12.5px; color: var(--muted); }
-  .pn-tx select { font-size: 12.5px; padding: 2px 6px; border-radius: 7px; width: 170px; background: var(--bg); justify-self: end; }
+  /* One row per transaction: date · payee · amount · category, each editable in place. */
+  .pn-tx, .pn-cols { display: grid; grid-template-columns: 124px minmax(0, 1fr) 104px 150px; gap: 6px; align-items: center; }
+  .pn-cols { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; padding: 0 0 4px; }
+  .pn-cols span:nth-child(3) { text-align: right; padding-right: 8px; }
+  .pn-tx { padding: 5px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+  .pn-tx input, .pn-tx select { font: inherit; font-size: 13.5px; color: var(--ink); width: 100%; min-width: 0; padding: 5px 7px; border-radius: 8px;
+                                border: 1px solid transparent; background: transparent; transition: border-color .15s, background .15s; }
+  .pn-tx input:hover, .pn-tx select:hover { border-color: color-mix(in srgb, var(--ink) 18%, transparent); background: var(--card); }
+  .pn-tx input:focus, .pn-tx select:focus { outline: none; border-color: var(--accent); background: var(--card); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+  .pn-tx select { background: var(--bg); }
+  .pn-tx .pay { font-weight: 550; text-overflow: ellipsis; }
+  .pn-tx .dt { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .pn-tx .money::before { left: 8px; font-size: 13px; }
+  .pn-tx .money input { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; padding-left: 18px; }
+  .pn-tx input:disabled { color: var(--muted); cursor: not-allowed; }
+  .pn-tx input:disabled:hover { border-color: transparent; background: transparent; }
+  .pn-tx.pending .money input { box-shadow: inset 3px 0 0 var(--warn); }
+  .pn-tx.saved { animation: saved 1.4s ease-out; border-radius: 8px; }
+  .pn-tx.err input:focus { border-color: var(--bad); }
+  @media (max-width: 600px) {  /* phones: two lines (payee + amount, then date + category) */
+    .pn-cols { display: none; }
+    .pn-tx { grid-template-columns: minmax(0, 1fr) 100px; }
+    .pn-tx .pay { grid-column: 1; grid-row: 1; } .pn-tx .money { grid-column: 2; grid-row: 1; }
+    .pn-tx .dt { grid-column: 1; grid-row: 2; width: auto; } .pn-tx select { grid-column: 2; grid-row: 2; }
+  }
   .pn-empty { color: var(--muted); font-size: 14px; padding: 12px 0; }
   @media (max-width: 600px) {
     dialog.panel { margin: auto 0 0; width: 100vw; max-width: 100vw; height: auto; max-height: 88dvh; border-radius: 18px 18px 0 0; box-shadow: 0 -12px 40px rgba(0,0,0,.2); }
@@ -1483,16 +1503,66 @@
       const txs = txCache[cid];
       list.innerHTML = '';
       if (!txs.length) { list.innerHTML = `<p class="pn-empty">Nothing in ${MONTH}${IS_CURRENT ? ' yet' : ''}.</p>`; return; }
-      for (const t of txs) {
-        const row = document.createElement('div'); row.className = 'pn-tx';
-        row.innerHTML = `<span class="p"></span><span class="a"></span><span class="d"></span>`;
-        row.querySelector('.p').textContent = t.payee || '(no payee)';
-        row.querySelector('.a').textContent = fmt(-t.amount);
-        row.querySelector('.d').textContent = t.date + (t.pending ? ' · pending' : '');
-        row.append(catPicker(t, tr));
-        list.append(row);
-      }
+      const cols = document.createElement('div'); cols.className = 'pn-cols';
+      cols.innerHTML = '<span>Date</span><span>Payee</span><span>Amount</span><span>Category</span>';
+      list.append(cols);
+      for (const t of txs) list.append(txRow(t, tr));
     } catch (err) { list.innerHTML = '<p class="pn-empty"></p>'; list.firstChild.textContent = 'Couldn\'t load transactions: ' + err.message; }
+  }
+  // A transaction row in the panel. t.amount is spending as positive (refunds negative).
+  const TX_URL = id => `{{ url_for('v2.transaction_edit', tid=0) }}`.replace('/0/', '/' + id + '/');
+  const DATE_URL = id => `{{ url_for('v2.transaction_date', tid=0) }}`.replace('/0/', '/' + id + '/');
+  const MONTH_KEY = `${Y}-${String(M).padStart(2, '0')}`;
+  function txRow(t, tr) {
+    const row = document.createElement('div'); row.className = 'pn-tx' + (t.pending ? ' pending' : '');
+    if (t.pending) row.title = 'Pending: the bank may still change it';
+    const date = document.createElement('input'); date.type = 'date'; date.className = 'dt'; date.value = t.iso;
+    date.setAttribute('aria-label', 'Date'); date.disabled = t.locked;
+    if (t.locked) date.title = 'Split or transfer: change it from the Transactions page';
+    const pay = document.createElement('input'); pay.className = 'pay'; pay.value = t.payee || ''; pay.placeholder = '(no payee)';
+    pay.setAttribute('aria-label', 'Payee'); pay.maxLength = 200;
+    const lab = document.createElement('label'); lab.className = 'money';
+    const amt = document.createElement('input'); amt.inputMode = 'decimal'; amt.value = money2(t.amount);
+    amt.setAttribute('aria-label', 'Amount spent'); amt.disabled = t.locked; lab.append(amt);
+    if (t.locked) amt.title = 'Split or transfer: the amount is tied to the other part';
+    row.append(date, pay, lab, catPicker(t, tr));
+
+    const flash = () => { row.classList.remove('saved', 'err'); void row.offsetWidth; row.classList.add('saved'); };
+    const fail = (inp, old, e) => { inp.value = old; row.classList.add('err'); toast('Couldn\'t save: ' + e.message, true); };
+    const refresh = () => { delete txCache[tr.dataset.cid]; totals(); };
+    for (const inp of [date, pay, amt]) {
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); if (e.key === 'Escape') { inp.value = inp.dataset.orig; inp.blur(); } });
+      inp.dataset.orig = inp.value;
+    }
+    amt.addEventListener('focus', () => amt.select());
+    pay.addEventListener('change', async () => {
+      const v = pay.value.trim();
+      if (!v) { pay.value = pay.dataset.orig; return; }
+      try { await postJSON(TX_URL(t.id), {payee: v}); t.payee = v; pay.dataset.orig = v; flash(); }
+      catch (e) { fail(pay, pay.dataset.orig, e); }
+    });
+    amt.addEventListener('change', async () => {
+      const n = parseFloat(amt.value.replace(/[$,\s]/g, ''));
+      if (isNaN(n)) { amt.value = amt.dataset.orig; return; }
+      const cents = Math.round(n * 100), delta = cents - t.amount;
+      if (!delta) { amt.value = money2(cents); return; }
+      try {
+        await postJSON(TX_URL(t.id), {amount: -cents});
+        tr.dataset.spent = +tr.dataset.spent + delta; toast(`Amount set to ${fmt(cents)}`); refresh();
+      } catch (e) { fail(amt, amt.dataset.orig, e); }
+    });
+    date.addEventListener('change', async () => {
+      if (!date.value || date.value === t.iso) return;
+      try {
+        const r = await postJSON(DATE_URL(t.id), {date: date.value});
+        if (!r.date.startsWith(MONTH_KEY)) {  // moved to another month: it no longer counts here
+          tr.dataset.spent = +tr.dataset.spent - t.amount;
+          toast(`Moved to ${new Date(r.date + 'T00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'})}. It now counts in ${new Date(r.date + 'T00:00').toLocaleDateString(undefined, {month: 'long'})}.`);
+        } else toast('Date saved');
+        refresh();
+      } catch (e) { fail(date, t.iso, e); }
+    });
+    return row;
   }
   function openPanel(cid) { panelCid = cid; renderPanel(); if (!panel.open) panel.showModal(); }
   panel.addEventListener('click', e => { if (e.target === panel) panel.close(); });  // click the backdrop

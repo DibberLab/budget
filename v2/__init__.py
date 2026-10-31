@@ -535,7 +535,9 @@ def category_detail(cid):
             .order_by(Transaction.date.desc()).all())
     return jsonify([{"date": t.date.strftime("%b %-d"), "iso": t.date.isoformat(), "id": t.id,
                      "payee": t.payee, "amount": -t.amount,
-                     "pending": t.source == "plaid" and not t.cleared} for t in txns])
+                     "pending": t.source == "plaid" and not t.cleared,
+                     # Split lines and transfers keep their amount/date tied to the other half.
+                     "locked": bool(t.parent_id or t.transfer_id)} for t in txns])
 
 
 # ---------- plan vs actual ----------
@@ -985,6 +987,32 @@ def transaction_category(tid):
     AutoCat.query.filter_by(transaction_id=t.id).delete()
     db.session.commit()
     return jsonify({"ok": True, "id": t.id, "from": old, "to": cid, "amount": t.amount})
+
+
+@v2_bp.route("/transactions/<int:tid>/edit", methods=["POST"])
+@login_required
+def transaction_edit(tid):
+    """Body: {"payee": str?, "amount": int?}. Edits one transaction's payee
+    and/or amount (signed cents, spending negative). Only this transaction
+    changes, not other ones from the same payee."""
+    t = db.session.get(Transaction, tid)
+    if not t:
+        abort(404)
+    data = request.get_json(silent=True) or {}
+    if "payee" in data:
+        payee = (data.get("payee") or "").strip()
+        if not payee:
+            return jsonify({"error": "A transaction needs a payee."}), 400
+        t.payee = payee[:200]
+    if "amount" in data:
+        if t.parent_id or t.transfer_id or t.splits:
+            return jsonify({"error": "Split and transfer amounts can't be changed here."}), 400
+        try:
+            t.amount = int(data["amount"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "Enter an amount."}), 400
+    db.session.commit()
+    return jsonify({"ok": True, "id": t.id, "payee": t.payee, "amount": t.amount})
 
 
 @v2_bp.route("/transactions/<int:tid>/date", methods=["POST"])
