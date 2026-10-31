@@ -281,6 +281,58 @@ def _chart_history(y: int, m: int, cats) -> dict:
             "last": last_cum, "last_label": date(py, pm, 1).strftime("%B"), "everyday": everyday}
 
 
+def _late_bills(today: date, everyday: set) -> list[dict]:
+    """Bills that usually arrive on a steady rhythm (monthly, or every two
+    weeks) but are overdue: no charge since longer than the rhythm plus a
+    grace period. Catches a payment the bank import missed, or one that
+    didn't go out. Only categories with a consistent rhythm qualify, so
+    irregular spending never raises a false alarm."""
+    start = today - timedelta(days=150)
+    rows = (db.session.query(Transaction.category_id, Transaction.date, Transaction.amount)
+            .join(Category, Category.id == Transaction.category_id)
+            .filter(Category.hidden.is_(False), Category.is_income.is_(False),
+                    Transaction.amount < 0, Transaction.date >= start, Transaction.date <= today)
+            .order_by(Transaction.date).all())
+    budget, _ = _budgets_as_of(today.year, today.month, list({r[0] for r in rows}))
+    by_cat = defaultdict(list)
+    for cid, d, amt in rows:
+        # A bill budgeted at $0 this month has ended on purpose; don't chase it.
+        if cid not in everyday and budget.get(cid, 0) > 0:
+            by_cat[cid].append((d, -amt))
+    out = []
+    for cid, charges in by_cat.items():
+        # Charges a few days apart are one payment event (e.g. two cards paid the same week).
+        events = []
+        for d, amt in charges:
+            if events and (d - events[-1][0]).days <= 5:
+                events[-1] = (events[-1][0], events[-1][1] + amt)
+            else:
+                events.append((d, amt))
+        if len(events) < 3:
+            continue
+        # Judge the rhythm on the most recent payments: schedules change
+        # (a loan refinanced, a bill moved from every two weeks to monthly).
+        events = events[-4:]
+        gaps = sorted((b[0] - a[0]).days for a, b in zip(events, events[1:]))
+        g = gaps[len(gaps) // 2]
+        if 25 <= g <= 35:
+            grace, rhythm = 5, "monthly"
+        elif 12 <= g <= 16:
+            grace, rhythm = 3, "every two weeks"
+        else:
+            continue
+        if sum(abs(x - g) <= 7 for x in gaps) < 0.6 * len(gaps):
+            continue  # not a steady rhythm
+        last = events[-1][0]
+        expected = last + timedelta(days=g)
+        if today > expected + timedelta(days=grace):
+            amts = sorted(a for _, a in events)
+            out.append({"id": cid, "last": last.isoformat(), "expected": expected.isoformat(),
+                        "rhythm": rhythm, "amount": amts[len(amts) // 2],
+                        "days_late": (today - expected).days})
+    return sorted(out, key=lambda x: -x["days_late"])
+
+
 @v2_bp.route("/")
 @login_required
 def progress():
@@ -397,6 +449,8 @@ def progress():
         daily[d.day - 1] -= int(total or 0)
 
     prev = (y - 1, 12) if m == 1 else (y, m - 1)
+    charts = _chart_history(y, m, cats)
+    charts["late"] = _late_bills(today, set(charts["everyday"])) if is_current else []
     return render_template(
         "v2/month.html", y=y, m=m, income=income, groups=ordered,
         month_name=date(y, m, 1).strftime("%B"), month_label=date(y, m, 1).strftime("%B %Y"),
@@ -407,7 +461,7 @@ def progress():
         avg_label=(f"{mname(months[0])}–{mname(months[-1])}" if months else "no earlier months"),
         cat_options=[(g, [{"id": c.id, "name": c.name} for c in cs]) for g, cs in _category_options()],
         pace=pace, daily=daily, days_in_month=days_in_month, days_elapsed=days_elapsed,
-        charts=_chart_history(y, m, cats))
+        charts=charts)
 
 
 @v2_bp.route("/category/<int:cid>")
@@ -423,7 +477,8 @@ def category_detail(cid):
                     extract("month", Transaction.date) == m)
             .order_by(Transaction.date.desc()).all())
     return jsonify([{"date": t.date.strftime("%b %-d"), "iso": t.date.isoformat(), "id": t.id,
-                     "payee": t.payee, "amount": -t.amount} for t in txns])
+                     "payee": t.payee, "amount": -t.amount,
+                     "pending": t.source == "plaid" and not t.cleared} for t in txns])
 
 
 # ---------- plan vs actual ----------
@@ -1089,44 +1144,16 @@ def import_page():
 @v2_bp.route("/import/sync", methods=["POST"])
 @login_required
 def import_sync():
-    """Pull new transactions from every linked bank via Plaid, applying saved
-    payee rules on the way in. AI categorization runs afterwards in batches
-    (see review_ai) so this request stays fast."""
+    """Pull new, changed and removed transactions from every linked bank (see
+    v2/sync.py). AI categorization runs afterwards in batches (see review_ai)
+    so this request stays fast."""
     if not plaid_client.is_configured():
         return jsonify({"error": "Plaid isn't configured on the server."}), 400
-    rules = _rules_by_match()
-    existing = {x[0] for x in db.session.query(Transaction.external_id)
-                .filter(Transaction.external_id.isnot(None))}
-    added = by_rule = 0
-    errors = []
-    for item in PlaidItem.query.all():
-        try:
-            result = plaid_client.sync_transactions(item.access_token, item.cursor)
-        except Exception as exc:
-            errors.append(f"{item.institution_name or 'Bank'}: {exc}")
-            continue
-        account_map = {a.plaid_account_id: a.id for a in
-                       Account.query.filter(Account.plaid_item_id == item.item_id)}
-        for t in result["added"]:
-            # Skip pending: once it posts, Plaid sends it again as a new
-            # transaction, so importing pending ones creates duplicates.
-            if t.get("pending"):
-                continue
-            acct = account_map.get(t["account_id"])
-            if not acct or t["transaction_id"] in existing:
-                continue
-            _, ruled = _add_transaction(
-                rules, account_id=acct, date=t["date"],
-                amount=-int(round(float(t["amount"]) * 100)),
-                payee=t.get("name") or t.get("merchant_name") or "(bank)",
-                memo="", source="plaid", external_id=t["transaction_id"])
-            existing.add(t["transaction_id"])
-            added += 1
-            by_rule += ruled
-        item.cursor = result["next_cursor"]
-        db.session.commit()
-    return jsonify({"added": added, "by_rule": by_rule, "errors": errors,
-                    "to_categorize": len(_uncategorized_groups())})
+    from v2.sync import run_sync
+    r = run_sync()
+    if r["busy"]:
+        return jsonify({"error": "A sync is already running. Try again in a minute."}), 409
+    return jsonify({**r, "to_categorize": len(_uncategorized_groups())})
 
 
 @v2_bp.route("/import/csv", methods=["POST"])

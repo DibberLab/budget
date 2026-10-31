@@ -174,6 +174,7 @@
             max-width: 560px; }
   .txlist .d { color: var(--muted); font-variant-numeric: tabular-nums; }
   .txlist .p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pend { font-size: 10.5px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); }
   .txlist .a { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .txlist .a.in { color: var(--ok); }
   .txlist .tot { grid-column: 1 / -1; display: flex; justify-content: space-between; border-top: 1px solid var(--line);
@@ -538,6 +539,8 @@
       for (const t of txs) {
         const d = document.createElement('span'); d.className = 'd'; d.textContent = t.date;
         const p = document.createElement('span'); p.className = 'p'; p.textContent = t.payee || '(no payee)';
+        if (t.pending) { const pd = document.createElement('span'); pd.className = 'pend'; pd.textContent = 'pending';
+                         pd.title = 'Not posted by the bank yet; the amount can still change'; p.append(' ', pd); }
         const a = document.createElement('span'); a.className = 'a' + (income && t.amount > 0 ? ' in' : ''); a.textContent = fmt(t.amount);
         list.append(d, p, a, catPicker(t, tr));
       }
@@ -904,7 +907,15 @@
   function paintWatch(exp) {
     const box = $('watch'); box.innerHTML = '';
     const items = [];
+    // Bills that are overdue against their usual rhythm come first.
+    const lateIds = new Set();
+    for (const L of (CH.late || [])) {
+      const r = exp.find(x => +x.tr.dataset.cid === L.id); if (!r) continue;
+      lateIds.add(L.id);
+      items.push({r, sev: 1e12 + L.days_late, kind: 'late', late: L});
+    }
     for (const r of exp) {
+      if (lateIds.has(+r.tr.dataset.cid)) continue;
       if (r.plan > 0 && r.spent > r.plan) items.push({r, sev: r.spent - r.plan, kind: 'over'});
       else if (!r.plan && r.spent > 0 && !r.retired) items.push({r, sev: r.spent, kind: 'nobudget'});
       else if (IS_CURRENT && r.everyday && r.plan > 0 && FRAC >= .15) {
@@ -919,7 +930,9 @@
       const n = document.createElement('span'); n.className = 'n'; n.textContent = r.name;
       const s = document.createElement('span'); s.className = 's';
       const sym = document.createElement('span'); sym.className = 'sym ' + (it.kind === 'over' ? 'bad' : 'warn'); sym.textContent = it.kind === 'over' ? '●' : '▲';
-      s.append(sym, it.kind === 'over' ? `Over by ${whole(r.spent - r.plan)}` : it.kind === 'nobudget' ? `${whole(r.spent)}, no budget` : `On pace for ${whole(it.proj)}`);
+      const day = iso => new Date(iso + 'T12:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+      s.append(sym, it.kind === 'over' ? `Over by ${whole(r.spent - r.plan)}` : it.kind === 'nobudget' ? `${whole(r.spent)}, no budget`
+               : it.kind === 'late' ? `Not seen · due around ${day(it.late.expected)}` : `On pace for ${whole(it.proj)}`);
       const bar = document.createElement('span'); bar.className = 'bb';
       const scale = Math.max(r.plan, r.spent, it.proj || 0) || 1;
       if (it.proj) { const pj = document.createElement('i'); pj.className = 'proj'; pj.style.width = (100 * it.proj / scale) + '%'; bar.append(pj); }
@@ -930,7 +943,9 @@
       } else { const sp = document.createElement('i'); sp.className = 'spent'; sp.style.width = (100 * r.spent / scale) + '%'; bar.append(sp); }
       if (r.plan) { const tk = document.createElement('b'); tk.style.left = (100 * r.plan / scale) + '%'; bar.append(tk); }
       const sub = document.createElement('span'); sub.className = 'sub2';
-      sub.textContent = `${whole(r.spent)} spent` + (r.plan ? ` of ${whole(r.plan)}` : '') + (it.proj ? ` · budget runs out around day ${Math.max(ELAPSED, Math.floor(r.plan / (r.spent / ELAPSED)))}` : '');
+      sub.textContent = it.kind === 'late'
+        ? `Usually ${it.late.rhythm}, about ${whole(it.late.amount)} · last seen ${day(it.late.last)}. Check the bank: paid, missed by the import, or stopped?`
+        : `${whole(r.spent)} spent` + (r.plan ? ` of ${whole(r.plan)}` : '') + (it.proj ? ` · budget runs out around day ${Math.max(ELAPSED, Math.floor(r.plan / (r.spent / ELAPSED)))}` : '');
       b.append(n, s, bar, sub);
       b.addEventListener('click', () => {
         const g = [...$$('tr.group')].find(g => itemRows(g).includes(r.tr));

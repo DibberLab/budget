@@ -140,7 +140,10 @@
         const r = await postJSON('{{ url_for("v2.import_sync") }}');
         set('r-new', r.added); set('r-rule', r.by_rule);
         step('sync', r.errors.length ? 'err' : 'done',
-             r.errors.length ? r.errors.join(' · ') : `${r.added} new transaction${r.added === 1 ? '' : 's'}`);
+             r.errors.length ? r.errors.join(' · ') : [
+               `${r.added} new transaction${r.added === 1 ? '' : 's'}` + (r.pending ? ` (${r.pending} pending)` : ''),
+               r.posted ? `${r.posted} posted` : '', r.modified ? `${r.modified} corrected by the bank` : '',
+               r.removed ? `${r.removed} removed by the bank` : ''].filter(Boolean).join(' · '));
       } else {
         step('sync', 'done', 'CSV imported');
       }

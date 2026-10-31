@@ -24,6 +24,8 @@
   .date { white-space: nowrap; color: var(--muted); font-variant-numeric: tabular-nums; width: 1%; }
   .payee { font-weight: 550; }
   .memo, .acct { font-size: 12px; color: var(--muted); }
+  .pend { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 1px 6px; border-radius: 999px; font-style: normal;
+          background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); vertical-align: 1px; }
   .amt { white-space: nowrap; font-variant-numeric: tabular-nums; width: 1%; }
   .amt.in { color: var(--ok); }
   .cat { width: 240px; }
@@ -78,7 +80,7 @@
       {% for r in rows %}{% set t = r.t %}
       <tr data-id="{{ t.id }}" data-cid="{{ t.category_id or '' }}" data-amount="{{ t.amount }}"
           data-search="{{ (t.payee ~ ' ' ~ (t.memo or '') ~ ' ' ~ '%.2f'|format((t.amount|abs) / 100))|lower }}">
-        <td class="date">{{ t.date.strftime('%b %-d') }}</td>
+        <td class="date">{{ t.date.strftime('%b %-d') }}{% if t.source == 'plaid' and not t.cleared %}<span class="pend" title="Not posted by the bank yet; the amount can still change">pending</span>{% endif %}</td>
         <td class="pay"><div class="payee">{{ t.payee or '(no payee)' }}</div>{% if t.memo %}<div class="memo">{{ t.memo }}</div>{% endif %}</td>
         <td class="acct">{{ r.account }}</td>
         <td class="amt r num{% if t.amount > 0 %} in{% endif %}">{{ t.amount|money }}</td>
