@@ -1,13 +1,17 @@
 {% extends "v2/base.html" %}
-{% block title %}Transactions · {{ month_label }}{% endblock %}
+{% block title %}Transactions · {{ ranges[range] }}{% endblock %}
 {% block wrap_class %}wide{% endblock %}
 {% block head %}
 <style>
   .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
   .head h1 { margin-right: auto; font-size: 30px; letter-spacing: -.03em; font-weight: 700; }
-  .arrow { text-decoration: none; width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px;
-           background: var(--card); box-shadow: 0 0 0 1px var(--line); color: var(--muted); }
-  .arrow:hover { color: var(--ink); }
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; }
+  .pills a { text-decoration: none; font-size: 13px; padding: 6px 12px; border-radius: 999px; background: var(--card);
+             box-shadow: 0 0 0 1px var(--line); color: var(--muted); white-space: nowrap; }
+  .pills a:hover { color: var(--ink); }
+  .pills a.on { background: var(--accent); color: var(--accent-ink); box-shadow: none; font-weight: 600; }
+  tr.mh td { background: var(--bg) !important; font-size: 12px; font-weight: 650; color: var(--muted); text-transform: uppercase;
+             letter-spacing: .06em; padding: 10px 12px 6px; }
   .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; max-width: 70ch; }
   .tools { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
   .tools input, .tools select { width: auto; border-radius: 10px; padding: 8px 12px; background: var(--card); }
@@ -55,15 +59,17 @@
     td.amt { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
     td.acct { display: none; }
     td.cat { grid-column: 1 / -1; margin-top: 6px; }
+    tr.mh { display: block !important; padding: 0; }
+    tr.mh td { display: block; }
   }
 </style>
 {% endblock %}
 {% block content %}
 <div class="head">
   <h1>Transactions</h1>
-  <a class="arrow" href="{{ url_for('v2.transactions', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
-  <span style="font-weight:600;min-width:130px;text-align:center">{{ month_label }}</span>
-  {% if can_next %}<a class="arrow" href="{{ url_for('v2.transactions', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% else %}<span style="width:34px"></span>{% endif %}
+  <nav class="pills" aria-label="Date range">
+    {% for k, label in ranges.items() %}<a href="{{ url_for('v2.transactions', range=k) if k != 'all' else url_for('v2.transactions') }}"{% if k == range %} class="on" aria-current="page"{% endif %}>{{ label }}</a>{% endfor %}
+  </nav>
 </div>
 <p class="sub">Change a transaction's category with its dropdown; it saves right away. Click a date to change it, for example to count a bill that cleared early in the month it's for. To file every transaction from a payee at once (and future ones), use <a href="{{ url_for('v2.manage') }}">Manage → Payees</a>.</p>
 
@@ -82,10 +88,12 @@
   <table>
     <thead><tr><th>Date</th><th>Payee</th><th>Account</th><th class="r">Amount</th><th>Category</th></tr></thead>
     <tbody id="rows">
-      {% for r in rows %}{% set t = r.t %}
-      <tr data-id="{{ t.id }}" data-cid="{{ t.category_id or '' }}" data-amount="{{ t.amount }}"
+      {% for r in rows %}{% set t = r.t %}{% set mk = t.date.strftime('%Y-%m') %}
+      {% if loop.first or mk != loop.previtem.t.date.strftime('%Y-%m') %}<tr class="mh" data-month="{{ mk }}"><td colspan="5">{{ t.date.strftime('%B %Y') }}</td></tr>{% endif %}
+      {% set dfmt = '%b %-d' if t.date.year == this_year else '%b %-d, %Y' %}
+      <tr class="tx" data-id="{{ t.id }}" data-cid="{{ t.category_id or '' }}" data-amount="{{ t.amount }}"
           data-search="{{ (t.payee ~ ' ' ~ (t.memo or '') ~ ' ' ~ '%.2f'|format((t.amount|abs) / 100))|lower }}">
-        <td class="date">{% if r.kind == 'transfer' %}{{ t.date.strftime('%b %-d') }}{% else %}<button type="button" class="dbtn" data-date="{{ t.date.isoformat() }}" title="Change date">{{ t.date.strftime('%b %-d') }}</button>{% endif %}{% if t.date_manual %}<span class="manual" title="Date set by hand. The bank says {{ t.bank_date.strftime('%b %-d, %Y') if t.bank_date else 'something else' }}.">set by hand</span>{% endif %}{% if t.source == 'plaid' and not t.cleared %}<span class="pend" title="Not posted by the bank yet; the amount can still change">pending</span>{% endif %}</td>
+        <td class="date">{% if r.kind == 'transfer' %}{{ t.date.strftime(dfmt) }}{% else %}<button type="button" class="dbtn" data-date="{{ t.date.isoformat() }}" title="Change date">{{ t.date.strftime(dfmt) }}</button>{% endif %}{% if t.date_manual %}<span class="manual" title="Date set by hand. The bank says {{ t.bank_date.strftime('%b %-d, %Y') if t.bank_date else 'something else' }}.">set by hand</span>{% endif %}{% if t.source == 'plaid' and not t.cleared %}<span class="pend" title="Not posted by the bank yet; the amount can still change">pending</span>{% endif %}</td>
         <td class="pay"><div class="payee">{{ t.payee or '(no payee)' }}</div>{% if t.memo %}<div class="memo">{{ t.memo }}</div>{% endif %}</td>
         <td class="acct">{{ r.account }}</td>
         <td class="amt r num{% if t.amount > 0 %} in{% endif %}">{{ t.amount|money }}</td>
@@ -95,10 +103,8 @@
           {% else %}
           <select aria-label="Category for {{ t.payee }}"{% if not t.category_id %} class="unset"{% endif %}>
             {% if not t.category_id %}<option value="" selected>— uncategorized —</option>{% endif %}
-            {% if r.cat and r.cat.hidden %}<option value="{{ r.cat.id }}" selected disabled>{{ r.cat.name }} (retired)</option>{% endif %}
-            {% for g, cs in category_groups %}
-            <optgroup label="{{ g }}">{% for c in cs %}<option value="{{ c.id }}"{% if c.id == t.category_id %} selected{% endif %}>{{ c.name }}</option>{% endfor %}</optgroup>
-            {% endfor %}
+            {% if r.cat and r.cat.hidden %}<option value="{{ r.cat.id }}" selected disabled>{{ r.cat.name }} (retired)</option>
+            {% elif t.category_id %}<option value="{{ t.category_id }}" selected>{{ cat_names.get(t.category_id, '?') }}</option>{% endif %}
           </select>
           {% endif %}
         </td>
@@ -107,9 +113,10 @@
     </tbody>
   </table>
   {% else %}
-  <div class="empty">No transactions in {{ month_label }}.</div>
+  <div class="empty">No transactions{{ '' if range == 'all' else ' for ' ~ ranges[range]|lower }}.</div>
   {% endif %}
 </div>
+<template id="cat-options">{% for g, cs in category_groups %}<optgroup label="{{ g }}">{% for c in cs %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</optgroup>{% endfor %}</template>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 {% endblock %}
 {% block scripts %}
@@ -122,22 +129,28 @@
 
   function filter() {
     const q = ($('q') ? $('q').value : '').trim().toLowerCase(), f = $('fcat') ? $('fcat').value : '';
-    let n = 0, out = 0, inn = 0;
+    let n = 0, out = 0, inn = 0, header = null, headerHas = false;
+    const closeHeader = () => { if (header) header.hidden = !headerHas; };
     $$('#rows tr').forEach(tr => {
+      if (tr.classList.contains('mh')) { closeHeader(); header = tr; headerHas = false; return; }
       const ok = (!q || tr.dataset.search.includes(q)) &&
                  (!f || (f === 'none' ? !tr.dataset.cid : tr.dataset.cid === f));
       tr.hidden = !ok;
-      if (ok) { n++; const a = +tr.dataset.amount; if (a < 0) out -= a; else inn += a; }
+      if (ok) { n++; headerHas = true; const a = +tr.dataset.amount; if (a < 0) out -= a; else inn += a; }
     });
-    $('summary').innerHTML = `<b>${n}</b> shown · out <b>${money(-out)}</b> · in <b>${money(inn)}</b>`;
+    closeHeader();
+    $('summary').innerHTML = `<b>${n.toLocaleString()}</b> shown · out <b>${money(-out)}</b> · in <b>${money(inn)}</b>`;
   }
   $('q')?.addEventListener('input', filter);
   $('fcat')?.addEventListener('change', filter);
   filter();
 
   // ---- change a transaction's date (e.g. a November bill that cleared Oct 31) ----
-  const MONTH = '{{ "%04d-%02d"|format(y, m) }}';
-  const fmt = iso => new Date(iso + 'T00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  const START = '{{ start }}', END = '{{ end }}', THIS_YEAR = '{{ this_year }}';
+  const inRange = iso => (!START || iso >= START) && (!END || iso < END);
+  const fmt = iso => new Date(iso + 'T00:00').toLocaleDateString(undefined,
+    iso.startsWith(THIS_YEAR) ? {month: 'short', day: 'numeric'} : {month: 'short', day: 'numeric', year: 'numeric'});
+  const monthName = iso => new Date(iso + 'T00:00').toLocaleDateString(undefined, {month: 'long'});
   $$('#rows .dbtn').forEach(btn => btn.addEventListener('click', () => {
     const tr = btn.closest('tr'), input = document.createElement('input');
     input.type = 'date'; input.value = btn.dataset.date; input.setAttribute('aria-label', 'Date');
@@ -147,13 +160,15 @@
       if (done) return; done = true;
       const v = input.value; input.remove(); btn.hidden = false;
       if (!save || !v || v === btn.dataset.date) return;
+      const oldMonth = btn.dataset.date.slice(0, 7);
       try {
         const r = await postJSON(`{{ url_for('v2.transaction_date', tid=0) }}`.replace('/0/', '/' + tr.dataset.id + '/'), {date: v});
-        if (!r.date.startsWith(MONTH)) {
+        if (!inRange(r.date)) {
           tr.remove(); filter();
-          toast(`Moved to ${fmt(r.date)}. It now counts in ${new Date(r.date + 'T00:00').toLocaleDateString(undefined, {month: 'long'})}.`);
+          toast(`Moved to ${fmt(r.date)}, outside this range. It now counts in ${monthName(r.date)}.`);
           return;
         }
+        if (r.date.slice(0, 7) !== oldMonth) { location.reload(); return; }  // re-sort under the right month
         btn.dataset.date = r.date; btn.textContent = fmt(r.date);
         tr.querySelector('.manual')?.remove();
         if (r.manual) btn.insertAdjacentHTML('afterend', `<span class="manual" title="Date set by hand. The bank says ${fmt(r.bank_date)}.">set by hand</span>`);
@@ -166,8 +181,20 @@
     input.addEventListener('blur', () => finish(true));
   }));
 
+  // ---- category pickers: each row only carries its current category until
+  // it's used, so long ranges stay light. ----
+  const CAT_OPTIONS = $('cat-options');
+  function fillOptions(sel) {
+    if (sel.dataset.filled) return;
+    sel.dataset.filled = '1';
+    const cur = sel.value;
+    [...sel.options].forEach(o => { if (o.value && !o.disabled) o.remove(); });
+    sel.append(CAT_OPTIONS.content.cloneNode(true));
+    sel.value = cur;
+  }
   $$('#rows select').forEach(sel => {
     sel.dataset.orig = sel.value;
+    for (const ev of ['mousedown', 'focus', 'touchstart']) sel.addEventListener(ev, () => fillOptions(sel), {passive: true});
     sel.addEventListener('change', async () => {
       const tr = sel.closest('tr'), cid = sel.value ? +sel.value : null;
       sel.disabled = true;
