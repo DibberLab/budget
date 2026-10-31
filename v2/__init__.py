@@ -343,38 +343,10 @@ def _late_bills(today: date, everyday: set) -> list[dict]:
     return sorted(out, key=lambda x: -x["days_late"])
 
 
-@v2_bp.route("/")
-@login_required
-def progress():
-    """Home: the month as a spreadsheet-style budget (income, every category's
-    monthly amount and what's been spent, Extra $$), with the charts above it
-    folded away until wanted. This month is editable; past months are read-only."""
-    today = date.today()
-    try:
-        y = int(request.args.get("y", today.year))
-        m = int(request.args.get("m", today.month))
-        date(y, m, 1)
-    except ValueError:
-        y, m = today.year, today.month
-    limit = _month_add(today.year, today.month, 12)
-    if (y, m) > limit:
-        y, m = limit
-    is_current = (y, m) == (today.year, today.month)
-    is_future = (y, m) > (today.year, today.month)
-
-    cats = Category.query.order_by(Category.group_name, Category.name).all()
-    ids = [c.id for c in cats]
-    plan, _ = _budgets_as_of(y, m, ids)
-    ny, nm = (y + (m == 12), m % 12 + 1)
-    nxt_plan, _ = _budgets_as_of(ny, nm, ids)
-    income_plan = {p.category_id: p.amount for p in IncomePlan.query}
-    spent = {cid: int(total or 0) for cid, total in
-             db.session.query(Transaction.category_id, func.sum(Transaction.amount))
-             .filter(Transaction.category_id.in_(ids),
-                     extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
-             .group_by(Transaction.category_id)}
-
-    # "avg": a typical month for each category, from the six full months
+def _typical_averages(y: int, m: int, cats, everyday: set, today: date):
+    """Each category's typical month for month (y, m): {cid: cents signed like
+    its transactions}, hover notes, click-open breakdowns, and the months used."""
+    # A typical month for each category, from the six full months
     # before this one (months before the household's history began don't
     # count). Unusual months - a month the mortgage skipped or paid twice
     # because it goes out on the 28th-1st, a three-paycheck month, a one-off
@@ -389,9 +361,7 @@ def progress():
     # lands in the next month whenever the bank posts it on the 1st, leaving
     # one month empty and the next doubled. Its typical month is simply its
     # usual payment (two of them for one paid every two weeks).
-    charts = _chart_history(y, m, cats)
-    charts["late"] = _late_bills(today, set(charts["everyday"])) if is_current else []
-    everyday = set(charts["everyday"])
+    ids = [c.id for c in cats]
     ey, em = min((y, m), (today.year, today.month))
     first = date(ey, em, 1)
     a_start = date(*_month_add(ey, em, -6), 1)
@@ -463,6 +433,45 @@ def progress():
     avg3, avg_note, avg_detail = {}, {}, {}
     for cid in ids:
         avg3[cid], avg_note[cid], avg_detail[cid] = typical(cid)
+    return avg3, avg_note, avg_detail, months
+
+
+@v2_bp.route("/")
+@login_required
+def progress():
+    """Home: the month as a spreadsheet-style budget (income, every category's
+    monthly amount and what's been spent, Extra $$), with the charts above it
+    folded away until wanted. This month is editable; past months are read-only."""
+    today = date.today()
+    try:
+        y = int(request.args.get("y", today.year))
+        m = int(request.args.get("m", today.month))
+        date(y, m, 1)
+    except ValueError:
+        y, m = today.year, today.month
+    limit = _month_add(today.year, today.month, 12)
+    if (y, m) > limit:
+        y, m = limit
+    is_current = (y, m) == (today.year, today.month)
+    is_future = (y, m) > (today.year, today.month)
+
+    cats = Category.query.order_by(Category.group_name, Category.name).all()
+    ids = [c.id for c in cats]
+    plan, _ = _budgets_as_of(y, m, ids)
+    ny, nm = (y + (m == 12), m % 12 + 1)
+    nxt_plan, _ = _budgets_as_of(ny, nm, ids)
+    income_plan = {p.category_id: p.amount for p in IncomePlan.query}
+    spent = {cid: int(total or 0) for cid, total in
+             db.session.query(Transaction.category_id, func.sum(Transaction.amount))
+             .filter(Transaction.category_id.in_(ids),
+                     extract("year", Transaction.date) == y, extract("month", Transaction.date) == m)
+             .group_by(Transaction.category_id)}
+
+    charts = _chart_history(y, m, cats)
+    charts["late"] = _late_bills(today, set(charts["everyday"])) if is_current else []
+    everyday = set(charts["everyday"])
+    avg3, avg_note, avg_detail, months = _typical_averages(y, m, cats, everyday, today)
+    mname = lambda ym: date(ym[0], ym[1], 1).strftime("%b")
 
     income, groups = [], defaultdict(list)
     for c in cats:
@@ -1246,3 +1255,4 @@ def import_csv():
 
 # Routes for the Manage page's "Ask Claude" box (imports helpers above).
 from v2 import assistant  # noqa: E402,F401
+from v2 import insights  # noqa: E402,F401

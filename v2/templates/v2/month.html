@@ -19,7 +19,27 @@
   .nudge { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px;
            padding: 12px 16px; border-left: 3px solid var(--warn); font-size: 14px; }
   .nudge .btn { padding: 6px 12px; font-size: 14px; }
-  .bento { margin-bottom: 16px; }
+  .bento { margin-bottom: 12px; }
+  /* Worth knowing: a full-width card under the charts. */
+  .t-know { margin-bottom: 16px; }
+  .know-meta { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--muted); }
+  .know-meta .foldall { padding: 4px 10px; font-size: 12.5px; }
+  .know-head { margin: 2px 0 14px; font-size: 17px; font-weight: 600; letter-spacing: -.01em; max-width: 75ch; }
+  .know-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+  .note { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--card); }
+  .note .k { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; letter-spacing: .02em;
+             text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .note .k i { width: 8px; height: 8px; border-radius: 999px; background: currentColor; }
+  .note.flag .k { color: var(--bad); } .note.watch .k { color: var(--warn); }
+  .note.idea .k { color: var(--accent); } .note.good .k { color: var(--ok); }
+  .note.flag { border-left: 3px solid var(--bad); } .note.watch { border-left: 3px solid var(--warn); }
+  .note.idea { border-left: 3px solid var(--accent); } .note.good { border-left: 3px solid var(--ok); }
+  .note b { display: block; font-size: 14.5px; margin-bottom: 3px; }
+  .note p { margin: 0; font-size: 13.5px; color: var(--ink); line-height: 1.45; }
+  .note.skel { min-height: 92px; background: linear-gradient(90deg, var(--track), var(--card), var(--track)) 0 0 / 200% 100%;
+               animation: shimmer 1.4s linear infinite; border-color: transparent; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .note.skel { animation: none; } }
   .bento[hidden] { display: none !important; }
   .foldall.on, .foldall.on:hover { background: var(--ink); color: var(--bg); }
   /* Group bars (charts on): a stacked bar above each group, one segment per category. */
@@ -313,6 +333,14 @@
     <div class="watch" id="watch"></div>
   </div>
   <div class="tip" id="tip" hidden></div>
+</section>
+
+<section class="tile t-know" id="know" hidden aria-labelledby="know-h">
+  <div class="th"><h3 id="know-h">Worth knowing</h3>
+    <div class="know-meta"><span id="know-when"></span><button type="button" class="foldall" id="know-refresh">Refresh</button></div></div>
+  <p class="know-head" id="know-head"></p>
+  <div class="know-notes" id="know-notes" aria-live="polite"></div>
+  <p class="cap" id="know-foot"></p>
 </section>
 
 <div class="layout">
@@ -1077,6 +1105,9 @@
     $('charts-btn').classList.toggle('on', on);
     $('charts-btn').setAttribute('aria-expanded', on);
     if (on) paintCharts();
+    // Worth knowing sits with the charts; when planning a future month (no charts yet) it shows on its own.
+    $('know').hidden = !(on || IS_FUTURE);
+    if (!$('know').hidden) loadKnow(false);
     // Showing or hiding the donut column changes every cell's width, so repaint the fills (and donuts).
     fillRows();
   }
@@ -1085,6 +1116,42 @@
     setCharts(on);
   });
   { const _t = totals; totals = () => { _t(); paintCharts(); }; }
+
+  // ---- Worth knowing: Claude's read of the plan against your history (cached server-side) ----
+  const KNOW_LABEL = {flag: 'Red flag', watch: 'Watch', idea: 'Idea', good: 'Working'};
+  let knowLoaded = false, knowBusy = false;
+  async function loadKnow(refresh) {
+    if ((knowLoaded && !refresh) || knowBusy) return;
+    knowBusy = true;
+    const notes = $('know-notes'), btn = $('know-refresh');
+    btn.disabled = true;
+    $('know-head').textContent = 'Reading your budget against the last few months…';
+    notes.innerHTML = ''; for (let i = 0; i < 4; i++) { const sk = document.createElement('div'); sk.className = 'note skel'; notes.append(sk); }
+    $('know-when').textContent = ''; $('know-foot').textContent = '';
+    try {
+      const r = await fetch({{ url_for('v2.insights', y=y, m=m)|tojson }} + (refresh ? '&refresh=1' : ''), {headers: {Accept: 'application/json'}});
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const d = await r.json();
+      $('know-head').textContent = d.headline || '';
+      notes.innerHTML = '';
+      for (const n of d.notes || []) {
+        const el = document.createElement('div'); el.className = 'note ' + n.kind;
+        const k = document.createElement('span'); k.className = 'k'; k.append(document.createElement('i'), KNOW_LABEL[n.kind] || n.kind);
+        const t = document.createElement('b'); t.textContent = n.title;
+        const p = document.createElement('p'); p.textContent = n.body;
+        el.append(k, t, p); notes.append(el);
+      }
+      const mins = Math.round((Date.now() / 1000 - d.at) / 60);
+      $('know-when').textContent = d.source === 'claude' ? `By Claude · ${mins < 2 ? 'just now' : mins < 60 ? mins + ' min ago' : Math.round(mins / 60) + ' h ago'}` : 'Basic checks';
+      $('know-foot').textContent = d.note || 'Compared with your typical months (the same averages as the avg labels). Numbers come from your data; Claude only writes the notes.';
+      knowLoaded = true;
+    } catch (e) {
+      $('know-head').textContent = 'Couldn\'t load notes right now.';
+      notes.innerHTML = ''; $('know-foot').textContent = e.message;
+    }
+    btn.disabled = false; knowBusy = false;
+  }
+  $('know-refresh').addEventListener('click', () => loadKnow(true));
 
   totals();
   // Charts open and every group expanded on each visit.

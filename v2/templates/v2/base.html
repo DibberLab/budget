@@ -13,18 +13,21 @@
       --bg: #f6f5f2; --card: #ffffff; --ink: #1d1d1b; --muted: #75736d; --line: #e7e5df;
       --accent: #2f6f5e; --accent-ink: #ffffff; --ok: #3f8f5a; --warn: #c98a1b; --bad: #c4473a;
       --track: #ecebe6; --pace: #1d1d1b;
+      /* Page backdrop: light green with topographic contour lines (static/contours-*.svg, a seamless tile). */
+      --page: #e6efe7; --page-art: url("{{ url_for('static', filename='contours-light.svg') }}?v=1");
     }
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #161615; --card: #1f1f1d; --ink: #ecebe6; --muted: #9a988f; --line: #2e2d2a;
         --accent: #5fb39a; --accent-ink: #10201b; --ok: #5fb37a; --warn: #e0a640; --bad: #e0675a;
         --track: #2c2b28; --pace: #ecebe6;
+        --page: #121a16; --page-art: url("{{ url_for('static', filename='contours-dark.svg') }}?v=1");
       }
     }
     * { box-sizing: border-box; }
     [hidden] { display: none !important; }
     @view-transition { navigation: auto; }
-    body { margin: 0; background: var(--bg); color: var(--ink);
+    body { margin: 0; background: var(--page-art) 0 0 / 800px 800px repeat, var(--page); color: var(--ink);
            font: 15px/1.45 "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
            -webkit-font-smoothing: antialiased; }
     a { color: inherit; }
