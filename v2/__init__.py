@@ -922,19 +922,19 @@ def review_confirm():
 @v2_bp.route("/transactions")
 @login_required
 def transactions():
-    """Every transaction in a month, each with a category picker."""
+    """Transactions over a date range (all of them by default), each with a
+    category picker."""
     today = date.today()
-    try:
-        y = int(request.args.get("y", today.year))
-        m = int(request.args.get("m", today.month))
-        date(y, m, 1)
-    except ValueError:
-        y, m = today.year, today.month
-    first = date(y, m, 1)
-    nxt = date(y + (m == 12), m % 12 + 1, 1)
-    txns = (Transaction.query
-            .filter(Transaction.date >= first, Transaction.date < nxt, Transaction.parent_id.is_(None))
-            .order_by(Transaction.date.desc(), Transaction.id.desc()).all())
+    rng = request.args.get("range", "all")
+    if rng not in TXN_RANGES:
+        rng = "all"
+    start, end = _txn_range(rng, today)
+    q = Transaction.query.filter(Transaction.parent_id.is_(None))
+    if start:
+        q = q.filter(Transaction.date >= start)
+    if end:
+        q = q.filter(Transaction.date < end)
+    txns = q.order_by(Transaction.date.desc(), Transaction.id.desc()).all()
     cats = {c.id: c for c in Category.query}
     accounts = {a.id: a.name for a in Account.query}
     split_parents = {t.parent_id for t in Transaction.query.filter(Transaction.parent_id.isnot(None))}
@@ -942,15 +942,28 @@ def transactions():
     for t in txns:
         kind = "transfer" if t.transfer_id else ("split" if t.id in split_parents else "")
         rows.append({"t": t, "kind": kind, "cat": cats.get(t.category_id), "account": accounts.get(t.account_id, "")})
-    prev = (y - 1, 12) if m == 1 else (y, m - 1)
-    is_current = (y, m) == (today.year, today.month)
-    # Future months only once something's been re-dated into them.
-    can_next = nxt <= today or db.session.query(
-        Transaction.query.filter(Transaction.date >= nxt).exists()).scalar()
-    return render_template("v2/transactions.html", rows=rows, y=y, m=m,
-                           month_label=first.strftime("%B %Y"), prev=prev, nxt=(nxt.year, nxt.month),
-                           is_current=is_current, can_next=can_next,
+    return render_template("v2/transactions.html", rows=rows, range=rng, ranges=TXN_RANGES,
+                           start=start.isoformat() if start else "", end=end.isoformat() if end else "",
+                           this_year=today.year,
                            category_groups=_category_options(), cat_names={c.id: c.name for c in cats.values()})
+
+
+TXN_RANGES = {"month": "This month", "last": "Last month", "30": "Last 30 days",
+              "90": "Last 90 days", "ytd": "Year to date", "all": "All"}
+
+
+def _txn_range(rng: str, today: date) -> tuple[date | None, date | None]:
+    """(start, end) for a Transactions range; end is exclusive, None = open."""
+    first = today.replace(day=1)
+    if rng == "month":
+        return first, date(today.year + (today.month == 12), today.month % 12 + 1, 1)
+    if rng == "last":
+        return (first - timedelta(days=1)).replace(day=1), first
+    if rng in ("30", "90"):
+        return today - timedelta(days=int(rng) - 1), None
+    if rng == "ytd":
+        return date(today.year, 1, 1), None
+    return None, None
 
 
 @v2_bp.route("/transactions/<int:tid>/category", methods=["POST"])
