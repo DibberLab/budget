@@ -943,9 +943,13 @@ def transactions():
         kind = "transfer" if t.transfer_id else ("split" if t.id in split_parents else "")
         rows.append({"t": t, "kind": kind, "cat": cats.get(t.category_id), "account": accounts.get(t.account_id, "")})
     prev = (y - 1, 12) if m == 1 else (y, m - 1)
+    is_current = (y, m) == (today.year, today.month)
+    # Future months only once something's been re-dated into them.
+    can_next = nxt <= today or db.session.query(
+        Transaction.query.filter(Transaction.date >= nxt).exists()).scalar()
     return render_template("v2/transactions.html", rows=rows, y=y, m=m,
                            month_label=first.strftime("%B %Y"), prev=prev, nxt=(nxt.year, nxt.month),
-                           is_current=(y, m) == (today.year, today.month),
+                           is_current=is_current, can_next=can_next,
                            category_groups=_category_options(), cat_names={c.id: c.name for c in cats.values()})
 
 
@@ -968,6 +972,33 @@ def transaction_category(tid):
     AutoCat.query.filter_by(transaction_id=t.id).delete()
     db.session.commit()
     return jsonify({"ok": True, "id": t.id, "from": old, "to": cid, "amount": t.amount})
+
+
+@v2_bp.route("/transactions/<int:tid>/date", methods=["POST"])
+@login_required
+def transaction_date(tid):
+    """Body: {"date": "YYYY-MM-DD"}. Re-dates a transaction by hand, e.g. a
+    November bill that cleared on Oct 31, so it counts in the month it's for.
+    Bank sync won't overwrite it. Setting it back to the bank's date clears
+    the flag."""
+    t = db.session.get(Transaction, tid)
+    if not t or t.parent_id:
+        abort(404)
+    try:
+        new = date.fromisoformat((request.get_json(silent=True) or {}).get("date") or "")
+    except ValueError:
+        return jsonify({"error": "Pick a valid date."}), 400
+    if t.transfer_id:
+        return jsonify({"error": "Transfers can't be re-dated here."}), 400
+    original = t.bank_date if t.date_manual else t.date
+    t.date = new
+    t.date_manual = new != original
+    t.bank_date = original if t.date_manual else None
+    for s in t.splits:
+        s.date = new
+    db.session.commit()
+    return jsonify({"ok": True, "date": new.isoformat(), "manual": t.date_manual,
+                    "bank_date": t.bank_date.isoformat() if t.bank_date else None})
 
 
 # ---------- manage: payees & categories ----------
@@ -1168,6 +1199,24 @@ def manage_group():
         c.group_name = new
     db.session.commit()
     return jsonify({"ok": True, "moved": len(moving)})
+
+
+@v2_bp.route("/manage/group/retire", methods=["POST"])
+@login_required
+def manage_group_retire():
+    """Body: {"group": str, "hidden": bool}. Retires (or restores) every category
+    in a group. History is kept, same as retiring one category."""
+    data = request.get_json(silent=True) or {}
+    group = (data.get("group") or "").strip()
+    cats = Category.query.filter_by(group_name=group).all() if group else []
+    if not cats:
+        return jsonify({"error": "No such group."}), 404
+    hide = bool(data.get("hidden", True))
+    changed = sum(1 for c in cats if c.hidden != hide)
+    for c in cats:
+        c.hidden = hide
+    db.session.commit()
+    return jsonify({"ok": True, "changed": changed})
 
 
 # ---------- import ----------

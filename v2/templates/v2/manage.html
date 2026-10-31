@@ -59,6 +59,9 @@
   .gh .gname { font: inherit; font-weight: 650; font-size: 15px; background: none; border: 0; padding: 0; color: var(--ink); cursor: text; border-bottom: 1px dashed transparent; }
   .gh .gname:hover { border-bottom-color: color-mix(in srgb, var(--muted) 60%, transparent); }
   .gh .gcount { margin-left: auto; font-size: 12px; color: var(--muted); }
+  .gh .gact { font: inherit; font-size: 12px; border: 0; cursor: pointer; padding: 4px 10px; border-radius: 999px; background: var(--track); color: var(--muted); white-space: nowrap; }
+  .gh .gact:hover { color: var(--ink); }
+  .gh .gact[data-hide="0"] { background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--ink); }
   .c { display: grid; grid-template-columns: minmax(0, 1fr) 130px auto; gap: 8px; align-items: center; padding: 8px 12px 8px 16px; }
   .c + .c { border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
   .c input.cname { border-color: transparent; background: transparent; padding: 5px 8px; margin-left: -8px; font-size: 14px; }
@@ -187,6 +190,7 @@
       <div class="gh">
         <button type="button" class="gname" title="Click to rename group">{{ g }}</button>
         <span class="gcount">{{ live|length }} active{% if gone %} · {{ gone|length }} retired{% endif %}</span>
+        <button type="button" class="gact" data-hide="{{ 1 if live else 0 }}">{{ 'Retire group' if live else 'Restore group' }}</button>
       </div>
       {% for c in live + gone %}
       {% if loop.index0 == live|length and gone %}<div class="retired-h">Retired</div>{% endif %}
@@ -365,6 +369,18 @@
     };
     input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
     input.addEventListener('blur', () => finish(true));
+  }));
+
+  $$('.gh .gact').forEach(btn => btn.addEventListener('click', async () => {
+    const group = btn.closest('.gt').dataset.group, hide = btn.dataset.hide === '1';
+    const msg = hide
+      ? `Retire every category in ${group}?\n\nThey'll be hidden from budgets and pickers but keep their history. You can restore them any time.`
+      : `Restore every category in ${group}?`;
+    if (!confirm(msg)) return;
+    try {
+      await postJSON('{{ url_for("v2.manage_group_retire") }}', {group, hidden: hide});
+      location.hash = 'categories'; location.reload();
+    } catch (e) { toast(e.message, true); }
   }));
 
   $('n-add').addEventListener('click', async () => {

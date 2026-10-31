@@ -265,6 +265,7 @@ def create_app():
         _seed_default_categories()
         _migrate_owner_columns()
         _migrate_split_column()
+        _migrate_manual_date_columns()
 
     @app.before_request
     def _post_recurring():
@@ -348,6 +349,18 @@ def _migrate_split_column():
             conn.execute(_text("ALTER TABLE transactions ADD COLUMN parent_id INTEGER REFERENCES transactions(id)"))
             conn.commit()
         conn.execute(_text("CREATE INDEX IF NOT EXISTS ix_txn_parent_id ON transactions(parent_id)"))
+        conn.commit()
+
+
+def _migrate_manual_date_columns():
+    """Add date_manual / bank_date (manually re-dated transactions) for existing DBs."""
+    from sqlalchemy import inspect as _sa_inspect, text as _text
+    existing = {c["name"] for c in _sa_inspect(db.engine).get_columns("transactions")}
+    with db.engine.connect() as conn:
+        if "date_manual" not in existing:
+            conn.execute(_text("ALTER TABLE transactions ADD COLUMN date_manual BOOLEAN NOT NULL DEFAULT 0"))
+        if "bank_date" not in existing:
+            conn.execute(_text("ALTER TABLE transactions ADD COLUMN bank_date DATE"))
         conn.commit()
 
 

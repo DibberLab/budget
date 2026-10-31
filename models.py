@@ -148,6 +148,12 @@ class Transaction(db.Model):
     external_id = db.Column(db.String(120))  # plaid txn id or csv hash, for dedupe
     recurring_id = db.Column(db.Integer, db.ForeignKey("recurring.id"))
 
+    # Manually re-dated (e.g. a November bill that cleared on Oct 31): `date`
+    # is the one we chose and bank sync leaves it alone; bank_date keeps what
+    # the bank says.
+    date_manual = db.Column(db.Boolean, nullable=False, default=False, server_default="0")
+    bank_date = db.Column(db.Date)
+
     # Ownership: which household member made this purchase.
     # NULL = untagged, owner_user_id set = that user's transaction,
     # is_joint = True = shared between all users.
