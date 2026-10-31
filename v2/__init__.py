@@ -281,6 +281,36 @@ def _chart_history(y: int, m: int, cats) -> dict:
             "last": last_cum, "last_label": date(py, pm, 1).strftime("%B"), "everyday": everyday}
 
 
+def _bill_rhythm(charges: list) -> dict | None:
+    """A steady payment rhythm in (date, amount>0) charges, oldest first:
+    monthly or every two weeks, judged on the most recent payments because
+    schedules change (a loan refinanced, a bill moved from every two weeks
+    to monthly). None when the charges don't keep a steady rhythm."""
+    # Charges a few days apart are one payment event (e.g. two cards paid the same week).
+    events = []
+    for d, amt in charges:
+        if events and (d - events[-1][0]).days <= 5:
+            events[-1] = (events[-1][0], events[-1][1] + amt)
+        else:
+            events.append((d, amt))
+    if len(events) < 3:
+        return None
+    events = events[-4:]
+    gaps = sorted((b[0] - a[0]).days for a, b in zip(events, events[1:]))
+    g = gaps[len(gaps) // 2]
+    if 25 <= g <= 35:
+        grace, rhythm, per_month = 5, "monthly", 1
+    elif 12 <= g <= 16:
+        grace, rhythm, per_month = 3, "every two weeks", 2  # a typical month has two; three-payment months are the unusual ones
+    else:
+        return None
+    if sum(abs(x - g) <= 7 for x in gaps) < 0.6 * len(gaps):
+        return None  # not a steady rhythm
+    amts = sorted(a for _, a in events)
+    return {"events": events, "gap": g, "grace": grace, "rhythm": rhythm,
+            "per_month": per_month, "amount": amts[len(amts) // 2]}
+
+
 def _late_bills(today: date, everyday: set) -> list[dict]:
     """Bills that usually arrive on a steady rhythm (monthly, or every two
     weeks) but are overdue: no charge since longer than the rhythm plus a
@@ -301,34 +331,14 @@ def _late_bills(today: date, everyday: set) -> list[dict]:
             by_cat[cid].append((d, -amt))
     out = []
     for cid, charges in by_cat.items():
-        # Charges a few days apart are one payment event (e.g. two cards paid the same week).
-        events = []
-        for d, amt in charges:
-            if events and (d - events[-1][0]).days <= 5:
-                events[-1] = (events[-1][0], events[-1][1] + amt)
-            else:
-                events.append((d, amt))
-        if len(events) < 3:
+        r = _bill_rhythm(charges)
+        if not r:
             continue
-        # Judge the rhythm on the most recent payments: schedules change
-        # (a loan refinanced, a bill moved from every two weeks to monthly).
-        events = events[-4:]
-        gaps = sorted((b[0] - a[0]).days for a, b in zip(events, events[1:]))
-        g = gaps[len(gaps) // 2]
-        if 25 <= g <= 35:
-            grace, rhythm = 5, "monthly"
-        elif 12 <= g <= 16:
-            grace, rhythm = 3, "every two weeks"
-        else:
-            continue
-        if sum(abs(x - g) <= 7 for x in gaps) < 0.6 * len(gaps):
-            continue  # not a steady rhythm
-        last = events[-1][0]
-        expected = last + timedelta(days=g)
-        if today > expected + timedelta(days=grace):
-            amts = sorted(a for _, a in events)
+        last = r["events"][-1][0]
+        expected = last + timedelta(days=r["gap"])
+        if today > expected + timedelta(days=r["grace"]):
             out.append({"id": cid, "last": last.isoformat(), "expected": expected.isoformat(),
-                        "rhythm": rhythm, "amount": amts[len(amts) // 2],
+                        "rhythm": r["rhythm"], "amount": r["amount"],
                         "days_late": (today - expected).days})
     return sorted(out, key=lambda x: -x["days_late"])
 
@@ -371,16 +381,45 @@ def progress():
     # splurge - are left out: only months within ±40% of the category's
     # median month are averaged. A category that's usually empty (median $0)
     # just averages every month, so occasional spending still shows up.
-    first = date(y, m, 1)
-    a_start = date(*_month_add(y, m, -6), 1)
+    # Only full months count: planning a future month averages up to last
+    # month, not the month still in progress. A month while the bank history
+    # was still filling in (under half the usual number of transactions)
+    # isn't a real month either.
+    # A bill paid on a steady rhythm is different: paid around the 30th, it
+    # lands in the next month whenever the bank posts it on the 1st, leaving
+    # one month empty and the next doubled. Its typical month is simply its
+    # usual payment (two of them for one paid every two weeks).
+    charts = _chart_history(y, m, cats)
+    charts["late"] = _late_bills(today, set(charts["everyday"])) if is_current else []
+    everyday = set(charts["everyday"])
+    ey, em = min((y, m), (today.year, today.month))
+    first = date(ey, em, 1)
+    a_start = date(*_month_add(ey, em, -6), 1)
     earliest = db.session.query(func.min(Transaction.date)).scalar()
     if earliest:
         hist_start = earliest if earliest.day == 1 else date(*_month_add(earliest.year, earliest.month, 1), 1)
         a_start = max(a_start, hist_start)
     months = []
     cy, cm = a_start.year, a_start.month
-    while (cy, cm) < (y, m):
+    while (cy, cm) < (ey, em):
         months.append((cy, cm)); cy, cm = _month_add(cy, cm, 1)
+    if months:
+        counts = {(int(yy), int(mo)): n for yy, mo, n in
+                  db.session.query(extract("year", Transaction.date), extract("month", Transaction.date), func.count())
+                  .filter(Transaction.date >= a_start, Transaction.date < first)
+                  .group_by(extract("year", Transaction.date), extract("month", Transaction.date))}
+        cs = sorted(counts.get(ym, 0) for ym in months)
+        med_n = cs[len(cs) // 2]
+        months = [ym for ym in months if counts.get(ym, 0) >= 0.5 * med_n]
+    charges = defaultdict(list)
+    if months:
+        w_start = date(*months[0], 1)
+        for cid, d, amt in (db.session.query(Transaction.category_id, Transaction.date, Transaction.amount)
+                            .filter(Transaction.category_id.in_(ids), Transaction.amount < 0,
+                                    Transaction.date >= w_start, Transaction.date < first)
+                            .order_by(Transaction.date)):
+            charges[cid].append((d, -amt))
+    is_income = {c.id: c.is_income for c in cats}
     monthly = defaultdict(lambda: defaultdict(int))
     if months:
         for cid, yy, mo, total in (db.session.query(Transaction.category_id, extract("year", Transaction.date),
@@ -391,28 +430,39 @@ def progress():
     mname = lambda ym: date(ym[0], ym[1], 1).strftime("%b")
 
     def typical(cid):
-        """(average in cents, signed like the transactions; hover note)."""
+        """(average in cents, signed like the transactions; hover note;
+        breakdown for the click-open list: each month's total and whether it
+        was used)."""
         if not months:
-            return 0, "No earlier months to average yet"
+            return 0, "No earlier months to average yet", {"months": [], "how": "none"}
+        if not is_income[cid] and cid not in everyday:
+            r = _bill_rhythm(charges[cid])
+            if r:
+                avg = r["amount"] * r["per_month"]
+                note = f"Usual payment, {r['rhythm']}" + (" (two a month)" if r["per_month"] == 2 else "")
+                return -avg, note, {"how": "bill", "rhythm": r["rhythm"], "per_month": r["per_month"], "amount": r["amount"],
+                                    "months": [[d.strftime("%b %-d, %Y"), a, True] for d, a in r["events"]]}
         vals = [(ym, abs(monthly[cid].get(ym, 0))) for ym in months]
         amounts = sorted(v for _, v in vals)
         n = len(amounts)
         med = amounts[n // 2] if n % 2 else (amounts[n // 2 - 1] + amounts[n // 2]) / 2
         keep = [(ym, v) for ym, v in vals if med and 0.6 * med <= v <= 1.4 * med]
         sign = -1 if sum(monthly[cid].values()) < 0 else 1
+        detail = lambda used: {"months": [[date(*ym, 1).strftime("%b %Y"), v, ym in used] for ym, v in vals]}
         if not keep:
             avg = sum(v for _, v in vals) / n
-            return sign * avg, f"Average of {mname(months[0])}–{mname(months[-1])} (spending here is occasional)"
+            return (sign * avg, f"Average of {mname(months[0])}–{mname(months[-1])} (spending here is occasional)",
+                    {**detail({ym for ym, _ in vals}), "how": "all"})
         avg = sum(v for _, v in keep) / len(keep)
         skipped = [ym for ym, _ in vals if (ym, dict(vals)[ym]) not in keep]
         note = "Typical month, from " + ", ".join(mname(ym) for ym, _ in keep)
         if skipped:
             note += " · left out as unusual: " + ", ".join(mname(ym) for ym in skipped)
-        return sign * avg, note
+        return sign * avg, note, {**detail({ym for ym, _ in keep}), "how": "typical"}
 
-    avg3, avg_note = {}, {}
+    avg3, avg_note, avg_detail = {}, {}, {}
     for cid in ids:
-        avg3[cid], avg_note[cid] = typical(cid)
+        avg3[cid], avg_note[cid], avg_detail[cid] = typical(cid)
 
     income, groups = [], defaultdict(list)
     for c in cats:
@@ -420,18 +470,18 @@ def progress():
             if not c.hidden or spent.get(c.id):
                 p = income_plan.get(c.id, 0)
                 income.append({"cat": c, "plan": p, "next": p, "spent": spent.get(c.id, 0),
-                               "avg": round(avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, "")})
+                               "avg": round(avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, ""), "avg_detail": avg_detail.get(c.id)})
             continue
         s_ = -spent.get(c.id, 0)  # outflow as positive
         if c.hidden:
             # Retired categories only show in months where they still have spending.
             if s_:
                 groups["Retired"].append({"cat": c, "plan": 0, "next": 0, "spent": s_,
-                                          "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, "")})
+                                          "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, ""), "avg_detail": avg_detail.get(c.id)})
             continue
         groups[c.group_name].append({"cat": c, "plan": plan.get(c.id, 0),
                                      "next": nxt_plan.get(c.id, 0) if is_current else plan.get(c.id, 0),
-                                     "spent": s_, "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, "")})
+                                     "spent": s_, "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, ""), "avg_detail": avg_detail.get(c.id)})
     for items in groups.values():
         items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
     # Biggest groups first; Retired (spending with no budget) last.
@@ -449,8 +499,6 @@ def progress():
         daily[d.day - 1] -= int(total or 0)
 
     prev = (y - 1, 12) if m == 1 else (y, m - 1)
-    charts = _chart_history(y, m, cats)
-    charts["late"] = _late_bills(today, set(charts["everyday"])) if is_current else []
     return render_template(
         "v2/month.html", y=y, m=m, income=income, groups=ordered,
         month_name=date(y, m, 1).strftime("%B"), month_label=date(y, m, 1).strftime("%B %Y"),

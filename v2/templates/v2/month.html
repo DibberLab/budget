@@ -4,7 +4,7 @@
 {% macro line(r, kind) -%}
 <tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}"
     data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}" data-everyday="{{ 1 if r.cat.id in charts.everyday else 0 }}" data-retired="{{ 1 if r.cat.hidden else 0 }}">
-  <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<span class="avgnote num" title="{{ r.avg_note }}"></span><span class="once" hidden></span></td>
+  <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="{{ r.avg_note }} · click for the months" data-avgd='{{ r.avg_detail|tojson }}'></button><span class="once" hidden></span></td>
   <td class="spent num"></td>
   <td class="amt"><label class="money"><input inputmode="decimal" class="num"{% if not editable %} readonly tabindex="-1"{% endif %} value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
 </tr>
@@ -21,17 +21,10 @@
   .nudge .btn { padding: 6px 12px; font-size: 14px; }
   .bento { margin-bottom: 16px; }
   .bento[hidden] { display: none !important; }
-  .who { margin: 0; }
-  .who button { font: inherit; font-size: 13px; border: 0; background: none; color: var(--muted); padding: 5px 12px; border-radius: 8px; cursor: pointer; }
-  .who button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-  /* Libby view: one flat list like her spreadsheet; no headings, no charts. */
-  .view-libby tr.group, .view-libby tr.gap, .view-libby #foldall, .view-libby #charts-btn { display: none !important; }
-  .view-libby tr.exp td.what, .view-libby tr.txrow td { padding-left: 24px !important; box-shadow: none !important; }
   .foldall.on, .foldall.on:hover { background: var(--ink); color: var(--bg); }
   /* Group bars (charts on): a stacked bar above each group, one segment per category. */
   tr.gbar { display: none; }
   .charts-on tr.gbar { display: table-row; }
-  .view-libby tr.gbar { display: none !important; }
   tr.gbar td { background-color: var(--card) !important; background-image: none !important; padding: 12px 14px 8px; height: auto;
                border-top: 1px solid var(--line); }
   .gb { display: flex; gap: 2px; height: 26px; border-radius: 8px; overflow: hidden; background: var(--track); }
@@ -181,8 +174,21 @@
                  margin-top: 4px; padding-top: 5px; font-size: 12.5px; color: var(--muted); }
   .txlist .none { grid-column: 1 / -1; color: var(--muted); }
   /* 3-month average: a small note beside the name. */
-  .avgnote { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: nowrap; letter-spacing: 0; }
+  .avgnote { font: inherit; margin-left: 6px; font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: nowrap; letter-spacing: 0;
+             border: 0; background: none; padding: 2px 6px; border-radius: 6px; cursor: pointer;
+             text-decoration: underline dotted color-mix(in srgb, var(--muted) 60%, transparent); text-underline-offset: 3px; }
+  .avgnote:hover, .avgnote[aria-expanded="true"] { background: var(--track); color: var(--ink); }
   .avgnote:empty { display: none; }
+  /* Click-open list of the months behind an average. */
+  .avgpop { position: absolute; z-index: 20; width: 264px; background: var(--card); color: var(--ink); border: 1px solid var(--line);
+            border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 10px 12px; font-size: 13px; }
+  .avgpop[hidden] { display: none; }
+  .avgpop h3 { margin: 0 0 2px; font-size: 13.5px; font-weight: 650; }
+  .avgpop .how { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
+  .avgpop .r { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 3px 0; font-variant-numeric: tabular-nums; }
+  .avgpop .r.out { color: var(--muted); }
+  .avgpop .r.out span:first-child::after { content: ' · left out'; font-size: 11.5px; }
+  .avgpop .tot { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 6px; padding-top: 7px; border-top: 1px solid var(--line); font-weight: 600; }
   tr.group .avgnote { font-size: 12px; }
   .ren { font: inherit; font-size: 12px; line-height: 1; border: 0; background: none; color: var(--muted); cursor: pointer;
          padding: 3px 5px; margin-left: 4px; border-radius: 6px; opacity: 0; transition: opacity .15s; vertical-align: 1px; }
@@ -261,10 +267,6 @@
 <div class="head">
   <h1>{{ month_label }}</h1>
   {% if is_future %}<button type="button" class="foldall" id="copy-prev" title="Use the budgets from {{ prev_label }} for {{ month_name }}">Copy from {{ prev_label }}</button>{% endif %}
-  <div class="views who" role="radiogroup" aria-label="View">
-    <button type="button" data-view="andy" role="radio">Andy</button>
-    <button type="button" data-view="libby" role="radio">Libby</button>
-  </div>
   <button type="button" class="foldall" id="charts-btn" aria-expanded="false"{% if is_future %} hidden{% endif %}>Show charts</button>
   <button type="button" class="foldall" id="foldall">Collapse all</button>
   <a class="arrow" href="{{ url_for('v2.progress', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
@@ -325,7 +327,7 @@
         {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="3"></td></tr>{% endif %}
         <tr class="gbar"><td colspan="3"><div class="gb" role="img" aria-label="{{ g }} spending by category"></div></td></tr>
         <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
-          <td><span class="gname"><span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span><span class="avgnote num" title="Sum of its categories' typical months ({{ avg_label }})"></span></span></td>
+          <td><span class="gname"><span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span><button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="Sum of its categories' typical months ({{ avg_label }}) · click for the breakdown"></button></span></td>
           <td class="sub spent-sub"></td><td class="sub plan"></td>
         </tr>
         {% for r in rows %}{{ line(r, 'exp') }}{% endfor %}
@@ -502,10 +504,9 @@
 
   // Stripes set once, so opening a transaction list doesn't shift them.
   function restripe() {
-    const flat = document.documentElement.classList.contains('view-libby');
     let n = 0;
     $$('tbody tr').forEach(tr => {
-      if (!tr.dataset.cid) { if (!flat || tr.classList.contains('section')) n = 0; return; }
+      if (!tr.dataset.cid) { n = 0; return; }
       tr.classList.toggle('alt', n++ % 2 === 1);
     });
   }
@@ -560,8 +561,59 @@
   $$('tr[data-cid]').forEach(tr => tr.addEventListener('click', e => {
     if (e.target.closest('.money')) return;   // clicking the amount edits it
     if (e.target.closest('.ren')) { e.stopPropagation(); renameCategory(tr); return; }
+    if (e.target.closest('.avgnote')) return;  // opens its month list instead
     toggleTx(tr);
   }));
+
+  // ---- avg: click to see the months behind it ----
+  const pop = document.createElement('div');
+  pop.className = 'avgpop'; pop.hidden = true; pop.setAttribute('role', 'dialog');
+  document.body.append(pop);
+  let popFor = null;
+  const popRow = (cls, a, b) => { const r = document.createElement('div'); r.className = cls;
+    const x = document.createElement('span'); x.textContent = a; const y = document.createElement('span'); y.textContent = b;
+    r.append(x, y); return r; };
+  function closePop() { if (popFor) popFor.setAttribute('aria-expanded', 'false'); pop.hidden = true; popFor = null; }
+  function openPop(btn) {
+    const tr = btn.closest('tr');
+    pop.innerHTML = '';
+    const h = document.createElement('h3'), how = document.createElement('p'); how.className = 'how';
+    if (tr.dataset.cid) {
+      const d = JSON.parse(btn.dataset.avgd || 'null') || {months: [], how: 'none'};
+      const used = d.months.filter(m => m[2]), sum = used.reduce((a, m) => a + m[1], 0);
+      h.textContent = `${tr.querySelector('.nm').textContent} · avg ${avgFmt(+tr.dataset.avg)}`;
+      how.textContent = d.how === 'typical' ? (used.length < d.months.length
+          ? 'Typical months only. Months far from the usual amount (over 40% off) are left out.'
+          : 'Every month was typical, so all are used.')
+        : d.how === 'all' ? 'Spending here is occasional, so every month is averaged.' : 'No full months to average yet.';
+      if (d.how === 'bill') how.textContent = `Paid ${d.rhythm}, so the average is its usual payment. Monthly totals swing when a payment posts a day early or late. Recent payments:`;
+      pop.append(h, how);
+      d.months.forEach(([label, cents, ok]) => pop.append(popRow('r' + (ok ? '' : ' out'), label, avgFmt(cents))));
+      if (d.how === 'bill') pop.append(popRow('tot', d.per_month === 1 ? 'Usual payment' : `Usual payment ${avgFmt(d.amount)} × ${d.per_month}`, avgFmt(d.amount * d.per_month)));
+      else if (used.length) pop.append(popRow('tot', `${avgFmt(sum)} ÷ ${used.length} month${used.length === 1 ? '' : 's'}`, avgFmt(sum / used.length)));
+    } else {
+      const rows = itemRows(tr).filter(r => +r.dataset.avg);
+      h.textContent = `${tr.querySelector('.gtitle').textContent} · avg ${avgFmt(rows.reduce((a, r) => a + +r.dataset.avg, 0))}`;
+      how.textContent = "The sum of each category's average. Click a category's avg for its months.";
+      pop.append(h, how);
+      rows.forEach(r => pop.append(popRow('r', r.querySelector('.nm').textContent, avgFmt(+r.dataset.avg))));
+      pop.append(popRow('tot', 'Total', avgFmt(rows.reduce((a, r) => a + +r.dataset.avg, 0))));
+    }
+    pop.hidden = false;
+    const b = btn.getBoundingClientRect(), w = pop.offsetWidth;
+    pop.style.left = Math.max(8, Math.min(b.left + scrollX, scrollX + document.documentElement.clientWidth - w - 8)) + 'px';
+    pop.style.top = (b.bottom + scrollY + 6) + 'px';
+    popFor = btn; btn.setAttribute('aria-expanded', 'true');
+  }
+  $$('.avgnote').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); if (popFor === btn) closePop(); else { closePop(); openPop(btn); } });
+    btn.addEventListener('keydown', e => e.stopPropagation());  // Enter/Space shouldn't also fold the group
+  });
+  pop.addEventListener('click', e => e.stopPropagation());
+  document.addEventListener('click', closePop);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && popFor) { const b = popFor; closePop(); b.focus(); } });
+  // Phones fire resize when the address bar slides while scrolling; only a real width change moves the anchor.
+  let popW = innerWidth; addEventListener('resize', () => { if (innerWidth !== popW) { popW = innerWidth; closePop(); } });
 
 
   // ---- per-transaction category picker (in the click-a-row lists) ----
@@ -1017,7 +1069,6 @@
       clearTimeout(t); t = setTimeout(fillRows, 80);
     }).observe($('sheet'));
   }
-  const CHARTS_KEY = 'v2-home-charts';
   function setCharts(on) {
     on = on && !IS_FUTURE;  // nothing to chart before a month starts
     $('bento').hidden = !on;
@@ -1036,26 +1087,8 @@
   { const _t = totals; totals = () => { _t(); paintCharts(); }; }
 
   totals();
-  // ---- views: Andy (default) = charts on, everything expanded; Libby = flat list, no charts ----
-  const VIEW_KEY = 'v2-home-view';
-  function applyView(v) {
-    v = v === 'libby' ? 'libby' : 'andy';
-    const root = document.documentElement;
-    root.classList.toggle('view-libby', v === 'libby');
-    root.classList.toggle('view-andy', v === 'andy');
-    $$('.who button').forEach(b => { b.classList.toggle('on', b.dataset.view === v); b.setAttribute('aria-checked', b.dataset.view === v); });
-    $$('tr.group').forEach(g => setFold(g, false));
-    saveFolds();
-    restripe();
-    setCharts(v === 'andy');
-    fillRows();
-  }
-  $$('.who button').forEach(b => b.addEventListener('click', () => {
-    applyView(b.dataset.view);
-    try { localStorage.setItem(VIEW_KEY, b.dataset.view); } catch (e) {}
-  }));
-  let view = 'andy';
-  try { view = localStorage.getItem(VIEW_KEY) || 'andy'; } catch (e) {}
-  applyView(view);
+  // Charts open and every group expanded on each visit.
+  setCharts(true);
+  try { localStorage.removeItem('v2-home-view'); } catch (e) {}  // the old Andy/Libby choice
 </script>
 {% endblock %}
