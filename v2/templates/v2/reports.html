@@ -45,6 +45,9 @@
   .frow select { width: auto; max-width: 220px; padding: 7px 10px; border-radius: 10px; background: var(--card); font-size: 13.5px; }
   .chk { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; cursor: pointer; }
   .chk input { width: auto; }
+  .cmpl { display: inline-flex; gap: 6px; align-items: center; font-size: 13px; color: var(--muted); white-space: nowrap; }
+  .cmpnote { font-size: 12.5px; color: var(--warn); }
+  .cmpnote:empty { display: none; }
   .frow .spacer { margin-left: auto; }
   .chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
   .chips:empty { display: none; }
@@ -111,14 +114,14 @@
   .w.drop-after.dy::after { left: 8px; right: 8px; bottom: -8px; height: 4px; }
   .w.drop-before.dx::before { top: 8px; bottom: 8px; left: -8px; width: 4px; }
   .w.drop-after.dx::after { top: 8px; bottom: 8px; right: -8px; width: 4px; }
-  .wh { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0 8px; }
+  .wh { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0 8px; flex-wrap: wrap; }
   .handle { font: inherit; border: 0; background: none; color: var(--muted); cursor: grab; padding: 4px 4px; border-radius: 6px; font-size: 15px; line-height: 1; letter-spacing: -2px; }
   .handle:hover, .handle:focus-visible { background: var(--track); color: var(--ink); outline: none; }
   .handle:active { cursor: grabbing; }
   .wh h2 { margin: 0; font-size: 14.5px; font-weight: 700; letter-spacing: -.01em; white-space: nowrap; }
   @media (max-width: 560px) { .wh .cap { display: none; } }
   .wh .cap { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .wh .tools { margin-left: auto; display: flex; gap: 2px; flex: none; }
+  .wh .tools { margin-left: auto; display: flex; gap: 4px; flex: none; align-items: center; }
   .ibtn { font: inherit; font-size: 12px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 7px; white-space: nowrap; }
   .ibtn:hover, .ibtn[aria-pressed="true"] { background: var(--track); color: var(--ink); }
   .wb { padding: 10px 16px 16px; min-height: 60px; }
@@ -139,6 +142,14 @@
   .col.hot rect { filter: brightness(1.12) saturate(1.05); }
   .col-hi { fill: var(--ink); opacity: 0; transition: opacity .1s; }
   .col.hot .col-hi { opacity: .05; }
+  line.ref { stroke: var(--ink); stroke-width: 2; stroke-linecap: round; opacity: .75; pointer-events: none; }
+  .xhair { stroke: var(--ink); stroke-width: 1; opacity: .35; pointer-events: none; }
+  .key-ref { display: inline-block; width: 12px; height: 2px; background: var(--ink); opacity: .75; border-radius: 2px; }
+  .key-line { display: inline-block; width: 14px; height: 2px; border-radius: 2px; }
+  .vsel { font: inherit; font-size: 12px; width: auto; padding: 3px 6px; border-radius: 7px; background: var(--card); color: var(--ink); border: 1px solid var(--line); }
+  .vseg { display: inline-flex; padding: 2px; border-radius: 8px; background: var(--track); }
+  .vseg button { font: inherit; font-size: 12px; border: 0; background: none; color: var(--muted); padding: 2px 8px; border-radius: 6px; cursor: pointer; }
+  .vseg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
 
   /* ranked bars (Where it went) */
   .rank { display: grid; gap: 2px; }
@@ -217,6 +228,25 @@
   .tip .tot { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
   .tip .hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
 
+  /* Worth knowing (same look as Home's card) */
+  .know-head { margin: 2px 0 12px; font-size: 16px; font-weight: 600; letter-spacing: -.01em; max-width: 80ch; }
+  .know-notes { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; }
+  .kn { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--card); }
+  .kn .k { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 650; letter-spacing: .02em; text-transform: uppercase; color: var(--muted); margin-bottom: 4px; }
+  .kn .k i { width: 8px; height: 8px; border-radius: 999px; background: currentColor; }
+  .kn.flag .k { color: var(--bad); } .kn.watch .k { color: var(--warn); } .kn.idea .k { color: var(--accent); } .kn.good .k { color: var(--ok); }
+  .kn.flag { border-left: 3px solid var(--bad); } .kn.watch { border-left: 3px solid var(--warn); } .kn.idea { border-left: 3px solid var(--accent); } .kn.good { border-left: 3px solid var(--ok); }
+  .kn b { display: block; font-size: 14.5px; margin-bottom: 3px; }
+  .kn p { margin: 0; font-size: 13.5px; line-height: 1.45; }
+  .kn.skel { min-height: 88px; background: linear-gradient(90deg, var(--track), var(--card), var(--track)) 0 0 / 200% 100%; animation: shimmer 1.4s linear infinite; border-color: transparent; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  @media (prefers-reduced-motion: reduce) { .kn.skel { animation: none; } }
+  .know-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 9px 12px; border-radius: 10px; margin-bottom: 12px;
+              background: color-mix(in srgb, var(--warn) 14%, var(--card)); font-size: 13.5px; }
+  .know-bar.fresh { background: var(--bg); color: var(--muted); font-size: 12.5px; }
+  .know-bar .btn { padding: 6px 12px; font-size: 13.5px; }
+  .know-empty { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 14px; color: var(--muted); padding: 6px 0 2px; }
+
   /* customize panel */
   dialog.cust { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(420px, calc(100vw - 32px)); background: var(--card); color: var(--ink);
                 box-shadow: 0 20px 60px rgba(0,0,0,.25); }
@@ -243,7 +273,7 @@
     .fr > .fl { padding-top: 0; }
     .fp { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }  /* one swipeable line per row */
   }
-  @media (max-width: 560px) { .acct, .gp { display: none; } table.t td.wrap { min-width: 110px; }
+  @media (max-width: 560px) { .gp { display: none; } table.t td.wrap { min-width: 110px; }
     .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpi .v { font-size: 22px; } }
   @media (prefers-reduced-motion: reduce) { .board, .rk .caret { transition: none; } }
   @media print { nav, .filters .frow, .wh .tools, .handle { display: none !important; } .filters { position: static; } .w { break-inside: avoid; } }
@@ -264,8 +294,14 @@
       <button type="button" data-mode="income" aria-pressed="false">Income</button>
     </div>
     <input type="search" id="q" placeholder="Search payees or amounts" aria-label="Search payees or amounts">
-    <select id="acct" aria-label="Account"><option value="">All accounts</option></select>
     <label class="chk"><input type="checkbox" id="transfers"> Include transfers</label>
+    <label class="cmpl">Compare to
+      <select id="cmp" aria-label="Compare to">
+        <option value="prev">Previous period</option><option value="year">Same period last year</option>
+        <option value="custom">Custom…</option><option value="off">Nothing</option>
+      </select></label>
+    <span class="custom" id="ccustom"><input type="date" id="cfrom" aria-label="Compare from"> to <input type="date" id="cto" aria-label="Compare to"></span>
+    <span class="cmpnote" id="cmpnote"></span>
     <span class="spacer"></span>
     <button type="button" class="tbtn" id="cust-btn">Customize</button>
   </div>
@@ -321,6 +357,8 @@
   const monthStart = iso => iso.slice(0, 8) + '01';
   const addMonths = (iso, n) => { const d = toD(monthStart(iso)); d.setUTCMonth(d.getUTCMonth() + n); return toISO(d); };
   const monthEnd = iso => addDays(addMonths(iso, 1), -1);
+  const shiftYear = (iso, n) => { const y = +iso.slice(0, 4) + n, md = iso.slice(5); const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    return `${y}-${md === '02-29' && !leap ? '02-28' : md}`; };
   const daysBetween = (a, b) => Math.round((toD(b) - toD(a)) / 864e5);
   const weekStart = iso => { const d = toD(iso); return addDays(iso, -((d.getUTCDay() + 6) % 7)); };  // Monday
   const fmtDay = (iso, year) => toD(iso).toLocaleDateString(undefined, {month: 'short', day: 'numeric', ...(year ? {year: 'numeric'} : {}), timeZone: 'UTC'});
@@ -329,13 +367,12 @@
   const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   // ---------- data ----------
-  let DATA = null, TODAY = '', ROWS = [], CATS = new Map(), ACCTS = new Map(), FIRST = '', LAST = '';
+  let DATA = null, TODAY = '', ROWS = [], CATS = new Map(), FIRST = '', LAST = '', HAS_TRANSFERS = false;
   const SERIES = {spend: new Map(), income: new Map()};  // series key -> color var, fixed by all-time size
 
   function prepare(d) {
     DATA = d; TODAY = d.today;
     for (const [id, name, group, income, hidden] of d.cats) CATS.set(id, {id, name, group, income, hidden});
-    for (const [id, name] of d.accounts) ACCTS.set(id, name);
     ROWS = d.tx.map(([id, date, amt, cid, aid, pix, flags]) => {
       const c = CATS.get(cid);
       // Uncategorized money is sorted by direction: money out is spending, money in is income.
@@ -356,8 +393,9 @@
       const slots = ranked.length > 8 ? 7 : 8;
       ranked.forEach((k, i) => SERIES[mode].set(k, i < slots ? `var(--s${i + 1})` : null));
     }
-    const sel = $('acct');
-    for (const [id, name] of ACCTS) sel.append(h('option', {value: id}, name));
+    // One account means nothing to transfer between; only offer the switch if transfers exist.
+    HAS_TRANSFERS = ROWS.some(r => r.transfer);
+    $('transfers').closest('label').hidden = !HAS_TRANSFERS;
   }
   // Spending is grouped by category group; income (fewer, flatter) by category.
   const seriesKey = (r, mode) => mode === 'spend' ? r.group : r.cat;
@@ -366,21 +404,23 @@
   const seriesOrder = (mode = S.mode) => [...SERIES[mode].entries()].filter(e => e[1]).map(e => e[0]);
 
   // ---------- state (kept in the URL, so a view can be bookmarked or shared) ----------
-  const DEFAULT = {range: '90', from: '', to: '', mode: 'spend', q: '', acct: '', transfers: false, group: [], cat: [], payee: []};
+  const DEFAULT = {range: '90', from: '', to: '', mode: 'spend', q: '', transfers: false, group: [], cat: [], payee: [], cmp: 'prev', cfrom: '', cto: ''};
   let S = structuredClone(DEFAULT);
   function readHash() {
     const p = new URLSearchParams(location.hash.slice(1));
     S = structuredClone(DEFAULT);
-    for (const k of ['range', 'from', 'to', 'mode', 'q', 'acct']) if (p.has(k)) S[k] = p.get(k);
+    for (const k of ['range', 'from', 'to', 'mode', 'q', 'cmp', 'cfrom', 'cto']) if (p.has(k)) S[k] = p.get(k);
     S.transfers = p.get('transfers') === '1';
     for (const k of ['group', 'cat', 'payee']) S[k] = p.getAll(k);
     if (!RANGES.some(r => r.k === S.range)) S.range = '90';
     if (!['spend', 'income'].includes(S.mode)) S.mode = 'spend';
+    if (!['prev', 'year', 'custom', 'off'].includes(S.cmp)) S.cmp = 'prev';
   }
   function writeHash() {
     const p = new URLSearchParams();
-    for (const k of ['range', 'mode', 'q', 'acct']) if (S[k] !== DEFAULT[k]) p.set(k, S[k]);
+    for (const k of ['range', 'mode', 'q', 'cmp']) if (S[k] !== DEFAULT[k]) p.set(k, S[k]);
     if (S.range === 'custom') { p.set('from', S.from); p.set('to', S.to); }
+    if (S.cmp === 'custom') { p.set('cfrom', S.cfrom); p.set('cto', S.cto); }
     if (S.transfers) p.set('transfers', '1');
     for (const k of ['group', 'cat', 'payee']) for (const v of S[k]) p.append(k, v);
     history.replaceState(null, '', location.pathname + (p.toString() ? '#' + p : ''));
@@ -405,20 +445,30 @@
       default: { const n = +S.range; from = addDays(t, -(n - 1)); to = t; label = `the ${n} days before`; }
     }
     if (!prev && S.range !== 'all') { const n = daysBetween(from, to) + 1; prev = [addDays(from, -n), addDays(from, -1)]; label = label || 'the period before'; }
+    // The comparison the page uses: the period before (default), the same dates a year
+    // earlier, a custom range, or none.
+    if (S.cmp === 'year' && S.range !== 'all') {
+      prev = [shiftYear(from, -1), shiftYear(to, -1)];
+      label = ['month', 'last'].includes(S.range) ? fmtMonth(prev[0], true) : 'the same dates last year';
+    } else if (S.cmp === 'custom') {
+      let a = S.cfrom || prev?.[0] || addDays(from, -30), b = S.cto || prev?.[1] || addDays(from, -1);
+      if (b < a) [a, b] = [b, a];
+      prev = [a, b]; label = a === b ? fmtDay(a, true) : `${fmtDay(a, a.slice(0, 4) !== b.slice(0, 4))} – ${fmtDay(b, true)}`;
+    } else if (S.cmp === 'off') prev = null;
     // Nothing exists before the first transaction: start the range there (so charts and
     // per-day averages aren't padded with empty months), and only compare against a
-    // previous period that history fully covers - a half-empty one would fake a jump.
+    // period that history fully covers - a half-empty one would fake a jump.
     const clipped = from < FIRST && FIRST <= to;
     if (clipped) from = FIRST;
-    if (prev && prev[0] < FIRST) prev = null;
-    return {from, to, prev, prevLabel: label, clipped};
+    let cmpNote = '';
+    if (prev && prev[0] < FIRST) { cmpNote = `No history for ${label} (it starts ${fmtDay(FIRST, true)})`; prev = null; }
+    return {from, to, prev, prevLabel: label, clipped, cmpNote};
   }
 
   // skip: leave one dimension out, so a row of pills can show what picking it would give.
   function matches(r, from, to, skip) {
     if (r.date < from || r.date > to) return false;
     if (r.transfer && !S.transfers) return false;
-    if (S.acct && String(r.aid) !== S.acct) return false;
     if (skip !== 'group' && S.group.length && !S.group.includes(r.group)) return false;
     if (skip !== 'cat' && S.cat.length && !S.cat.includes(r.ck)) return false;
     if (skip !== 'payee' && S.payee.length && !S.payee.includes(r.payee)) return false;
@@ -496,15 +546,21 @@
     const step = [1, 2, 2.5, 5, 10].map(x => x * pow).find(v => v >= raw);
     return {top: Math.ceil(m / step) * step * 100, step: step * 100};
   }
-  function buckets(from, to) {
+  // unit: 'auto' picks by span; day/week/month as asked; 'whole' is one bucket for the period.
+  // Too many days or weeks to draw steps up a unit, and says so.
+  const MAX_BUCKETS = 370;
+  function buckets(from, to, want = 'auto') {
     const span = daysBetween(from, to) + 1;
-    const unit = span <= 62 ? 'day' : span <= 210 ? 'week' : 'month';
+    if (want === 'whole') return {unit: 'whole', list: [{k: 'all', from, to, label: 'Whole period'}], keyOf: () => 'all', note: ''};
+    let unit = want === 'auto' || !want ? (span <= 62 ? 'day' : span <= 210 ? 'week' : 'month') : want, note = '';
+    if (unit === 'day' && span > MAX_BUCKETS) { unit = 'week'; note = 'Too many days to draw; showing weeks.'; }
+    if (unit === 'week' && span / 7 > MAX_BUCKETS) { unit = 'month'; note = 'Too many weeks to draw; showing months.'; }
     const out = [];
     if (unit === 'day') for (let d = from; d <= to; d = addDays(d, 1)) out.push({k: d, from: d, to: d, label: fmtDay(d)});
     else if (unit === 'week') for (let d = weekStart(from); d <= to; d = addDays(d, 7)) out.push({k: d, from: d < from ? from : d, to: addDays(d, 6) > to ? to : addDays(d, 6), label: fmtDay(d)});
     else for (let d = monthStart(from); d <= to; d = addMonths(d, 1)) out.push({k: d, from: d < from ? from : d, to: monthEnd(d) > to ? to : monthEnd(d), label: fmtMonth(d)});
     const keyOf = unit === 'day' ? (iso => iso) : unit === 'week' ? weekStart : monthStart;
-    return {unit, list: out, keyOf};
+    return {unit, list: out, keyOf, note};
   }
   const empty = msg => h('div', {class: 'empty'}, msg || 'Nothing matches these filters.');
   const seqVar = (v, max) => { if (v <= 0 || !max) return null; const i = Math.min(7, 1 + Math.floor(6.999 * Math.sqrt(v / max))); return i; };
@@ -518,7 +574,7 @@
   // A stacked or grouped column chart. cols: [{label, title, parts: [{key, value, color}], onclick}]
   function columnChart(box, cols, {height = 220, grouped = false} = {}) {
     const W = Math.max(280, box.clientWidth || 600), H = height, padL = 46, padB = 24, padT = 8;
-    const totals = cols.map(c => grouped ? Math.max(0, ...c.parts.map(p => p.value)) : sum(c.parts.filter(p => p.value > 0), p => p.value));
+    const totals = cols.map(c => Math.max(grouped ? Math.max(0, ...c.parts.map(p => Math.max(p.value, p.ref || 0))) : sum(c.parts.filter(p => p.value > 0), p => p.value), c.ref || 0));
     const {top, step} = niceScale(Math.max(...totals, 0) * 1.05);
     const y = v => padT + (H - padT - padB) * (1 - v / top);
     const svg = s('svg', {class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Column chart'});
@@ -535,6 +591,8 @@
         const pw = (bw - 2 * (c.parts.length - 1)) / c.parts.length;
         c.parts.forEach((p, j) => { if (p.value <= 0) return;
           s('rect', {x: x0 + j * (pw + 2), y: y(p.value), width: Math.max(1, pw), height: Math.max(0, y(0) - y(p.value)), rx: Math.min(3, pw / 2), fill: p.color}, g); });
+        c.parts.forEach((p, j) => { if (p.ref == null) return;  // the comparison period's value: a tick across the bar
+          s('line', {x1: x0 + j * (pw + 2) - 2, x2: x0 + j * (pw + 2) + pw + 2, y1: y(p.ref), y2: y(p.ref), class: 'ref'}, g); });
       } else {
         let acc = 0;
         const parts = c.parts.filter(p => p.value > 0);
@@ -543,6 +601,7 @@
           const gap = j < parts.length - 1 ? 2 : 0;  // 2px surface gap between stacked segments
           s('rect', {x: x0, y: y1 + gap, width: bw, height: Math.max(0, y0 - y1 - gap), rx: j === parts.length - 1 ? Math.min(3, bw / 2) : 0, fill: p.color}, g);
         });
+        if (c.ref != null) s('line', {x1: x0 - 4, x2: x0 + bw + 4, y1: y(c.ref), y2: y(c.ref), class: 'ref'}, g);
       }
       if (i % every === 0) s('text', {x: padL + slot * i + slot / 2, y: H - 6, class: 'tick', 'text-anchor': 'middle'}, svg).textContent = c.label;
       const hit = s('rect', {class: 'col-hit', x: padL + slot * i, y: padT, width: slot, height: H - padT, tabindex: 0, role: 'button', 'aria-label': c.title}, g);
@@ -553,6 +612,56 @@
     });
     box.append(svg);
   }
+  // Line chart on the same slots as the columns, so labels and hover line up.
+  // series: [{key, color, values: [cents|null], width, faded}]. A null value breaks the line.
+  function lineChart(box, labels, series, cols, {height = 220} = {}) {
+    const W = Math.max(280, box.clientWidth || 600), H = height, padL = 46, padB = 24, padT = 10;
+    const all = series.flatMap(sr => sr.values.filter(v => v != null));
+    const hi = Math.max(0, ...all), lo0 = Math.min(0, ...all);
+    const {top, step} = niceScale(hi * 1.05 || 100);
+    const lo = lo0 < 0 ? -Math.ceil(-lo0 / step) * step : 0;
+    const y = v => padT + (H - padT - padB) * (top - v) / (top - lo);
+    const svg = s('svg', {class: 'chart', viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': 'Line chart'});
+    for (let v = lo; v <= top + 1; v += step) {
+      s('line', {x1: padL, x2: W, y1: y(v), y2: y(v), stroke: v ? 'var(--grid)' : 'var(--axis)', 'stroke-width': 1}, svg);
+      s('text', {x: padL - 8, y: y(v) + 4, class: 'tick', 'text-anchor': 'end'}, svg).textContent = compact(v);
+    }
+    const n = labels.length, slot = (W - padL) / n, cx = i => padL + slot * i + slot / 2;
+    const every = Math.max(1, Math.ceil(n / Math.max(2, Math.floor((W - padL) / 64))));
+    labels.forEach((l, i) => { if (i % every === 0) s('text', {x: cx(i), y: H - 6, class: 'tick', 'text-anchor': 'middle'}, svg).textContent = l; });
+    // Faded (comparison) lines first, so the current ones sit on top.
+    for (const sr of [...series].sort((a, b) => (b.faded ? 1 : 0) - (a.faded ? 1 : 0))) {
+      let d = '', pen = false;
+      sr.values.forEach((v, i) => { if (v == null) { pen = false; return; } d += `${pen ? 'L' : 'M'}${cx(i).toFixed(1)},${y(v).toFixed(1)}`; pen = true; });
+      s('path', {d, fill: 'none', stroke: sr.color, 'stroke-width': sr.width || 2, 'stroke-linejoin': 'round', 'stroke-linecap': 'round', opacity: sr.faded ? .45 : 1}, svg);
+      if (n <= 1) sr.values.forEach((v, i) => v != null && s('circle', {cx: cx(i), cy: y(v), r: 4, fill: sr.color}, svg));
+    }
+    const hair = s('line', {y1: padT, y2: H - padB, class: 'xhair', style: 'display:none'}, svg), dots = s('g', {}, svg);
+    cols.forEach((c, i) => {
+      const hit = s('rect', {class: 'col-hit', x: padL + slot * i, y: padT, width: slot, height: H - padT, tabindex: 0, role: 'button', 'aria-label': c.title}, svg);
+      const on = e => {
+        hair.setAttribute('x1', cx(i)); hair.setAttribute('x2', cx(i)); hair.style.display = ''; dots.replaceChildren();
+        for (const sr of series) { const v = sr.values[i]; if (v == null) continue;
+          s('circle', {cx: cx(i), cy: y(v), r: 4.5, fill: sr.color, stroke: 'var(--card)', 'stroke-width': 2, opacity: sr.faded ? .6 : 1}, dots); }
+        c.tip(e);
+      };
+      const off = () => { hair.style.display = 'none'; dots.replaceChildren(); };
+      tipOn(hit, on); hit.addEventListener('pointerleave', off); hit.addEventListener('blur', off);
+      if (c.onclick) { hit.addEventListener('click', () => { hideTip(); c.onclick(); }); hit.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); c.onclick(); } }); }
+    });
+    box.append(svg);
+  }
+  // The comparison period cut into the same unit, matched by position (week 1 with week 1).
+  function compareBuckets(c, b) {
+    if (!c.prevRange) return null;
+    const pb = b.unit === 'whole' ? buckets(c.prevRange[0], c.prevRange[1], 'whole') : buckets(c.prevRange[0], c.prevRange[1], b.unit);
+    return pb.list.length ? pb : null;
+  }
+  const bucketTitle = (b, x) => b.unit === 'whole' ? `${fmtDay(x.from, true)} – ${fmtDay(x.to, true)}` : b.unit === 'day' ? fmtDay(x.from, true)
+    : b.unit === 'week' ? `Week of ${fmtDay(x.k, true)}` : fmtMonth(x.k, true);
+  const pctTxt = (now, before) => !before ? '' : ` (${now >= before ? '+' : ''}${Math.round(100 * (now - before) / Math.abs(before))}%)`;
+  const UNIT_LABEL = {auto: 'Auto', day: 'By day', week: 'By week', month: 'By month', whole: 'Whole period'};
+
   // Table twin for any chart: same numbers, no hovering needed.
   function table(headers, rows, foot) {
     const t = h('table', {class: 't'}, h('thead', {}, h('tr', {}, headers.map(x => h('th', {class: x.r ? 'r' : ''}, x.label)))),
@@ -564,33 +673,52 @@
   // ---------- widgets ----------
   const WIDGETS = {
     trend: {
-      title: 'Over time', size: 'full', table: true,
-      render(box, c, asTable) {
+      title: 'Over time', size: 'full', table: true, views: true,
+      render(box, c, asTable, L) {
         const rows = c.mrows;
         if (!rows.length) return box.append(empty());
-        const b = buckets(c.from, c.to), keys = [...seriesOrder(), 'Other'];
+        const b = buckets(c.from, c.to, L.unit), keys = [...seriesOrder(), 'Other'];
         const byB = new Map(b.list.map(x => [x.k, new Map()]));
         for (const r of rows) { const m = byB.get(b.keyOf(r.date)); if (!m) continue; const k = foldKey(seriesKey(r, S.mode)); m.set(k, (m.get(k) || 0) + r.val); }
         const present = keys.filter(k => b.list.some(x => byB.get(x.k).get(k)));
         const tot = x => sum([...byB.get(x.k).values()], v => v);
-        const avg = sum(rows) / b.list.length;
-        c.setCap(`${whole(sum(rows))} · avg ${whole(avg)} per ${b.unit}`);
+        // Comparison: the same filters over the comparison period, cut the same way.
+        const pb = compareBuckets(c, b), prevTot = new Map();
+        if (pb) for (const r of c.prevM) { const k = pb.keyOf(r.date); prevTot.set(k, (prevTot.get(k) || 0) + r.val); }
+        const ref = i => pb && pb.list[i] ? (prevTot.get(pb.list[i].k) || 0) : null;
+        const total = sum(rows), ptotal = pb ? sum(c.prevM) : null;
+        c.setCap(`${whole(total)}` + (b.unit !== 'whole' ? ` · avg ${whole(total / b.list.length)} per ${b.unit}` : '') + (pb ? ` · ${c.prevLabel}: ${whole(ptotal)}${pctTxt(total, ptotal)}` : ''));
+        if (b.note) box.append(h('p', {class: 'note', style: 'margin:0 0 6px'}, b.note));
+        const U = b.unit === 'whole' ? 'Period' : b.unit[0].toUpperCase() + b.unit.slice(1);
         if (asTable) {
-          return box.append(table([{label: b.unit[0].toUpperCase() + b.unit.slice(1)}, ...present.map(k => ({label: k, r: 1})), {label: 'Total', r: 1}],
-            b.list.map(x => [x.label, ...present.map(k => whole(byB.get(x.k).get(k) || 0)), whole(tot(x))]),
-            ['Total', ...present.map(k => whole(sum(rows.filter(r => foldKey(seriesKey(r, S.mode)) === k)))), whole(sum(rows))]));
+          const hd = [{label: U}, ...present.map(k => ({label: k, r: 1})), {label: 'Total', r: 1}, ...(pb ? [{label: c.prevLabel, r: 1}, {label: 'Change', r: 1}] : [])];
+          return box.append(table(hd, b.list.map((x, i) => [b.unit === 'whole' ? bucketTitle(b, x) : x.label, ...present.map(k => whole(byB.get(x.k).get(k) || 0)), whole(tot(x)),
+              ...(pb ? [ref(i) == null ? '—' : whole(ref(i)), ref(i) == null ? '—' : delta(tot(x), ref(i), S.mode === 'income')] : [])]),
+            ['Total', ...present.map(k => whole(sum(rows.filter(r => foldKey(seriesKey(r, S.mode)) === k)))), whole(total), ...(pb ? [whole(ptotal), delta(total, ptotal, S.mode === 'income')] : [])]));
         }
-        if (present.length > 1) box.append(legend(present));
+        const lines = L.chart === 'lines' && b.list.length > 1;
+        const leg = present.length > 1 || lines ? legend(present) : h('div', {class: 'legend'});
+        if (lines && present.length > 1) leg.append(h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: 'key-line', style: 'background:var(--ink)'}), 'Total'));
+        if (pb) leg.append(h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: lines ? 'key-line' : 'key-ref', style: lines ? 'background:var(--muted)' : ''}), c.prevLabel));
+        if (leg.children.length) box.append(leg);
+        if (L.chart === 'lines' && b.list.length <= 1) box.append(h('p', {class: 'note', style: 'margin:0 0 6px'}, 'A line needs more than one point, so this shows a bar.'));
         const chart = h('div'); box.append(chart);
-        columnChart(chart, b.list.map(x => {
-          const m = byB.get(x.k);
+        const cols = b.list.map((x, i) => {
+          const m = byB.get(x.k), title = bucketTitle(b, x), t = tot(x), pr = ref(i);
           const parts = present.map(k => ({key: k, value: m.get(k) || 0, color: k === 'Other' ? 'var(--s-other)' : colorOf(k)}));
-          const title = b.unit === 'day' ? fmtDay(x.from, true) : b.unit === 'week' ? `Week of ${fmtDay(x.k, true)}` : fmtMonth(x.k, true);
-          return {label: x.label, title: `${title}: ${whole(tot(x))}`, parts,
-            tip: e => showTip(e, title, [...parts.filter(p => p.value).sort((a, b2) => b2.value - a.value).map(p => ({color: p.color, value: whole(p.value), label: p.key})),
-                                         {tot: 1, value: whole(tot(x)), label: 'Total'}], 'Click to zoom into this ' + b.unit),
-            onclick: () => setRange(x.from, x.to)};
-        }));
+          const tipRows = [...parts.filter(p => p.value).sort((a, b2) => b2.value - a.value).map(p => ({color: p.color, value: whole(p.value), label: p.key})),
+                           {tot: 1, value: whole(t), label: 'Total'}];
+          if (pr != null) tipRows.push({color: 'var(--muted)', value: whole(pr), label: `${c.prevLabel}${pb.list.length > 1 ? ' · ' + bucketTitle(pb, pb.list[i]) : ''}${pctTxt(t, pr)}`});
+          return {label: x.label, title: `${title}: ${whole(t)}`, parts, ref: pr,
+            tip: e => showTip(e, title, tipRows, b.unit === 'whole' ? '' : 'Click to zoom into this ' + b.unit),
+            onclick: b.unit === 'whole' ? null : () => setRange(x.from, x.to)};
+        });
+        if (lines) {
+          const series = present.map(k => ({key: k, color: k === 'Other' ? 'var(--s-other)' : colorOf(k), values: b.list.map(x => byB.get(x.k).get(k) || 0)}));
+          if (present.length > 1) series.push({key: 'Total', color: 'var(--ink)', width: 2.5, values: b.list.map(tot)});
+          if (pb) series.push({key: 'prev', color: 'var(--muted)', width: 2, faded: true, values: b.list.map((x, i) => ref(i))});
+          lineChart(chart, b.list.map(x => x.label), series, cols);
+        } else columnChart(chart, cols);
       }
     },
     where: {
@@ -634,10 +762,12 @@
       render(box, c) {
         const rows = c.mrows;
         if (!rows.length) return box.append(empty());
-        const total = sum(rows);
+        const total = sum(rows), prevPay = c.prevM ? groupBy(c.prevM, r => r.payee) : null;
         let list = [...groupBy(rows, r => r.payee)].map(([p, rs]) => {
           const cats = groupBy(rs, r => r.cat), topCat = [...cats].sort((a, b) => b[1].length - a[1].length)[0][0];
-          return {payee: p, total: sum(rs), n: rs.length, avg: sum(rs) / rs.length, last: rs.reduce((a, r) => r.date > a ? r.date : a, ''), cat: topCat, group: rs[0].group};
+          const before = prevPay ? sum(prevPay.get(p) || []) : null;
+          return {payee: p, total: sum(rs), n: rs.length, avg: sum(rs) / rs.length, last: rs.reduce((a, r) => r.date > a ? r.date : a, ''), cat: topCat, group: rs[0].group,
+                  before, chg: before == null ? 0 : sum(rs) - before};
         });
         const sortKey = SORT.payees || 'total', dir = SORT.payeesDir || -1;
         list.sort((a, b) => (typeof a[sortKey] === 'string' ? a[sortKey].localeCompare(b[sortKey]) : a[sortKey] - b[sortKey]) * dir);
@@ -645,12 +775,14 @@
         const max = Math.max(...list.map(x => x.total), 1), show = EXPAND.has('payees') ? list : list.slice(0, 12);
         const th = (k, label, r) => h('th', {class: r ? 'r' : '', 'aria-sort': sortKey === k ? (dir > 0 ? 'ascending' : 'descending') : null},
           h('button', {type: 'button', onclick: () => { SORT.payees = k; SORT.payeesDir = sortKey === k ? -dir : (typeof list[0][k] === 'string' ? 1 : -1); render(); }}, label + (sortKey === k ? (dir > 0 ? ' ↑' : ' ↓') : '')));
-        const t = h('table', {class: 't'}, h('thead', {}, h('tr', {}, th('payee', 'Payee'), th('total', 'Total', 1), h('th', {}, 'Share'), th('n', 'Count', 1), th('avg', 'Avg', 1), th('last', 'Last', 1))),
+        const t = h('table', {class: 't'}, h('thead', {}, h('tr', {}, th('payee', 'Payee'), th('total', 'Total', 1), h('th', {}, 'Share'), th('n', 'Count', 1), th('avg', 'Avg', 1), prevPay ? th('chg', 'Change', 1) : null, th('last', 'Last', 1))),
           h('tbody', {}, show.map(x => h('tr', {class: 'click', onclick: () => filterBy('payee', x.payee), title: `Filter to ${x.payee}`},
             h('td', {class: 'wrap'}, h('button', {type: 'button', class: 'lnk'}, x.payee), h('div', {class: 'muted', style: 'font-size:11.5px'}, x.cat)),
             h('td', {class: 'r num'}, whole(x.total)),
             h('td', {}, h('span', {class: 'mini'}, h('i', {style: `width:${Math.max(0, 100 * x.total / max)}%;background:${colorOf(seriesKey(x, S.mode))}`})), ' ', h('span', {class: 'muted', style: 'font-size:11.5px'}, total ? Math.round(100 * x.total / total) + '%' : '')),
-            h('td', {class: 'r num'}, x.n), h('td', {class: 'r num'}, whole(x.avg)), h('td', {class: 'r num muted'}, fmtDay(x.last))))));
+            h('td', {class: 'r num'}, x.n), h('td', {class: 'r num'}, whole(x.avg)),
+            prevPay ? h('td', {class: 'r num', title: `${whole(x.before)} in ${c.prevLabel}`}, delta(x.total, x.before, S.mode === 'income', !x.before)) : null,
+            h('td', {class: 'r num muted'}, fmtDay(x.last))))));
         box.append(h('div', {class: 'tw'}, t));
         if (list.length > 12) box.append(h('button', {type: 'button', class: 'more', onclick: () => { EXPAND.has('payees') ? EXPAND.delete('payees') : EXPAND.add('payees'); render(); }},
           EXPAND.has('payees') ? 'Show top 12' : `Show all ${list.length}`));
@@ -733,36 +865,82 @@
       }
     },
     flow: {
-      title: 'Income vs spending', size: 'half', table: true,
-      render(box, c, asTable) {
+      title: 'Income vs spending', size: 'half', table: true, views: true,
+      render(box, c, asTable, L) {
         const rows = c.rows;  // both directions, regardless of the Spending/Income switch
         if (!rows.length) return box.append(empty());
-        let b = buckets(c.from, c.to);
-        if (b.unit === 'day') {  // income lands a few times a month; daily pairs would be mostly empty
-          const list = [];
-          for (let d = weekStart(c.from); d <= c.to; d = addDays(d, 7))
-            list.push({k: d, from: d < c.from ? c.from : d, to: addDays(d, 6) > c.to ? c.to : addDays(d, 6), label: fmtDay(d)});
-          b = {unit: 'week', list, keyOf: weekStart};
-        }
-        const inc = new Map(), out = new Map();
-        for (const r of rows) { const k = b.keyOf(r.date), m = r.kind === 'income' ? inc : out; m.set(k, (m.get(k) || 0) + r.val); }
+        // Auto avoids days here: income lands a few times a month, so daily pairs would be mostly empty.
+        const b = buckets(c.from, c.to, L.unit === 'auto' || !L.unit ? (daysBetween(c.from, c.to) <= 62 ? 'week' : 'auto') : L.unit);
+        const tally = (rs, keyOf) => { const inc = new Map(), out = new Map();
+          for (const r of rs) { const k = keyOf(r.date), m = r.kind === 'income' ? inc : out; m.set(k, (m.get(k) || 0) + r.val); } return {inc, out}; };
+        const cur = tally(rows, b.keyOf);
+        const pb = compareBuckets(c, b), prv = pb ? tally(c.prev, pb.keyOf) : null;
+        const pv = (m, i) => pb && pb.list[i] ? (m.get(pb.list[i].k) || 0) : null;
         const net = sum(rows.filter(r => r.kind === 'income')) - sum(rows.filter(r => r.kind === 'spend'));
-        const ahead = b.list.filter(x => (inc.get(x.k) || 0) >= (out.get(x.k) || 0)).length;
-        c.setCap(`net ${whole(net)} · ${ahead} of ${b.list.length} ${b.unit}s ahead`);
-        if (asTable) return box.append(table([{label: b.unit[0].toUpperCase() + b.unit.slice(1)}, {label: 'Income', r: 1}, {label: 'Spending', r: 1}, {label: 'Net', r: 1}],
-          b.list.map(x => [x.label, whole(inc.get(x.k) || 0), whole(out.get(x.k) || 0), whole((inc.get(x.k) || 0) - (out.get(x.k) || 0))])));
-        box.append(h('div', {class: 'legend'}, h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: 'sw', style: 'background:var(--s1)'}), 'Income'),
-          h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: 'sw', style: 'background:var(--s2)'}), 'Spending')));
+        const ahead = b.list.filter(x => (cur.inc.get(x.k) || 0) >= (cur.out.get(x.k) || 0)).length;
+        const pnet = pb ? sum(c.prev.filter(r => r.kind === 'income')) - sum(c.prev.filter(r => r.kind === 'spend')) : null;
+        c.setCap(`net ${whole(net)}` + (b.unit !== 'whole' ? ` · ${ahead} of ${b.list.length} ${b.unit}s ahead` : '') + (pb ? ` · ${c.prevLabel}: net ${whole(pnet)}` : ''));
+        if (b.note) box.append(h('p', {class: 'note', style: 'margin:0 0 6px'}, b.note));
+        const U = b.unit === 'whole' ? 'Period' : b.unit[0].toUpperCase() + b.unit.slice(1);
+        if (asTable) return box.append(table([{label: U}, {label: 'Income', r: 1}, {label: 'Spending', r: 1}, {label: 'Net', r: 1}, ...(pb ? [{label: `Net, ${c.prevLabel}`, r: 1}] : [])],
+          b.list.map((x, i) => { const a = cur.inc.get(x.k) || 0, o = cur.out.get(x.k) || 0;
+            return [b.unit === 'whole' ? bucketTitle(b, x) : x.label, whole(a), whole(o), whole(a - o), ...(pb ? [pv(prv.inc, i) == null ? '—' : whole(pv(prv.inc, i) - pv(prv.out, i))] : [])]; })));
+        const lines = L.chart === 'lines' && b.list.length > 1;
+        const key = (cls, style, label) => h('span', {style: 'display:inline-flex;gap:6px;align-items:center'}, h('i', {class: cls, style}), label);
+        const leg = h('div', {class: 'legend'}, key(lines ? 'key-line' : 'sw', 'background:var(--s1)', 'Income'), key(lines ? 'key-line' : 'sw', 'background:var(--s2)', 'Spending'));
+        if (pb) leg.append(lines ? key('key-line', 'background:var(--s1);opacity:.45', `Income, ${c.prevLabel}`) : key('key-ref', '', c.prevLabel),
+                           ...(lines ? [key('key-line', 'background:var(--s2);opacity:.45', `Spending, ${c.prevLabel}`)] : []));
+        box.append(leg);
+        if (L.chart === 'lines' && b.list.length <= 1) box.append(h('p', {class: 'note', style: 'margin:0 0 6px'}, 'A line needs more than one point, so this shows bars.'));
         const chart = h('div'); box.append(chart);
-        columnChart(chart, b.list.map(x => {
-          const i = inc.get(x.k) || 0, o = out.get(x.k) || 0;
-          const title = b.unit === 'week' ? `Week of ${fmtDay(x.k, true)}` : fmtMonth(x.k, true);
-          return {label: x.label, title: `${title}: income ${whole(i)}, spending ${whole(o)}`,
-            parts: [{key: 'Income', value: i, color: 'var(--s1)'}, {key: 'Spending', value: o, color: 'var(--s2)'}],
-            tip: e => showTip(e, title, [{color: 'var(--s1)', value: whole(i), label: 'Income'}, {color: 'var(--s2)', value: whole(o), label: 'Spending'},
-                                          {tot: 1, value: whole(i - o), label: i >= o ? 'Net (ahead)' : 'Net (behind)'}], 'Click to zoom in'),
-            onclick: () => setRange(x.from < c.from ? c.from : x.from, x.to > c.to ? c.to : x.to)};
-        }), {grouped: true, height: 200});
+        const cols = b.list.map((x, i) => {
+          const a = cur.inc.get(x.k) || 0, o = cur.out.get(x.k) || 0, pa = prv ? pv(prv.inc, i) : null, po = prv ? pv(prv.out, i) : null;
+          const title = bucketTitle(b, x);
+          const tipRows = [{color: 'var(--s1)', value: whole(a), label: 'Income' + (pa != null ? pctTxt(a, pa) : '')}, {color: 'var(--s2)', value: whole(o), label: 'Spending' + (po != null ? pctTxt(o, po) : '')},
+                           {tot: 1, value: whole(a - o), label: a >= o ? 'Net (ahead)' : 'Net (behind)'}];
+          if (pa != null) tipRows.push({color: 'var(--muted)', value: whole(pa - po), label: `Net, ${c.prevLabel} (in ${whole(pa)} · out ${whole(po)})`});
+          return {label: x.label, title: `${title}: income ${whole(a)}, spending ${whole(o)}`,
+            parts: [{key: 'Income', value: a, color: 'var(--s1)', ref: pa}, {key: 'Spending', value: o, color: 'var(--s2)', ref: po}],
+            tip: e => showTip(e, title, tipRows, b.unit === 'whole' ? '' : 'Click to zoom in'),
+            onclick: b.unit === 'whole' ? null : () => setRange(x.from < c.from ? c.from : x.from, x.to > c.to ? c.to : x.to)};
+        });
+        if (lines) {
+          const series = [{key: 'Income', color: 'var(--s1)', values: b.list.map(x => cur.inc.get(x.k) || 0)}, {key: 'Spending', color: 'var(--s2)', values: b.list.map(x => cur.out.get(x.k) || 0)}];
+          if (pb) series.push({key: 'pi', color: 'var(--s1)', faded: true, values: b.list.map((x, i) => pv(prv.inc, i))}, {key: 'po', color: 'var(--s2)', faded: true, values: b.list.map((x, i) => pv(prv.out, i))});
+          lineChart(chart, b.list.map(x => x.label), series, cols, {height: 200});
+        } else columnChart(chart, cols, {grouped: true, height: 200});
+      }
+    },
+    know: {
+      title: 'Worth knowing', size: 'full',
+      render(box, c) {
+        const F = reportFacts(c), D = hashStr(JSON.stringify(F)), viewLabel = describeView(c);
+        // Already read this exact view before? The server keeps notes per view, so ask (free) once.
+        if (!KNOW.result && !KNOW.loading && !PROBED.has(D)) { PROBED.add(D); askKnow(F, D, viewLabel, {cachedOnly: true}); }
+        if (KNOW.loading) {
+          box.append(h('p', {class: 'know-head', style: 'color:var(--muted)'}, `Reading ${viewLabel}…`),
+                     h('div', {class: 'know-notes'}, [1, 2, 3].map(() => h('div', {class: 'kn skel'}))));
+          return;
+        }
+        if (KNOW.error) box.append(h('div', {class: 'know-bar'}, h('span', {}, 'Couldn’t get notes: ' + KNOW.error),
+          h('button', {type: 'button', class: 'btn', onclick: () => askKnow(F, D, viewLabel, {refresh: true})}, 'Try again')));
+        if (!KNOW.result) {
+          box.append(h('div', {class: 'know-empty'}, h('span', {}, `Claude can read what's on screen (${viewLabel}) and point out what stands out: the biggest drivers, changes vs the comparison, new or vanished payees, one-off charges.`),
+            h('button', {type: 'button', class: 'btn', onclick: () => askKnow(F, D, viewLabel, {})}, 'Read this view')));
+          return;
+        }
+        const R = KNOW.result, same = KNOW.digest === D;
+        c.setCap(same ? `for ${KNOW.viewLabel}` : 'for an earlier view');
+        box.append(same
+          ? h('div', {class: 'know-bar fresh'}, h('span', {}, (R.source === 'rules' ? 'Basic checks' : 'Claude’s read') + ` of this view · ${ago(R.at)}`),
+              h('button', {type: 'button', class: 'more', style: 'padding:0', onclick: () => askKnow(F, D, viewLabel, {refresh: true})}, 'Refresh'))
+          : h('div', {class: 'know-bar'}, h('span', {}, `These notes are for ${KNOW.viewLabel}. The page now shows ${viewLabel}.`),
+              h('button', {type: 'button', class: 'btn', onclick: () => askKnow(F, D, viewLabel, {})}, 'Refresh for this view')));
+        if (R.note) box.append(h('p', {class: 'note', style: 'margin:0 0 8px'}, R.note));
+        if (R.headline) box.append(h('p', {class: 'know-head'}, R.headline));
+        const LABEL = {flag: 'Red flag', watch: 'Watch', idea: 'Idea', good: 'Working'};
+        box.append(h('div', {class: 'know-notes', style: same ? '' : 'opacity:.6'}, R.notes.map(n => h('div', {class: 'kn ' + n.kind},
+          h('span', {class: 'k'}, h('i'), LABEL[n.kind] || n.kind), h('b', {}, n.title), h('p', {}, n.body)))));
       }
     },
     big: {
@@ -785,7 +963,7 @@
         const rows = [...c.mrows];
         if (!rows.length) return box.append(empty());
         const k = SORT.ledger || 'date', dir = SORT.ledgerDir || -1;
-        const get = {date: r => r.date, payee: r => r.payee.toLowerCase(), cat: r => (r.group + r.cat).toLowerCase(), acct: r => ACCTS.get(r.aid) || '', val: r => r.val};
+        const get = {date: r => r.date, payee: r => r.payee.toLowerCase(), cat: r => (r.group + r.cat).toLowerCase(), val: r => r.val};
         rows.sort((a, b) => { const x = get[k](a), y = get[k](b); return (x < y ? -1 : x > y ? 1 : b.id - a.id) * dir; });
         const total = sum(rows);
         c.setCap(`${rows.length.toLocaleString()} · ${cents(total)}`);
@@ -793,15 +971,14 @@
         const th = (key, label, r) => h('th', {class: r ? 'r' : '', 'aria-sort': k === key ? (dir > 0 ? 'ascending' : 'descending') : null},
           h('button', {type: 'button', onclick: () => { SORT.ledger = key; SORT.ledgerDir = k === key ? -dir : (key === 'date' || key === 'val' ? -1 : 1); render(); }}, label + (k === key ? (dir > 0 ? ' ↑' : ' ↓') : '')));
         box.append(h('div', {class: 'tw'}, h('table', {class: 't'},
-          h('thead', {}, h('tr', {}, th('date', 'Date'), th('payee', 'Payee'), th('cat', 'Category'), h('th', {class: 'acct'}, h('button', {type: 'button', onclick: () => { SORT.ledger = 'acct'; SORT.ledgerDir = k === 'acct' ? -dir : 1; render(); }}, 'Account' + (k === 'acct' ? (dir > 0 ? ' ↑' : ' ↓') : ''))), th('val', S.mode === 'spend' ? 'Spent' : 'Received', 1))),
+          h('thead', {}, h('tr', {}, th('date', 'Date'), th('payee', 'Payee'), th('cat', 'Category'), th('val', S.mode === 'spend' ? 'Spent' : 'Received', 1))),
           h('tbody', {}, show.map(r => h('tr', {},
             h('td', {class: 'muted num'}, fmtDay(r.date, r.date.slice(0, 4) !== TODAY.slice(0, 4)), r.manual ? h('span', {class: 'tag', title: 'Date set by hand'}, 'set') : null),
             h('td', {class: 'wrap'}, h('button', {type: 'button', class: 'lnk', onclick: () => filterBy('payee', r.payee)}, r.payee), r.pending ? h('span', {class: 'tag'}, 'pending') : null, r.transfer ? h('span', {class: 'tag'}, 'transfer') : null),
             h('td', {}, h('button', {type: 'button', class: 'lnk', onclick: () => filterBy('cat', r.ck), style: 'display:inline-flex;gap:6px;align-items:center'},
               h('i', {class: 'sw', style: `background:${colorOf(seriesKey(r, S.mode))}`}), h('span', {class: 'muted gp'}, r.group + ' › '), r.cat + (r.retired ? ' (retired)' : ''))),
-            h('td', {class: 'muted acct'}, ACCTS.get(r.aid) || ''),
             h('td', {class: 'r num' + (r.val < 0 ? ' in' : '')}, cents(r.val))))),
-          h('tfoot', {}, h('tr', {}, h('td', {colspan: 3}, `${rows.length.toLocaleString()} transactions`), h('td', {class: 'acct'}), h('td', {class: 'r num'}, cents(total)))))));
+          h('tfoot', {}, h('tr', {}, h('td', {colspan: 3}, `${rows.length.toLocaleString()} transactions`), h('td', {class: 'r num'}, cents(total)))))));
         const bar = h('div', {style: 'display:flex;gap:12px;align-items:center;flex-wrap:wrap'});
         if (rows.length > limit) bar.append(h('button', {type: 'button', class: 'more', onclick: () => { PAGE.ledger = limit + 100; render(); }}, `Show 100 more (${(rows.length - limit).toLocaleString()} left)`));
         bar.append(h('button', {type: 'button', class: 'more', onclick: () => exportCSV(rows)}, '⇩ Download CSV'));
@@ -809,13 +986,80 @@
       }
     },
   };
-  const ORDER0 = ['trend', 'where', 'payees', 'heat', 'flow', 'rhythm', 'big', 'ledger'];
+  const ORDER0 = ['know', 'trend', 'where', 'payees', 'heat', 'flow', 'rhythm', 'big', 'ledger'];
+
+  // ---------- Worth knowing: a compact summary of exactly what's on screen ----------
+  const KNOW = {result: null, digest: '', viewLabel: '', loading: false, error: ''}, PROBED = new Set();
+  const hashStr = str => { let x = 5381; for (let i = 0; i < str.length; i++) x = ((x << 5) + x + str.charCodeAt(i)) | 0; return (x >>> 0).toString(36); };
+  const ago = t => { const m = Math.round((Date.now() / 1000 - t) / 60); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
+  function describeView(c) {
+    const bits = [c.from === c.to ? fmtDay(c.from, true) : `${fmtDay(c.from, c.from.slice(0, 4) !== c.to.slice(0, 4))} – ${fmtDay(c.to, true)}`, S.mode === 'spend' ? 'spending' : 'income'];
+    const f = [...S.group, ...S.cat.map(k => k.split(' › ').pop()), ...S.payee];
+    if (f.length) bits.push(f.length > 3 ? `${f.slice(0, 3).join(', ')} +${f.length - 3}` : f.join(', '));
+    if (S.q) bits.push(`“${S.q}”`);
+    return bits.join(' · ');
+  }
+  function reportFacts(c) {
+    const d = v => Math.round(v / 100);
+    const kindSum = (rs, k) => rs ? sum(rs.filter(r => r.kind === k)) : null;
+    const end = c.to > TODAY && c.from <= TODAY ? TODAY : c.to, days = daysBetween(c.from, end) + 1;
+    const spent = kindSum(c.rows, 'spend'), income = kindSum(c.rows, 'income');
+    const rank = (rows, prevRows, keyFn, nameFn, n) => {
+      const now = groupBy(rows, keyFn), before = prevRows ? groupBy(prevRows, keyFn) : null, tot = sum(rows) || 1;
+      return [...now].map(([k, rs]) => ({name: nameFn(rs[0]), total: d(sum(rs)), share_pct: Math.round(100 * sum(rs) / tot), count: rs.length,
+          ...(before ? {before: d(sum(before.get(k) || []))} : {})})).sort((a, b) => b.total - a.total).slice(0, n);
+    };
+    const F = {
+      view: {label: describeView(c), range: `${c.from} to ${c.to}`, days, today: TODAY, showing: S.mode === 'spend' ? 'spending' : 'income',
+             filters: {groups: S.group, categories: S.cat, payees: S.payee, search: S.q || null}, transfers_included: S.transfers,
+             compare_label: c.prev ? c.prevLabel : null, compare_range: c.prevRange ? `${c.prevRange[0]} to ${c.prevRange[1]}` : null},
+      totals: {spent: d(spent), income: d(income), net: d(income - spent), transactions: c.rows.length, spent_per_day: d(spent / days)},
+      compare: c.prev ? {spent: d(kindSum(c.prev, 'spend')), income: d(kindSum(c.prev, 'income')), transactions: c.prev.length} : null,
+    };
+    const m = c.mrows, pm = c.prevM;
+    if (S.mode === 'spend') F.by_group = rank(m, pm, r => r.group, r => r.group, 12);
+    F.by_category = rank(m, pm, r => r.ck, r => r.ck, 15);
+    F.top_payees = rank(m, pm, r => r.payee, r => r.payee, 12);
+    if (pm) {
+      const cats = rank(m, pm, r => r.ck, r => r.ck, 200), gone = groupBy(pm, r => r.ck);
+      for (const [k, rs] of gone) if (!cats.some(x => x.name === k)) cats.push({name: k, total: 0, before: d(sum(rs))});
+      const moved = cats.map(x => ({name: x.name, now: x.total, before: x.before, change: x.total - x.before})).filter(x => Math.abs(x.change) >= 25);
+      F.movers_up = moved.filter(x => x.change > 0).sort((a, b) => b.change - a.change).slice(0, 6);
+      F.movers_down = moved.filter(x => x.change < 0).sort((a, b) => a.change - b.change).slice(0, 6);
+      const pNow = groupBy(m, r => r.payee), pBefore = groupBy(pm, r => r.payee);
+      F.new_payees = [...pNow].filter(([k, rs]) => !pBefore.has(k) && sum(rs) >= 5000).map(([k, rs]) => ({name: k, total: d(sum(rs)), count: rs.length}))
+        .sort((a, b) => b.total - a.total).slice(0, 6);
+      F.stopped_payees = [...pBefore].filter(([k, rs]) => !pNow.has(k) && sum(rs) >= 5000).map(([k, rs]) => ({name: k, before: d(sum(rs)), count: rs.length}))
+        .sort((a, b) => b.before - a.before).slice(0, 6);
+    }
+    F.largest = [...m].sort((a, b) => b.val - a.val).slice(0, 8).map(r => ({date: r.date, payee: r.payee, category: r.ck, amount: d(r.val)}));
+    const b = buckets(c.from, c.to), bt = new Map();
+    for (const r of m) { const k = b.keyOf(r.date); bt.set(k, (bt.get(k) || 0) + r.val); }
+    F.over_time = {unit: b.unit, points: b.list.slice(-24).map(x => ({label: x.label, total: d(bt.get(x.k) || 0)}))};
+    if (days >= 14) {
+      const wk = Array(7).fill(0), n = Array(7).fill(0), byDay = groupBy(m, r => r.date);
+      for (let x = c.from; x <= end; x = addDays(x, 1)) { const i = (toD(x).getUTCDay() + 6) % 7; n[i]++; wk[i] += sum(byDay.get(x) || []); }
+      F.weekday_average = WEEKDAYS.map((w, i) => ({day: w, average: n[i] ? d(wk[i] / n[i]) : 0}));
+    }
+    const unc = m.filter(r => r.cat === 'Uncategorized');
+    F.uncategorized = {count: unc.length, amount: d(sum(unc))};
+    F.pending = m.filter(r => r.pending).length;
+    return F;
+  }
+  async function askKnow(F, D, viewLabel, {refresh = false, cachedOnly = false}) {
+    if (!cachedOnly) { KNOW.loading = true; KNOW.error = ''; renderCard('know'); }
+    try {
+      const r = await postJSON('{{ url_for("v2.reports_insights") }}', {facts: F, refresh, cached_only: cachedOnly});
+      if (!r.missing) Object.assign(KNOW, {result: r, digest: D, viewLabel});
+    } catch (e) { if (!cachedOnly) KNOW.error = e.message; }
+    KNOW.loading = false; renderCard('know');
+  }
   const OPEN = new Set(), EXPAND = new Set(), SORT = {}, PAGE = {}, TABLES = new Set();
 
   function exportCSV(rows) {
     const q = v => /[",\n]/.test(v) ? `"${String(v).replace(/"/g, '""')}"` : v;
-    const lines = [['Date', 'Payee', 'Group', 'Category', 'Account', 'Amount', 'Pending', 'Transfer'].join(',')];
-    for (const r of rows) lines.push([r.date, q(r.payee), q(r.group), q(r.cat), q(ACCTS.get(r.aid) || ''), (r.amt / 100).toFixed(2), r.pending ? 'yes' : '', r.transfer ? 'yes' : ''].join(','));
+    const lines = [['Date', 'Payee', 'Group', 'Category', 'Amount', 'Pending', 'Transfer'].join(',')];
+    for (const r of rows) lines.push([r.date, q(r.payee), q(r.group), q(r.cat), (r.amt / 100).toFixed(2), r.pending ? 'yes' : '', r.transfer ? 'yes' : ''].join(','));
     const p = period();
     const a = h('a', {href: URL.createObjectURL(new Blob([lines.join('\n')], {type: 'text/csv'})), download: `transactions-${p.from}-to-${p.to}.csv`});
     document.body.append(a); a.click(); a.remove();
@@ -827,7 +1071,7 @@
   function loadLayout() {
     let saved = null; try { saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'); } catch (e) {}
     const known = Array.isArray(saved) ? saved.filter(x => WIDGETS[x.id]) : [];
-    for (const id of ORDER0) if (!known.some(x => x.id === id)) known.push({id, size: WIDGETS[id].size, hidden: false});
+    ORDER0.forEach((id, i) => { if (!known.some(x => x.id === id)) known.splice(Math.min(i, known.length), 0, {id, size: WIDGETS[id].size, hidden: false}); });
     LAYOUT = known;
   }
   function saveLayout() { try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(LAYOUT)); } catch (e) {} }
@@ -841,6 +1085,15 @@
       const W = WIDGETS[L.id];
       const cap = h('span', {class: 'cap'});
       const tools = h('div', {class: 'tools'});
+      if (W.views) {
+        L.chart = L.chart || 'bars'; L.unit = L.unit || 'auto';
+        const seg = h('div', {class: 'vseg', role: 'group', 'aria-label': 'Chart type'});
+        for (const [k, label] of [['bars', 'Bars'], ['lines', 'Lines']])
+          seg.append(h('button', {type: 'button', 'aria-pressed': String(L.chart === k), onclick: () => { L.chart = k; saveLayout(); $$('button', seg).forEach(b => b.setAttribute('aria-pressed', String(b.textContent === label))); renderCard(L.id); }}, label));
+        const sel = h('select', {class: 'vsel', 'aria-label': 'Group by', onchange: e => { L.unit = e.target.value; saveLayout(); renderCard(L.id); }},
+          Object.entries(UNIT_LABEL).map(([k, label]) => h('option', {value: k, selected: L.unit === k}, label)));
+        tools.append(seg, sel);
+      }
       if (W.table) tools.append(h('button', {type: 'button', class: 'ibtn', 'aria-pressed': String(TABLES.has(L.id)), title: 'Show the numbers as a table',
         onclick: e => { TABLES.has(L.id) ? TABLES.delete(L.id) : TABLES.add(L.id); e.currentTarget.setAttribute('aria-pressed', TABLES.has(L.id)); renderCard(L.id); }}, 'Table'));
       tools.append(h('button', {type: 'button', class: 'ibtn', title: 'Toggle wide / half width', onclick: () => { L.size = L.size === 'full' ? 'half' : 'full'; saveLayout(); applyLayout(); renderCard(L.id); }},
@@ -875,7 +1128,7 @@
     if (!c || !CTX) return;
     c.body.replaceChildren(); c.cap.textContent = '';
     c.title.textContent = S.mode === 'income' && W.titleIncome ? W.titleIncome : W.title;
-    W.render(c.body, {...CTX, setCap: t => c.cap.textContent = t}, TABLES.has(id));
+    W.render(c.body, {...CTX, setCap: t => c.cap.textContent = t}, TABLES.has(id), LAYOUT.find(x => x.id === id));
   }
 
   function render() {
@@ -883,7 +1136,8 @@
     const p = period();
     const all = ROWS.filter(r => matches(r, p.from, p.to));
     const prev = p.prev ? ROWS.filter(r => matches(r, p.prev[0], p.prev[1])) : null;
-    CTX = {from: p.from, to: p.to, rows: all, mrows: all.filter(r => r.kind === S.mode), prev, prevM: prev && prev.filter(r => r.kind === S.mode), prevLabel: p.prevLabel};
+    CTX = {from: p.from, to: p.to, rows: all, mrows: all.filter(r => r.kind === S.mode), prev, prevM: prev && prev.filter(r => r.kind === S.mode), prevLabel: p.prevLabel,
+           prevRange: p.prev};
     renderControls(p);
     renderFacets(p);
     renderKpis(all, prev, p);
@@ -1015,7 +1269,7 @@
     const end = p.to > TODAY && p.from <= TODAY ? TODAY : p.to, days = daysBetween(p.from, end) + 1;
     const pdays = prev ? daysBetween(p.prev[0], p.prev[1]) + 1 : 0;
     const tile = (l, v, d) => h('div', {class: 'kpi'}, h('div', {class: 'l'}, l), h('div', {class: 'v'}, v), h('div', {class: 'd'}, d || ' '));
-    const vs = (now, before, good, dollars) => prev ? [delta(now, before, good, dollars), ` vs ${p.prevLabel}`] : (S.range === 'all' ? '' : 'not enough history to compare');
+    const vs = (now, before, good, dollars) => prev ? [delta(now, before, good, dollars), ` vs ${p.prevLabel}`] : (p.cmpNote ? 'no history to compare' : '');
     $('kpis').replaceChildren(
       tile('Spent', whole(spent), vs(spent, pS, false)),
       tile('Income', whole(inc), vs(inc, pI, true)),
@@ -1031,16 +1285,18 @@
     $('from').value = p.from; $('to').value = p.to;
     $$('.seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
     if ($('q') !== document.activeElement) $('q').value = S.q;
-    $('acct').value = S.acct; $('transfers').checked = S.transfers;
+    $('transfers').checked = S.transfers;
+    $('cmp').value = S.cmp; $('ccustom').classList.toggle('on', S.cmp === 'custom');
+    if (S.cmp === 'custom') { const pr = period(); if (pr.prev) { $('cfrom').value = pr.prev[0]; $('cto').value = pr.prev[1]; } }
+    $('cmpnote').textContent = p.cmpNote || '';
     const chips = $('chips'); chips.replaceChildren();
     const chip = (k, label, color, onx) => h('button', {type: 'button', class: 'chip', onclick: onx, title: 'Remove this filter'},
       color ? h('i', {class: 'sw', style: `background:${color}`}) : null, h('span', {class: 'k'}, k), label, h('span', {class: 'x', 'aria-hidden': 'true'}, '×'));
     for (const g of S.group) chips.append(chip('Group', g, colorOf(g, 'spend'), () => { toggleIn('group', g); render(); }));
     for (const c of S.cat) chips.append(chip('Category', c, null, () => { toggleIn('cat', c); render(); }));
     for (const pz of S.payee) chips.append(chip('Payee', pz, null, () => { toggleIn('payee', pz); render(); }));
-    if (S.acct) chips.append(chip('Account', ACCTS.get(+S.acct) || '?', null, () => { S.acct = ''; render(); }));
     if (S.q) chips.append(chip('Search', `“${S.q}”`, null, () => { S.q = ''; render(); }));
-    if (chips.children.length) chips.append(h('button', {type: 'button', class: 'clear', onclick: () => { S.group = []; S.cat = []; S.payee = []; S.acct = ''; S.q = ''; render(); }}, 'Clear filters'));
+    if (chips.children.length) chips.append(h('button', {type: 'button', class: 'clear', onclick: () => { S.group = []; S.cat = []; S.payee = []; S.q = ''; render(); }}, 'Clear filters'));
   }
 
   // ---------- controls ----------
@@ -1051,8 +1307,13 @@
   $('to').addEventListener('change', () => { if ($('to').value) { S.range = 'custom'; S.from = $('from').value; S.to = $('to').value; render(); } });
   $$('.seg button').forEach(b => b.addEventListener('click', () => { S.mode = b.dataset.mode; S.group = []; S.cat = []; render(); }));
   let qT; $('q').addEventListener('input', () => { clearTimeout(qT); qT = setTimeout(() => { S.q = $('q').value.trim(); PAGE.ledger = 50; render(); }, 180); });
-  $('acct').addEventListener('change', () => { S.acct = $('acct').value; render(); });
   $('transfers').addEventListener('change', () => { S.transfers = $('transfers').checked; render(); });
+  $('cmp').addEventListener('change', () => {
+    S.cmp = $('cmp').value;
+    if (S.cmp === 'custom' && !S.cfrom) { const p = period(); S.cfrom = $('cfrom').value || p.from; S.cto = $('cto').value || p.to; }
+    render();
+  });
+  for (const id of ['cfrom', 'cto']) $(id).addEventListener('change', () => { if ($(id).value) { S.cmp = 'custom'; S.cfrom = $('cfrom').value; S.cto = $('cto').value; render(); } });
   addEventListener('hashchange', () => { readHash(); render(); });
   let rz, lastW = innerWidth; addEventListener('resize', () => { if (innerWidth === lastW) return; lastW = innerWidth; clearTimeout(rz); rz = setTimeout(render, 150); });
   matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);

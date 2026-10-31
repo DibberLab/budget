@@ -377,3 +377,103 @@ def insights_fact_delete(fid):
         db.session.delete(h)
         db.session.commit()
     return jsonify({"ok": True})
+
+
+# ---------- Reports: notes on whatever slice the Reports page is showing ----------
+# The page sends the facts it computed for its current view (range, filters,
+# comparison). They're the household's own numbers, already shown on screen;
+# Claude only reads them. Same rules as Home: no invented figures, rule-based
+# notes when Claude can't be reached, cached per view so revisiting is free.
+
+REPORT_SYSTEM = """You read a household's spending report the way a sharp, practical financial planner would. They have a report open (a date range, maybe filtered to some groups, categories or payees, maybe compared with an earlier period) and want the few things most worth knowing about what's on screen. Not generic advice.
+
+Rules:
+- Use only numbers that appear in the facts, rounded to whole dollars. Never invent or estimate a figure. You may add or subtract figures from the facts (say what you combined).
+- Talk about this view: its range, its filters, its comparison. If it's filtered, keep to what's filtered.
+- Look for what changes a decision: the biggest drivers of the total, big moves against the comparison period (and which payees or categories caused them), new or growing payees, ones that stopped, one-off large charges that distort a total, timing patterns, money still uncategorized.
+- A change against a short or unusual comparison period can mislead; say so if the facts suggest it.
+- Don't flag things the household's context explains, and treat what they've told you as settled unless the facts clearly contradict it.
+- Don't nag about things that are fine, and don't repeat a point.
+
+Always answer by calling the insights tool (no other text): 3 to 6 notes, most important first, plus a one-sentence headline about this view."""
+
+MAX_FACTS = 40_000  # characters; the page sends a compact summary, never raw transactions
+
+
+def report_rule_notes(f: dict) -> dict:
+    """Plain notes from the report facts, for when Claude isn't available."""
+    notes, t, cmp = [], f.get("totals", {}), f.get("compare")
+    label = f.get("view", {}).get("compare_label") or "the comparison period"
+    spent = t.get("spent", 0)
+    if cmp and cmp.get("spent") is not None and cmp["spent"]:
+        diff = spent - cmp["spent"]
+        if abs(diff) >= max(50, 0.1 * cmp["spent"]):
+            notes.append({"kind": "watch" if diff > 0 else "good",
+                          "title": f"Spending {'up' if diff > 0 else 'down'} ${abs(diff):,}",
+                          "body": f"${spent:,} here against ${cmp['spent']:,} in {label}."})
+    for m in (f.get("movers_up") or [])[:2]:
+        notes.append({"kind": "watch", "title": f"{m['name']} rose ${m['change']:,}",
+                      "body": f"${m['now']:,} here vs ${m['before']:,} in {label}."})
+    groups = f.get("by_group") or f.get("by_category") or []
+    if groups and spent and groups[0]["total"] >= 0.35 * spent:
+        g = groups[0]
+        notes.append({"kind": "idea", "title": f"{g['name']} is the big one",
+                      "body": f"${g['total']:,} of ${spent:,} ({round(100 * g['total'] / spent)}%) in this view."})
+    for p in (f.get("new_payees") or [])[:1]:
+        notes.append({"kind": "watch", "title": f"New: {p['name']}", "body": f"${p['total']:,} here and nothing in {label}."})
+    u = f.get("uncategorized") or {}
+    if u.get("count"):
+        notes.append({"kind": "watch", "title": "Some of this isn't categorized",
+                      "body": f"{u['count']} transaction{'s' if u['count'] != 1 else ''} (${u['amount']:,}) {'are' if u['count'] != 1 else 'is'} uncategorized, so category totals are low by that much."})
+    if not notes:
+        notes.append({"kind": "good", "title": "Nothing unusual here", "body": "No big changes or outliers in this view."})
+    view = f.get("view", {})
+    head = f"${spent:,} spent and ${t.get('income', 0):,} in for {view.get('label') or view.get('range') or 'this range'}."
+    return {"headline": head, "notes": notes[:6]}
+
+
+@v2_bp.route("/reports/insights", methods=["POST"])
+@login_required
+def reports_insights():
+    """Body: {"facts": {...}, "refresh": bool, "cached_only": bool}."""
+    body = request.get_json(silent=True) or {}
+    facts = body.get("facts")
+    raw = json.dumps(facts, sort_keys=True) if isinstance(facts, dict) else ""
+    if not raw or len(raw) > MAX_FACTS:
+        return jsonify({"error": "Nothing to read."}), 400
+    ctx = _context_text()
+    digest = hashlib.sha256((raw + ctx).encode()).hexdigest()[:24]
+    path = os.path.join(os.path.dirname(_cache_path(2000, 1)), f"reports-{digest}.json")
+    cached = None
+    try:
+        with open(path) as fh:
+            cached = json.load(fh)
+    except (OSError, ValueError):
+        pass
+    if cached and (not body.get("refresh") or time.time() - cached["at"] < MIN_REFRESH):
+        return jsonify({**cached["result"], "source": "claude", "at": cached["at"], "cached": True})
+    if body.get("cached_only"):
+        return jsonify({"missing": True})
+    try:
+        resp = _claude().beta.messages.create(
+            model=MODEL, max_tokens=3000, system=REPORT_SYSTEM, tools=[TOOL],
+            messages=[{"role": "user", "content": ctx + "\n\nThe report on screen (amounts in whole dollars):\n" + json.dumps(facts, indent=1)}],
+            betas=["server-side-fallback-2026-07-01"], fallbacks="default",
+        )
+        out = next((b.input for b in resp.content if b.type == "tool_use" and b.name == "insights"), None)
+        notes = [n for n in (out or {}).get("notes", []) if n.get("kind") in KINDS and n.get("title") and n.get("body")]
+        if not notes:
+            raise ValueError("no notes")
+        result, source = {"headline": str(out.get("headline", "")), "notes": notes[:6]}, "claude"
+    except Exception as exc:  # never an empty card
+        current_app.logger.warning("reports insights: Claude call failed: %r", exc)
+        result, source = report_rule_notes(facts), "rules"
+        result["note"] = "Claude's notes aren't available right now, so these are the basic checks."
+    if source == "claude":
+        try:
+            with open(path + ".tmp", "w") as fh:
+                json.dump({"at": time.time(), "result": result}, fh)
+            os.replace(path + ".tmp", path)
+        except OSError:
+            pass
+    return jsonify({**result, "source": source, "at": time.time()})

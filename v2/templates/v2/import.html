@@ -78,12 +78,13 @@
   <summary>Upload a CSV instead</summary>
   <form class="card" method="post" action="{{ url_for('v2.import_csv') }}" enctype="multipart/form-data" style="display:grid;gap:14px;margin-top:8px">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label>
+    {% if accounts|length == 1 %}<input type="hidden" name="account_id" value="{{ accounts[0].id }}">
+    {% else %}<label>
       <div class="small muted" style="margin-bottom:4px">Account</div>
       <select name="account_id" required>
         {% for a in accounts %}<option value="{{ a.id }}">{{ a.name }}</option>{% endfor %}
       </select>
-    </label>
+    </label>{% endif %}
     <label>
       <div class="small muted" style="margin-bottom:4px">CSV file</div>
       <input type="file" name="file" accept=".csv,text/csv" required>
