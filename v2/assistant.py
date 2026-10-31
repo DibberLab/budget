@@ -49,7 +49,7 @@ SYSTEM = """You help a two-person household keep their budget app's setup accura
 
 How the app works:
 - Categories sit in groups (e.g. Transportation > Gas). Retired categories are hidden from budgets and pickers but keep their history.
-- A monthly budget carries forward until it's changed. set_budget changes it from this month on; with this_month_only it changes just this month (useful for a one-time payoff) and next month goes back to the previous amount.
+- A monthly budget carries forward until it's changed. set_budget sets this month's amount; later months follow it unless they already have their own amount (planned months are never overwritten). With this_month_only it changes just this month (useful for a one-time payoff) and next month keeps the previous amount.
 - A payee rule files new bank imports from that payee into a category automatically. file_payee sets the rule and, with move_history, moves that payee's past transactions too.
 - Payee names are the cleaned names shown in the app (e.g. "American Honda Finance"), not raw bank strings.
 
@@ -131,7 +131,7 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "category": CAT_REF,
          "amount": {"type": "number", "description": "Dollars per month (0 to stop budgeting it)"},
-         "this_month_only": {"type": "boolean", "description": "Only this month; next month returns to the previous amount. Default false."}},
+         "this_month_only": {"type": "boolean", "description": "Only this month; next month keeps the previous amount. Default false."}},
          "required": ["category", "amount"]}},
     {"name": "propose_create_category",
      "description": "Propose a new category. Follow with propose_set_budget to give it a budget.",
@@ -280,7 +280,7 @@ def _validate(tool, inp, pending):
             raise ToolError("amount must be a number of dollars.")
         if amt < 0:
             raise ToolError("amount can't be negative.")
-        when = "for this month only" if inp.get("this_month_only") else "a month from now on"
+        when = "for this month only" if inp.get("this_month_only") else "a month (later months without their own amount follow)"
         cur = ""
         if not isinstance(cat, dict):
             t = date.today()

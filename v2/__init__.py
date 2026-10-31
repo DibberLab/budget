@@ -431,91 +431,9 @@ def category_detail(cid):
 @v2_bp.route("/plan")
 @login_required
 def plan():
-    today = date.today()
-    months = request.args.get("months", 3, type=int)
-    months = months if months in (1, 3, 6, 12) else 3
-    win = _window(months)
+    """Plan vs actual was folded into the Home page."""
+    return redirect(url_for("v2.progress"))
 
-    cats = (Category.query.order_by(Category.is_income.desc(), Category.sort_order,
-                                    Category.group_name, Category.name).all())
-    cat_ids = [c.id for c in cats]
-    budget, _ = _budgets_as_of(today.year, today.month, cat_ids)
-    incplan = {p.category_id: p.amount for p in IncomePlan.query}
-    actual = _avg_by_category(*win, cat_ids) if win else {}
-
-    groups = defaultdict(lambda: {"rows": [], "plan": 0, "actual": 0})
-    retired = 0
-    inc = {"plan": 0, "actual": 0}
-    for c in cats:
-        a = actual.get(c.id, 0)
-        if c.is_income:
-            p = incplan.get(c.id, 0)
-            inc["plan"] += p
-            inc["actual"] += a
-            if p or a:
-                groups["Income"]["rows"].append({"cat": c, "plan": p, "actual": a, "diff": a - p})
-            continue
-        a = -a  # spending as positive
-        if c.hidden:
-            retired += a
-            continue
-        p = budget.get(c.id, 0)
-        g = groups[c.group_name]
-        g["rows"].append({"cat": c, "plan": p, "actual": a, "diff": a - p})
-        g["plan"] += p
-        g["actual"] += a
-    for k in ("Income",):
-        if k in groups:
-            groups[k]["plan"], groups[k]["actual"] = inc["plan"], inc["actual"]
-
-    spend = {"plan": sum(g["plan"] for k, g in groups.items() if k != "Income"),
-             "actual": sum(g["actual"] for k, g in groups.items() if k != "Income") + retired}
-    biggest = max([abs(r["diff"]) for g in groups.values() for r in g["rows"]] + [1])
-    uncategorized = (_uncategorized_query()
-                     .filter(Transaction.date >= win[0], Transaction.date <= win[1]).count()) if win else 0
-
-    # Month-by-month totals for the trend chart: the window's months, but at
-    # least the last 6 full months (where history allows) for context.
-    trend = []
-    span = _full_months()
-    if span:
-        first, end = span
-        n_chart = max(months, 6)
-        cur = date(end.year, end.month, 1)
-        months_list = []
-        while len(months_list) < n_chart and cur >= date(first.year, first.month, 1):
-            months_list.append(cur)
-            cur = date(cur.year - (cur.month == 1), (cur.month - 2) % 12 + 1, 1)
-        totals = defaultdict(lambda: {"spend": 0, "income": 0})
-        if months_list:
-            for yy, mm, is_inc, total in (
-                    db.session.query(extract("year", Transaction.date), extract("month", Transaction.date),
-                                     Category.is_income, func.sum(Transaction.amount))
-                    .join(Category, Category.id == Transaction.category_id)
-                    .filter(Transaction.date >= months_list[-1], Transaction.date <= end)
-                    .group_by(extract("year", Transaction.date), extract("month", Transaction.date),
-                              Category.is_income)):
-                key = (int(yy), int(mm))
-                if is_inc:
-                    totals[key]["income"] += int(total or 0)
-                else:
-                    totals[key]["spend"] -= int(total or 0)
-        in_win = {(d.year, d.month) for d in months_list[:win[2]]} if win else set()
-        for d in reversed(months_list):
-            t = totals[(d.year, d.month)]
-            trend.append({"label": d.strftime("%b"), "spend": t["spend"], "income": t["income"],
-                          "in_window": (d.year, d.month) in in_win})
-
-    for g in groups.values():
-        g["rows"].sort(key=lambda r: (-r["plan"], -r["actual"], r["cat"].name.lower()))
-
-    return render_template(
-        "v2/plan.html", months=months, win=win, groups=list(groups.items()),
-        inc=inc, spend=spend, retired=retired, biggest=biggest, uncategorized=uncategorized,
-        trend=trend)
-
-
-# ---------- budgets ----------
 
 @v2_bp.route("/budgets")
 @v2_bp.route("/budgets/sheet")
@@ -529,8 +447,8 @@ def budgets():
 @login_required
 def budgets_save():
     """Body: {"budgets": {category_id: cents}, "y": int?, "m": int?}. Sets each
-    budget from that month (default: this month) onward; earlier months keep
-    what they had. Past months can't be changed."""
+    budget for that month (default: this month); later months follow unless
+    they have their own amount. Past months can't be changed."""
     body = request.get_json(silent=True) or {}
     data = body.get("budgets", {})
     income = {c.id for c in Category.query.filter_by(is_income=True)}
@@ -1052,9 +970,10 @@ def save_category(cat: "Category | None", name: str, group: str, hidden=None, is
 
 
 def set_budget(cat: "Category", cents: int, this_month_only: bool = False, y: int = None, m: int = None) -> None:
-    """Budget from month (y, m) onward (default: this month), carrying forward;
-    or for that month only, with the next month going back to what it was.
-    Caller commits."""
+    """Budget for month (y, m) (default: this month). Later months follow it
+    unless they have an amount of their own, which is never overwritten, so a
+    month that's been planned stays planned. With this_month_only, the next
+    month keeps what it had before. Caller commits."""
     today = date.today()
     y, m = (y, m) if y and m else (today.year, today.month)
     if cat.is_income:
@@ -1072,12 +991,6 @@ def set_budget(cat: "Category", cents: int, this_month_only: bool = False, y: in
         nxt = BudgetMonth.query.filter_by(year=ny, month=nm, category_id=cat.id).first()
         if not nxt:
             db.session.add(BudgetMonth(year=ny, month=nm, category_id=cat.id, assigned=prior))
-    else:
-        # Drop budgets already set for later months so this one carries forward.
-        (BudgetMonth.query
-         .filter(BudgetMonth.category_id == cat.id,
-                 (BudgetMonth.year * 12 + BudgetMonth.month) > y * 12 + m)
-         .delete(synchronize_session=False))
 
 
 @v2_bp.route("/manage/payee", methods=["POST"])

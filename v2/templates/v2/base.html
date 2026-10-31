@@ -64,7 +64,7 @@
 <div class="wrap {% block wrap_class %}{% endblock %}">
   <nav>
     <a class="brand" href="{{ url_for('v2.progress') }}">Budget</a>
-    <a class="tab {% if request.endpoint in ('v2.progress', 'v2.plan') %}on{% endif %}" href="{{ url_for('v2.progress') }}">Home</a>
+    <a class="tab {% if request.endpoint == 'v2.progress' %}on{% endif %}" href="{{ url_for('v2.progress') }}">Home</a>
     <a class="tab {% if request.endpoint == 'v2.transactions' %}on{% endif %}" href="{{ url_for('v2.transactions') }}">Transactions</a>
     <a class="tab {% if request.endpoint == 'v2.review' %}on{% endif %}" href="{{ url_for('v2.review') }}">Review{% if v2_to_review %}<span class="pill">{{ v2_to_review }}</span>{% endif %}</a>
     <a class="tab {% if request.endpoint == 'v2.import_page' %}on{% endif %}" href="{{ url_for('v2.import_page') }}">Import</a>

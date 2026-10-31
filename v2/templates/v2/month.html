@@ -269,8 +269,8 @@
   <a class="arrow" href="{{ url_for('v2.progress', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
   {% if can_next %}<a class="arrow" href="{{ url_for('v2.progress', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% endif %}
 </div>
-<p class="sub">{% if is_future %}<b>Planning {{ month_label }}.</b> Type an amount to set it; it applies from {{ month_name }} on, and earlier months keep theirs. Income plans are the same every month.{% elif editable %}Type a new amount to change it. It saves right away and applies from {{ month_name }} on. Click a row to see its transactions.{% else %}{{ month_label }} as it was budgeted. Click a row to see its transactions; amounts can be changed in this month or future ones.{% endif %}
-  <a href="{{ url_for('v2.plan') }}">Plan vs actual →</a></p>
+{% if is_future %}<p class="sub"><b>Planning {{ month_label }}.</b> Income plans are the same every month.</p>
+{% elif not editable %}<p class="sub">{{ month_label }} is past, so its amounts are read-only.</p>{% endif %}
 
 {% if v2_uncategorized and is_current %}
 <div class="card nudge">
