@@ -26,6 +26,11 @@
   .memo, .acct { font-size: 12px; color: var(--muted); }
   .pend { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 1px 6px; border-radius: 999px; font-style: normal;
           background: color-mix(in srgb, var(--warn) 22%, transparent); color: var(--ink); vertical-align: 1px; }
+  .dbtn { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; border-bottom: 1px dashed transparent; }
+  .dbtn:hover { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+  td.date input[type=date] { width: auto; font-size: 13px; padding: 3px 6px; border-radius: 8px; }
+  .manual { display: inline-block; margin-left: 6px; font-size: 10.5px; padding: 1px 6px; border-radius: 999px; cursor: help;
+            background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--ink); vertical-align: 1px; }
   .amt { white-space: nowrap; font-variant-numeric: tabular-nums; width: 1%; }
   .amt.in { color: var(--ok); }
   .cat { width: 240px; }
@@ -58,9 +63,9 @@
   <h1>Transactions</h1>
   <a class="arrow" href="{{ url_for('v2.transactions', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
   <span style="font-weight:600;min-width:130px;text-align:center">{{ month_label }}</span>
-  {% if not is_current %}<a class="arrow" href="{{ url_for('v2.transactions', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% else %}<span style="width:34px"></span>{% endif %}
+  {% if can_next %}<a class="arrow" href="{{ url_for('v2.transactions', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% else %}<span style="width:34px"></span>{% endif %}
 </div>
-<p class="sub">Change a transaction's category with its dropdown; it saves right away. To file every transaction from a payee at once (and future ones), use <a href="{{ url_for('v2.manage') }}">Manage → Payees</a>.</p>
+<p class="sub">Change a transaction's category with its dropdown; it saves right away. Click a date to change it, for example to count a bill that cleared early in the month it's for. To file every transaction from a payee at once (and future ones), use <a href="{{ url_for('v2.manage') }}">Manage → Payees</a>.</p>
 
 <div class="tools">
   <input type="search" id="q" placeholder="Search payee, memo or amount" aria-label="Search transactions">
@@ -80,7 +85,7 @@
       {% for r in rows %}{% set t = r.t %}
       <tr data-id="{{ t.id }}" data-cid="{{ t.category_id or '' }}" data-amount="{{ t.amount }}"
           data-search="{{ (t.payee ~ ' ' ~ (t.memo or '') ~ ' ' ~ '%.2f'|format((t.amount|abs) / 100))|lower }}">
-        <td class="date">{{ t.date.strftime('%b %-d') }}{% if t.source == 'plaid' and not t.cleared %}<span class="pend" title="Not posted by the bank yet; the amount can still change">pending</span>{% endif %}</td>
+        <td class="date">{% if r.kind == 'transfer' %}{{ t.date.strftime('%b %-d') }}{% else %}<button type="button" class="dbtn" data-date="{{ t.date.isoformat() }}" title="Change date">{{ t.date.strftime('%b %-d') }}</button>{% endif %}{% if t.date_manual %}<span class="manual" title="Date set by hand. The bank says {{ t.bank_date.strftime('%b %-d, %Y') if t.bank_date else 'something else' }}.">set by hand</span>{% endif %}{% if t.source == 'plaid' and not t.cleared %}<span class="pend" title="Not posted by the bank yet; the amount can still change">pending</span>{% endif %}</td>
         <td class="pay"><div class="payee">{{ t.payee or '(no payee)' }}</div>{% if t.memo %}<div class="memo">{{ t.memo }}</div>{% endif %}</td>
         <td class="acct">{{ r.account }}</td>
         <td class="amt r num{% if t.amount > 0 %} in{% endif %}">{{ t.amount|money }}</td>
@@ -129,6 +134,37 @@
   $('q')?.addEventListener('input', filter);
   $('fcat')?.addEventListener('change', filter);
   filter();
+
+  // ---- change a transaction's date (e.g. a November bill that cleared Oct 31) ----
+  const MONTH = '{{ "%04d-%02d"|format(y, m) }}';
+  const fmt = iso => new Date(iso + 'T00:00').toLocaleDateString(undefined, {month: 'short', day: 'numeric'});
+  $$('#rows .dbtn').forEach(btn => btn.addEventListener('click', () => {
+    const tr = btn.closest('tr'), input = document.createElement('input');
+    input.type = 'date'; input.value = btn.dataset.date; input.setAttribute('aria-label', 'Date');
+    btn.hidden = true; btn.after(input); input.focus();
+    let done = false;
+    const finish = async save => {
+      if (done) return; done = true;
+      const v = input.value; input.remove(); btn.hidden = false;
+      if (!save || !v || v === btn.dataset.date) return;
+      try {
+        const r = await postJSON(`{{ url_for('v2.transaction_date', tid=0) }}`.replace('/0/', '/' + tr.dataset.id + '/'), {date: v});
+        if (!r.date.startsWith(MONTH)) {
+          tr.remove(); filter();
+          toast(`Moved to ${fmt(r.date)}. It now counts in ${new Date(r.date + 'T00:00').toLocaleDateString(undefined, {month: 'long'})}.`);
+          return;
+        }
+        btn.dataset.date = r.date; btn.textContent = fmt(r.date);
+        tr.querySelector('.manual')?.remove();
+        if (r.manual) btn.insertAdjacentHTML('afterend', `<span class="manual" title="Date set by hand. The bank says ${fmt(r.bank_date)}.">set by hand</span>`);
+        tr.classList.remove('flash'); void tr.offsetWidth; tr.classList.add('flash');
+        toast(r.manual ? `Date set to ${fmt(r.date)}` : 'Back to the bank\'s date');
+      } catch (e) { toast('Couldn\'t save: ' + e.message, true); }
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); });
+    input.addEventListener('change', () => { if (document.activeElement !== input) finish(true); });
+    input.addEventListener('blur', () => finish(true));
+  }));
 
   $$('#rows select').forEach(sel => {
     sel.dataset.orig = sel.value;

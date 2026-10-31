@@ -51,6 +51,15 @@ def _cents(plaid_amount) -> int:
     return -int(round(float(plaid_amount) * 100))
 
 
+def _set_bank_date(row: Transaction, bank_date) -> None:
+    """Take the bank's date, unless someone re-dated this transaction by hand:
+    then only remember what the bank says."""
+    if row.date_manual:
+        row.bank_date = bank_date
+    else:
+        row.date = bank_date
+
+
 def run_sync() -> dict:
     """Sync every linked bank. Returns counts and any per-bank errors."""
     from v2 import AutoCat, _add_transaction, _rules_by_match  # late import: v2 imports this module's callers
@@ -81,7 +90,8 @@ def run_sync() -> dict:
                 pending = bool(t.get("pending"))
                 prior = by_ext.get(t.get("pending_transaction_id")) if not pending else None
                 if prior is not None:
-                    prior.external_id, prior.amount, prior.date, prior.cleared = tid, _cents(t["amount"]), t["date"], True
+                    prior.external_id, prior.amount, prior.cleared = tid, _cents(t["amount"]), True
+                    _set_bank_date(prior, t["date"])
                     by_ext.pop(t.get("pending_transaction_id"), None)
                     by_ext[tid] = prior
                     out["posted"] += 1
@@ -102,7 +112,8 @@ def run_sync() -> dict:
                 if row.splits:
                     out["skipped"].append(f"{row.payee} {row.date}: split, bank changed it")
                     continue
-                row.amount, row.date, row.cleared = _cents(t["amount"]), t["date"], not bool(t.get("pending"))
+                row.amount, row.cleared = _cents(t["amount"]), not bool(t.get("pending"))
+                _set_bank_date(row, t["date"])
                 out["modified"] += 1
 
             for r in result["removed"]:
