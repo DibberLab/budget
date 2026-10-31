@@ -1170,6 +1170,24 @@ def manage_group():
     return jsonify({"ok": True, "moved": len(moving)})
 
 
+@v2_bp.route("/manage/group/retire", methods=["POST"])
+@login_required
+def manage_group_retire():
+    """Body: {"group": str, "hidden": bool}. Retires (or restores) every category
+    in a group. History is kept, same as retiring one category."""
+    data = request.get_json(silent=True) or {}
+    group = (data.get("group") or "").strip()
+    cats = Category.query.filter_by(group_name=group).all() if group else []
+    if not cats:
+        return jsonify({"error": "No such group."}), 404
+    hide = bool(data.get("hidden", True))
+    changed = sum(1 for c in cats if c.hidden != hide)
+    for c in cats:
+        c.hidden = hide
+    db.session.commit()
+    return jsonify({"ok": True, "changed": changed})
+
+
 # ---------- import ----------
 
 def _add_transaction(rules, **fields) -> tuple[Transaction, bool]:
