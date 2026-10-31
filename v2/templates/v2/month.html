@@ -336,7 +336,7 @@
 
   <aside class="summary">
     <div class="box">
-      <h2>Monthly totals</h2>
+      <h2>{{ month_name }} plan</h2>
       <div class="kv"><span>Total income</span><span class="v" id="t-inc"></span></div>
       <div class="kv"><span>Total expenses</span><span class="v" id="t-exp"></span></div>
       <div class="extra">
@@ -344,7 +344,7 @@
         <div class="v" id="t-extra"></div>
         <div class="s" id="t-extra-s"></div>
       </div>
-      <div class="kv next" id="next-row" hidden><span>From {{ next_label }} (no one-time items)</span><span class="v" id="t-next"></span></div>
+      <div class="kv next" id="next-row" hidden><span>{{ next_label }} plan</span><span class="v" id="t-next"></span></div>
     </div>
     <div class="box">
       <h2>{{ month_name }}{{ " so far" if is_current }}</h2>
@@ -389,7 +389,8 @@
       if (tr.classList.contains('inc')) { inc += plan; ainc += spent; ninc += next; } else { exp += plan; aexp += spent; nexp += next; }
       const once = tr.querySelector('.once');
       once.hidden = next === plan;
-      once.textContent = `one-time · ${fmt(next)} from {{ next_label }}`;
+      once.textContent = `{{ next_label }}: ${fmt(next)}`;
+      once.title = `{{ next_label }} is planned at ${fmt(next)}; this month keeps its own amount`;
       const s = tr.querySelector('.spent');
       s.textContent = spent ? fmt(spent) : '—';
       const av = +tr.dataset.avg; tr.querySelector('.avgnote').textContent = av ? 'avg ' + avgFmt(av) : '';
@@ -801,7 +802,7 @@
   // ---- 2. pace: cumulative spending vs the household's usual path ----
   function paintPace(exp) {
     const box = $('pace'); box.innerHTML = '';
-    const W = Math.max(300, box.clientWidth || 600), H = W < 520 ? 190 : 230, L = 44, R = 64, T = 12, B = 24;
+    const W = Math.max(300, box.clientWidth || 600), H = W < 520 ? 190 : 230, L = 44, R = 88, T = 12, B = 24;
     const budget = exp.reduce((a, r) => a + r.plan, 0);
     const actual = [0]; for (let d = 0; d < ELAPSED; d++) actual.push(actual[d] + (DAILY[d] || 0));
     const usual = CH.usual ? CH.usual.map(f => f * budget) : Array.from({length: DAYS + 1}, (_, d) => budget * d / DAYS);
@@ -823,12 +824,19 @@
       el('circle', {cx: x(ELAPSED), cy: y(actual[ELAPSED]), r: 5, fill: 'var(--accent)', stroke: 'var(--card)', 'stroke-width': 2}, svg);
     }
     // Direct labels at the right edge: the usual path's end is the month's budget.
-    txt(svg, W - R + 6, y(usual[DAYS]) + 4, compact(usual[DAYS]), 'lbl muted');
-    if (ELAPSED) {
-      const ly = y(actual[ELAPSED]) + (Math.abs(y(actual[ELAPSED]) - y(usual[DAYS])) < 14 ? 16 : 4);
-      if (ELAPSED === DAYS) txt(svg, W - R + 6, ly, compact(actual[ELAPSED]), 'lbl');
-      else txt(svg, x(ELAPSED), y(actual[ELAPSED]) - 10, compact(actual[ELAPSED]), 'lbl', 'middle');
+    // Labels that share the edge are spread apart so they never overlap.
+    const edge = [{v: usual[DAYS], text: 'Budget ' + compact(usual[DAYS]), cls: 'lbl muted'}];
+    if (ELAPSED === DAYS) edge.push({v: actual[DAYS], text: compact(actual[DAYS]), cls: 'lbl'});
+    else if (ELAPSED) txt(svg, x(ELAPSED), y(actual[ELAPSED]) - 10, compact(actual[ELAPSED]), 'lbl', 'middle');
+    const GAP = 15;
+    edge.forEach(l => { l.y = y(l.v) + 4; });
+    edge.sort((a, b) => a.y - b.y);
+    for (let i = 1; i < edge.length; i++) {
+      const over = edge[i - 1].y + GAP - edge[i].y;
+      if (over > 0) { edge[i - 1].y -= over / 2; edge[i].y += over / 2; }
     }
+    const shift = Math.max(0, edge.at(-1).y - (H - B)) || Math.min(0, edge[0].y - (T + 10));
+    edge.forEach(l => txt(svg, W - R + 8, l.y - shift, l.text, l.cls));
     // Crosshair + tooltip
     const xh = el('line', {class: 'xhair', y1: T, y2: H - B, visibility: 'hidden'}, svg);
     const dots = ['var(--accent)', 'var(--muted)', GREY_LAST].map(c => el('circle', {r: 4, fill: c, stroke: 'var(--card)', 'stroke-width': 2, visibility: 'hidden'}, svg));
@@ -882,7 +890,9 @@
         d: `M${x0},${yb}V${y0 + r}Q${x0},${y0} ${x0 + r},${y0}H${x0 + cw - r}Q${x0 + cw},${y0} ${x0 + cw},${y0 + r}V${yb}Z`}, svg);
       if (h.budget) el('line', {x1: cx - cw / 2 - 5, x2: cx + cw / 2 + 5, y1: y(h.budget), y2: y(h.budget), stroke: 'var(--ink)', 'stroke-width': 2, 'stroke-linecap': 'round', 'pointer-events': 'none'}, svg);
       if (h.income) el('circle', {cx: cx + cw / 2 + 12, cy: y(h.income), r: 4, fill: 'var(--card)', stroke: 'var(--ink)', 'stroke-width': 2, 'pointer-events': 'none'}, svg);
-      if (i === hist.length - 1) txt(svg, cx, Math.min(y0, h.budget ? y(h.budget) : y0) - 7, compact(h.spent) + (isCur ? ' so far' : ''), 'lbl', 'middle');
+      // Sits above every mark in its column (bar, budget tick, income dot) so nothing overlaps it.
+      if (i === hist.length - 1) txt(svg, cx, Math.min(y0, h.budget ? y(h.budget) : y0, h.income ? y(h.income) - 4 : y0) - 8,
+                                     compact(h.spent) + (isCur ? ' so far' : ''), 'lbl', 'middle');
       const show = e => { col.classList.add('hot'); const net = h.income - h.spent;
         showTip(e, h.full + (isCur ? ' (so far)' : ''), [
           {key: 'key-rect', color: 'var(--accent)', value: whole(h.spent), label: 'Spent'},
