@@ -94,6 +94,21 @@
   .meter i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--accent); transition: width .9s cubic-bezier(.2,.8,.2,1); }
   .meter b { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; border-radius: 2px; background: var(--ink); }
   .meter-key { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+  /* What counts as everyday: the categories behind the hero number, adding up to it. */
+  .ev-what { margin-top: 10px; font-size: 13px; }
+  .ev-what summary { cursor: pointer; color: var(--muted); list-style: none; display: flex; gap: 6px; align-items: baseline; }
+  .ev-what summary::-webkit-details-marker { display: none; }
+  .ev-what summary::before { content: '▸'; font-size: 10px; transition: transform .15s; }
+  .ev-what[open] summary::before { transform: rotate(90deg); }
+  .ev-what summary:hover { color: var(--ink); }
+  .ev-what summary b { font-weight: 600; color: var(--ink); }
+  .ev-tbl { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  .ev-tbl th { text-align: right; font-size: 11px; font-weight: 600; color: var(--muted); padding: 3px 0 3px 10px; border-bottom: 1px solid var(--line); background: none; text-transform: uppercase; letter-spacing: .04em; }
+  .ev-tbl th:first-child, .ev-tbl td:first-child { text-align: left; padding-left: 0; }
+  .ev-tbl td { padding: 4px 0 4px 10px; text-align: right; font-variant-numeric: tabular-nums; height: auto; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+  .ev-tbl td.over { color: var(--bad); }
+  .ev-tbl tfoot td { font-weight: 650; border-bottom: 0; border-top: 1px solid var(--line); }
+  .ev-how { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
   .facts { margin: auto 0 0; padding-top: 16px; display: grid; gap: 0; }
   .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
   .facts dt { color: var(--muted); }
@@ -444,11 +459,12 @@
 
 <section class="bento" id="bento" hidden>
   <div class="tile t-hero">
-    <h3 id="hero-label">Left for everyday spending</h3>
+    <h3 id="hero-label">Everyday budget left</h3>
     <div class="hero" id="hero-big">$0</div>
     <div class="hero-sub" id="hero-sub"></div>
     <div class="meter" id="hero-meter" role="img"><i></i><b hidden></b></div>
     <div class="meter-key"><span id="m-left"></span><span id="m-right"></span></div>
+    <details class="ev-what" id="ev-what"><summary id="ev-sum"></summary><div id="ev-list"></div></details>
     <dl class="facts">
       <div><dt>Bills</dt><dd id="f-bills"></dd></div>
       <div><dt id="f-proj-l">Projected month end</dt><dd id="f-proj"></dd></div>
@@ -1014,18 +1030,38 @@
     const daysLeft = DAYS - ELAPSED + 1;
     const big = $('hero-big');
     if (IS_CURRENT) {
-      $('hero-label').textContent = left >= 0 ? 'Left for everyday spending' : 'Over on everyday spending';
+      $('hero-label').textContent = left >= 0 ? 'Everyday budget left' : 'Everyday budget overspent by';
       big.textContent = whole(Math.abs(left)); big.classList.toggle('neg', left < 0);
       $('hero-sub').innerHTML = '';
       const s1 = document.createElement('span');
-      s1.textContent = left > 0 ? `${whole(left / daysLeft)} a day for the ${daysLeft} day${daysLeft === 1 ? '' : 's'} left` : 'Everyday budget is used up this month';
+      // "through November 30" says plainly that today counts.
+      s1.textContent = left > 0 ? (daysLeft === 1 ? `${whole(left)} for today, the last day of ${MONTH}` : `About ${whole(left / daysLeft)} a day through ${MONTH} ${DAYS}`)
+                                : 'The everyday budget is used up this month';
       $('hero-sub').append(s1);
     } else {
       $('hero-label').textContent = 'Everyday spending';
       big.textContent = whole(evSpent); big.classList.remove('neg');
       $('hero-sub').textContent = evPlan ? `${left >= 0 ? whole(left) + ' under' : whole(-left) + ' over'} its ${whole(evPlan)} budget` : '';
     }
-    $('hero-sub').title = 'Everyday: ' + ev.map(r => r.name).join(', ');
+    // Which categories make up the number, adding up to it, one click away.
+    const evs = [...ev].sort((a, b) => b.plan - a.plan || b.spent - a.spent);
+    const names = evs.map(r => r.name), sum$ = $('ev-sum'); sum$.textContent = '';
+    if (!evs.length) { $('ev-what').hidden = true; } else {
+      $('ev-what').hidden = false;
+      sum$.append('What counts as everyday? ');
+      const bb = document.createElement('b'); bb.textContent = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3} more` : ''); sum$.append(bb);
+      const tbl = document.createElement('table'); tbl.className = 'ev-tbl';
+      const row = (cells, tag = 'td') => { const tr = document.createElement('tr');
+        cells.forEach((c, i) => { const td = document.createElement(tag); td.textContent = c; if (tag === 'td' && i === 3 && c.startsWith('-')) td.className = 'over'; tr.append(td); }); return tr; };
+      const th = document.createElement('thead'); th.append(row(['Category', 'Budget', 'Spent', 'Left'], 'th'));
+      const tb = document.createElement('tbody'); evs.forEach(r => tb.append(row([r.name, whole(r.plan), whole(r.spent), whole(r.plan - r.spent)])));
+      const tf = document.createElement('tfoot'); tf.append(row(['Total', whole(evPlan), whole(evSpent), whole(left)]));
+      tbl.append(th, tb, tf);
+      const how = document.createElement('p'); how.className = 'ev-how';
+      how.textContent = 'Everyday means categories with frequent, small charges: 3 or more a month, usually under $150 each, over the last three months. '
+        + `Bills and big payments are left out (${whole(bills.reduce((a, r) => a + r.plan, 0))} budgeted this month). This isn't the same as "Extra $$", which is income minus every budget.`;
+      $('ev-list').replaceChildren(tbl, how);
+    }
     const m = $('hero-meter'), fill = m.querySelector('i'), mark = m.querySelector('b');
     const pct = evPlan ? Math.min(1, evSpent / evPlan) : 0;
     fill.style.width = (100 * pct) + '%';
