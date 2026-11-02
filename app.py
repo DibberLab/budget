@@ -262,10 +262,12 @@ def create_app():
 
     with app.app_context():
         db.create_all()
-        _seed_default_categories()
+        # Bring older databases' columns up to date before anything reads the tables.
         _migrate_owner_columns()
         _migrate_split_column()
         _migrate_manual_date_columns()
+        _migrate_category_everyday()
+        _seed_default_categories()
 
     @app.before_request
     def _post_recurring():
@@ -362,6 +364,15 @@ def _migrate_manual_date_columns():
         if "bank_date" not in existing:
             conn.execute(_text("ALTER TABLE transactions ADD COLUMN bank_date DATE"))
         conn.commit()
+
+
+def _migrate_category_everyday():
+    """Add categories.everyday (the household's everyday-vs-bill choice) for existing DBs."""
+    from sqlalchemy import inspect as _sa_inspect, text as _text
+    if "everyday" not in {c["name"] for c in _sa_inspect(db.engine).get_columns("categories")}:
+        with db.engine.connect() as conn:
+            conn.execute(_text("ALTER TABLE categories ADD COLUMN everyday BOOLEAN"))
+            conn.commit()
 
 
 def _seed_default_categories():

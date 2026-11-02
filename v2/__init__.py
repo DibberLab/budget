@@ -275,8 +275,11 @@ def _chart_history(y: int, m: int, cats) -> dict:
         if mm:
             for cid, xs in mm["amounts"].items():
                 amounts[cid].extend(xs)
-    everyday = sorted(cid for cid, xs in amounts.items()
-                      if len(xs) / 3 >= 3 and sorted(xs)[len(xs) // 2] < 15000)
+    auto = {cid for cid, xs in amounts.items() if len(xs) / 3 >= 3 and sorted(xs)[len(xs) // 2] < 15000}
+    # The household's own choice wins over the guess (e.g. insurance billed in
+    # installments looks frequent and small, but it's a bill).
+    chosen = {c.id: c.everyday for c in cats if not c.is_income and c.everyday is not None}
+    everyday = sorted((auto | {cid for cid, v in chosen.items() if v}) - {cid for cid, v in chosen.items() if not v})
     return {"history": history, "usual": usual, "usual_months": len(curves),
             "last": last_cum, "last_label": date(py, pm, 1).strftime("%B"), "everyday": everyday}
 
@@ -1267,6 +1270,24 @@ def manage_category():
         return jsonify({"error": str(e)}), 400
     db.session.commit()
     return jsonify({"ok": True, "id": cat.id})
+
+
+@v2_bp.route("/manage/category/everyday", methods=["POST"])
+@login_required
+def manage_category_everyday():
+    """Body: {"id": int, "everyday": true | false | null}. Counts a category as
+    everyday spending (true), as a bill (false), or goes back to the automatic
+    guess (null) on Home."""
+    data = request.get_json(silent=True) or {}
+    cat = db.session.get(Category, data.get("id") or 0)
+    if not cat or cat.is_income:
+        return jsonify({"error": "Pick a spending category."}), 400
+    v = data.get("everyday")
+    if v not in (True, False, None):
+        return jsonify({"error": "everyday must be true, false or null."}), 400
+    cat.everyday = v
+    db.session.commit()
+    return jsonify({"ok": True, "id": cat.id, "everyday": v})
 
 
 @v2_bp.route("/manage/group", methods=["POST"])

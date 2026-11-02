@@ -3,7 +3,7 @@
 {% block wrap_class %}wide{% endblock %}
 {% macro line(r, kind) -%}
 <tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}"
-    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}" data-everyday="{{ 1 if r.cat.id in charts.everyday else 0 }}" data-retired="{{ 1 if r.cat.hidden else 0 }}">
+    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}" data-everyday="{{ 1 if r.cat.id in charts.everyday else 0 }}" data-evset="{{ '' if r.cat.everyday is none else (1 if r.cat.everyday else 0) }}" data-retired="{{ 1 if r.cat.hidden else 0 }}">
   <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="{{ r.avg_note }} · click for the months" data-avgd='{{ r.avg_detail|tojson }}'></button><span class="once" hidden></span></td>
   <td class="spent num"></td>
   <td class="amt"><label class="money"><input inputmode="decimal" class="num"{% if not editable %} readonly tabindex="-1"{% endif %} value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
@@ -108,7 +108,13 @@
   .ev-tbl td { padding: 4px 0 4px 10px; text-align: right; font-variant-numeric: tabular-nums; height: auto; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
   .ev-tbl td.over { color: var(--bad); }
   .ev-tbl tfoot td { font-weight: 650; border-bottom: 0; border-top: 1px solid var(--line); }
+  .ev-btn { font: inherit; font-size: 11.5px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
+  .ev-btn:hover { background: var(--track); color: var(--ink); }
+  .ev-btn.ev-undo { padding: 0 2px; color: var(--ink); text-decoration: underline dotted; text-underline-offset: 3px; }
+  .ev-you { color: var(--muted); font-size: 11.5px; }
+  .ev-add { margin-top: 8px; width: 100%; font-size: 13px; padding: 5px 8px; border-radius: 8px; background: var(--bg); }
   .ev-how { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .ev-extra .ev-how { margin-top: 6px; }
   .facts { margin: auto 0 0; padding-top: 16px; display: grid; gap: 0; }
   .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
   .facts dt { color: var(--muted); }
@@ -994,7 +1000,7 @@
     const exp = [], inc = [];
     $$('tr[data-cid]').forEach(tr => {
       const r = {tr, name: tr.querySelector('.nm').textContent, plan: +tr.dataset.plan, spent: +tr.dataset.spent,
-                 everyday: tr.dataset.everyday === '1', retired: tr.dataset.retired === '1'};
+                 everyday: tr.dataset.everyday === '1', evset: tr.dataset.evset, retired: tr.dataset.retired === '1', cid: +tr.dataset.cid};
       (tr.classList.contains('inc') ? inc : exp).push(r);
     });
     return {exp, inc};
@@ -1022,6 +1028,21 @@
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
   }
   const hideTip = () => { tip.hidden = true; };
+
+  // ---- everyday vs bill: the household's own call (saved on the category) ----
+  function evBtn(label, cid, value, title) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'ev-btn'; b.textContent = label; b.title = title;
+    b.addEventListener('click', e => { e.preventDefault(); setEveryday(cid, value); });
+    return b;
+  }
+  async function setEveryday(cid, value) {
+    try {
+      await postJSON('{{ url_for("v2.manage_category_everyday") }}', {id: cid, everyday: value});
+      try { sessionStorage.setItem('v2-ev-open', '1'); } catch (e) {}
+      location.reload();  // the split feeds the charts, projections and late-bill checks, all worked out on the server
+    } catch (e) { toast('Couldn\'t save: ' + e.message, true); }
+  }
+  try { if (sessionStorage.getItem('v2-ev-open')) { sessionStorage.removeItem('v2-ev-open'); addEventListener('load', () => { const d = $('ev-what'); if (d) { d.open = true; d.scrollIntoView({block: 'center'}); } }); } } catch (e) {}
 
   // ---- 1. hero: what's left for everyday spending ----
   function paintHero(exp, inc) {
@@ -1052,15 +1073,37 @@
       const bb = document.createElement('b'); bb.textContent = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3} more` : ''); sum$.append(bb);
       const tbl = document.createElement('table'); tbl.className = 'ev-tbl';
       const row = (cells, tag = 'td') => { const tr = document.createElement('tr');
-        cells.forEach((c, i) => { const td = document.createElement(tag); td.textContent = c; if (tag === 'td' && i === 3 && c.startsWith('-')) td.className = 'over'; tr.append(td); }); return tr; };
-      const th = document.createElement('thead'); th.append(row(['Category', 'Budget', 'Spent', 'Left'], 'th'));
-      const tb = document.createElement('tbody'); evs.forEach(r => tb.append(row([r.name, whole(r.plan), whole(r.spent), whole(r.plan - r.spent)])));
-      const tf = document.createElement('tfoot'); tf.append(row(['Total', whole(evPlan), whole(evSpent), whole(left)]));
+        cells.forEach((c, i) => { const td = document.createElement(tag); if (c instanceof Node) td.append(c); else td.textContent = c; if (tag === 'td' && i === 3 && String(c).startsWith('-')) td.className = 'over'; tr.append(td); }); return tr; };
+      const th = document.createElement('thead'); th.append(row(['Category', 'Budget', 'Spent', 'Left', ''], 'th'));
+      const tb = document.createElement('tbody');
+      evs.forEach(r => {
+        const name = document.createElement('span'); name.textContent = r.name;
+        if (r.evset === '1') { const t = document.createElement('small'); t.className = 'ev-you'; t.textContent = ' · added by you'; name.append(t); }
+        tb.append(row([name, whole(r.plan), whole(r.spent), whole(r.plan - r.spent), evBtn(r.evset === '1' ? 'Undo' : 'Not everyday', r.cid, r.evset === '1' ? null : false,
+          r.evset === '1' ? `Go back to letting the app decide for ${r.name}` : `Count ${r.name} as a bill instead`)]));
+      });
+      const tf = document.createElement('tfoot'); tf.append(row(['Total', whole(evPlan), whole(evSpent), whole(left), '']));
       tbl.append(th, tb, tf);
       const how = document.createElement('p'); how.className = 'ev-how';
-      how.textContent = 'Everyday means categories with frequent, small charges: 3 or more a month, usually under $150 each, over the last three months. '
+      how.textContent = 'Everyday is guessed from the charges (3 or more a month, usually under $150 each, over the last three months) unless you say otherwise above. '
         + `Bills and big payments are left out (${whole(bills.reduce((a, r) => a + r.plan, 0))} budgeted this month). This isn't the same as "Extra $$", which is income minus every budget.`;
-      $('ev-list').replaceChildren(tbl, how);
+      // Categories the household moved out, with a way back; and a way to add one.
+      const out = bills.filter(r => r.evset === '0');
+      const extra = document.createElement('div'); extra.className = 'ev-extra';
+      if (out.length) {
+        const p = document.createElement('p'); p.className = 'ev-how'; p.append('Counted as bills by you: ');
+        out.forEach((r, i) => { if (i) p.append(', '); const b = evBtn(r.name + ' ↺', r.cid, null, `Let the app decide for ${r.name} again`); b.classList.add('ev-undo'); p.append(b); });
+        extra.append(p);
+      }
+      const addable = bills.filter(r => r.evset !== '0' && !r.retired).sort((a, b) => a.name.localeCompare(b.name));
+      if (addable.length) {
+        const sel = document.createElement('select'); sel.className = 'ev-add'; sel.setAttribute('aria-label', 'Add a category to everyday');
+        sel.append(new Option('+ Add a category to everyday…', ''));
+        addable.forEach(r => sel.append(new Option(r.name, r.cid)));
+        sel.addEventListener('change', () => { if (sel.value) setEveryday(+sel.value, true); });
+        extra.append(sel);
+      }
+      $('ev-list').replaceChildren(tbl, extra, how);
     }
     const m = $('hero-meter'), fill = m.querySelector('i'), mark = m.querySelector('b');
     const pct = evPlan ? Math.min(1, evSpent / evPlan) : 0;
