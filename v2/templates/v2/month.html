@@ -316,11 +316,15 @@
            padding: 4px 3px; border-radius: 6px; margin-right: -4px; }
   .gdrag:hover, .gdrag:focus-visible { background: color-mix(in srgb, var(--ink) 12%, transparent); color: var(--ink); outline: none; }
   .gdrag:active { cursor: grabbing; }
+  .gdrag { touch-action: none; }  /* a finger on the handle drags; elsewhere it scrolls */
+  .drop-line { position: fixed; z-index: 40; height: 4px; border-radius: 4px; background: var(--accent); pointer-events: none;
+               box-shadow: 0 0 0 2px color-mix(in srgb, var(--card) 80%, transparent); }
+  .drop-line[hidden], .drag-ghost[hidden] { display: none; }
+  .drag-ghost { position: fixed; z-index: 41; pointer-events: none; padding: 6px 12px; border-radius: 10px; background: var(--ink); color: var(--bg);
+                font-size: 13.5px; font-weight: 650; box-shadow: 0 8px 24px rgba(0,0,0,.25); white-space: nowrap; }
+  body.dragging-group, body.dragging-group * { cursor: grabbing !important; user-select: none !important; -webkit-user-select: none !important; }
+  .gc-top { cursor: grab; }
   tr.group.dragging td, .gcard.dragging { opacity: .45; }
-  tr.group.drop-before td { box-shadow: inset 0 3px 0 var(--accent) !important; }
-  tr.group.drop-after td { box-shadow: inset 0 -3px 0 var(--accent) !important; }
-  .gcard.drop-before { box-shadow: -4px 0 0 var(--accent); } .gcard.drop-after { box-shadow: 4px 0 0 var(--accent); }
-  .gcard.drop-before.dy { box-shadow: 0 -4px 0 var(--accent); } .gcard.drop-after.dy { box-shadow: 0 4px 0 var(--accent); }
   .gc-top .gdrag { margin: -4px 2px -4px -8px; }
   dialog.reorder { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(400px, calc(100vw - 32px)); background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
   dialog.reorder::backdrop { background: rgba(0,0,0,.3); }
@@ -573,7 +577,7 @@
         {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="3"></td></tr>{% endif %}
         <tr class="gbar"><td colspan="3"><div class="gb" role="img" aria-label="{{ g }} spending by category"></div></td></tr>
         <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
-          <td><span class="gname">{% if g != 'Retired' %}<button type="button" class="gdrag" title="Drag to reorder groups (or focus and use ↑ ↓)" aria-label="Move group {{ g }}">⋮⋮</button>{% endif %}<span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span><button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="Sum of its categories' typical months ({{ avg_label }}) · click for the breakdown"></button></span></td>
+          <td><span class="gname">{% if g != 'Retired' %}<button type="button" class="gdrag" title="Drag to reorder (or press and drag the group name; arrow keys work too)" aria-label="Move group {{ g }}">⋮⋮</button>{% endif %}<span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span><button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="Sum of its categories' typical months ({{ avg_label }}) · click for the breakdown"></button></span></td>
           <td class="sub spent-sub"></td><td class="sub plan"></td>
         </tr>
         {% for r in rows %}{{ line(r, 'exp') }}{% endfor %}
@@ -1725,53 +1729,96 @@
     [o[i], o[j]] = [o[j], o[i]]; applyOrder(o); return true;
   }
 
-  // Drag and drop. A group is dragged by its handle; dropping on the top/left half puts it before.
-  let dragGroup = null;
-  function wireGroupDrag(el, name, handle, axisOf) {
-    handle.addEventListener('pointerdown', () => { el.draggable = true; });
-    handle.addEventListener('pointerup', () => { el.draggable = false; });  // a plain click, no drag
+  // ---- dragging groups: plain pointer events, so it works the same in every browser and on touch ----
+  // Mouse or pen: press anywhere on a group's header (or a card's title row) and move. Touch: the ⋮⋮
+  // handle (anywhere else a finger keeps scrolling the page). A press that doesn't move is a normal click.
+  const DRAG_PX = 6;
+  let drag = null, swallowClickUntil = 0, scrollRAF = 0, scrollV = 0;
+  const dropLine = document.createElement('div'); dropLine.className = 'drop-line'; dropLine.hidden = true; document.body.append(dropLine);
+  const ghost = document.createElement('div'); ghost.className = 'drag-ghost'; ghost.hidden = true; document.body.append(ghost);
+  const headerOf = name => $$('#sheet tr.group').find(g => g.dataset.group === name);
+  function startPress(e, name, view) {
+    if (e.button !== 0 || name === 'Retired') return;
+    if (e.target.closest('button:not(.gdrag), input, select, a, .money, .rename-in')) return;  // rename, avg and amounts keep their clicks
+    if (e.pointerType === 'touch' && !e.target.closest('.gdrag')) return;
+    drag = {name, view, x: e.clientX, y: e.clientY, on: false, id: e.pointerId, target: null};
+  }
+  addEventListener('pointermove', e => {
+    if (!drag || e.pointerId !== drag.id) return;
+    if (!drag.on) {
+      if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < DRAG_PX) return;
+      drag.on = true; document.body.classList.add('dragging-group');
+      ghost.textContent = drag.name; ghost.hidden = false;
+      (drag.view === 'list' ? groupBlock(headerOf(drag.name)) : [document.querySelector(`.gcard[data-group="${CSS.escape(drag.name)}"]`)])
+        .forEach(el => el && el.classList.add('dragging'));
+      getSelection()?.removeAllRanges();
+    }
+    e.preventDefault();
+    ghost.style.left = (e.clientX + 14) + 'px'; ghost.style.top = (e.clientY + 10) + 'px';
+    drag.target = dropTarget(e.clientX, e.clientY);
+    showLine(drag.target);
+    scrollV = e.clientY < 70 ? -Math.ceil((70 - e.clientY) / 5) : e.clientY > innerHeight - 70 ? Math.ceil((e.clientY - innerHeight + 70) / 5) : 0;
+    if (scrollV && !scrollRAF) scrollRAF = requestAnimationFrame(function step() { if (!scrollV || !drag) { scrollRAF = 0; return; } scrollBy(0, scrollV); scrollRAF = requestAnimationFrame(step); });
+  }, {passive: false});
+  addEventListener('pointerup', e => endDrag(e, true));
+  addEventListener('pointercancel', e => endDrag(e, false));
+  addEventListener('keydown', e => { if (e.key === 'Escape' && drag && drag.on) endDrag(null, false); });
+  function endDrag(e, commit) {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const d = drag; drag = null; scrollV = 0;
+    if (!d.on) return;  // just a click
+    swallowClickUntil = performance.now() + 400;  // the click that ends a drag shouldn't also fold a group or open a card
+    document.body.classList.remove('dragging-group'); ghost.hidden = true; dropLine.hidden = true;
+    $$('.dragging').forEach(el => el.classList.remove('dragging'));
+    if (commit && d.target) moveGroup(d.name, d.target.name, d.target.before);
+  }
+  document.addEventListener('click', e => { if (performance.now() < swallowClickUntil) { e.stopPropagation(); e.preventDefault(); swallowClickUntil = 0; } }, true);
+  // Where a drop would land: before or after the group under the pointer.
+  function dropTarget(x, y) {
+    let spots;
+    if (drag.view === 'list') {
+      spots = $$('#sheet tr.group').map(g => { const rows = groupBlock(g).filter(r => !r.classList.contains('hide') && r.offsetParent);
+        const t = rows[0].getBoundingClientRect(), bt = rows.at(-1).getBoundingClientRect();
+        return {name: g.dataset.group, top: t.top, bottom: bt.bottom, left: t.left, right: t.right}; });
+    } else {
+      spots = $$('.gcard').map(c => { const r = c.getBoundingClientRect(); return {name: c.dataset.group, top: r.top, bottom: r.bottom, left: r.left, right: r.right}; });
+    }
+    if (!spots.length) return null;
+    // The spot under the pointer, else the nearest one.
+    const dist = sp => Math.hypot(x < sp.left ? sp.left - x : x > sp.right ? x - sp.right : 0, y < sp.top ? sp.top - y : y > sp.bottom ? y - sp.bottom : 0);
+    const sp = spots.reduce((a, b2) => dist(b2) < dist(a) ? b2 : a);
+    let before = y < (sp.top + sp.bottom) / 2;
+    if (sp.name === 'Retired') before = true;  // nothing goes below Retired
+    return sp.name === drag.name ? null : {...sp, before};
+  }
+  function showLine(t) {
+    if (!t) { dropLine.hidden = true; return; }
+    dropLine.hidden = false;
+    dropLine.style.left = t.left + 'px'; dropLine.style.width = (t.right - t.left) + 'px';
+    dropLine.style.top = ((t.before ? t.top : t.bottom) - (drag.view === 'list' ? 2 : 7)) + 'px';
+  }
+  function wireHandleKeys(handle, name, view) {
     handle.addEventListener('click', e => e.stopPropagation());  // a click on the handle shouldn't fold the group
     handle.addEventListener('keydown', e => {
       e.stopPropagation();
       const dir = ['ArrowUp', 'ArrowLeft'].includes(e.key) ? -1 : ['ArrowDown', 'ArrowRight'].includes(e.key) ? 1 : 0;
-      if (dir) { e.preventDefault(); if (nudge(name, dir)) refocus(name, el.matches('tr') ? 'list' : 'cards'); }
-    });
-    el.addEventListener('dragstart', e => { if (!el.draggable) return; dragGroup = name; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', name); });
-    el.addEventListener('dragend', () => { el.draggable = false; el.classList.remove('dragging'); clearDrop(); dragGroup = null; });
-    el.addEventListener('dragover', e => {
-      if (!dragGroup || dragGroup === name) return;
-      e.preventDefault(); clearDrop();
-      const {before, axis} = axisOf(e); el.classList.add(before ? 'drop-before' : 'drop-after', axis);
-    });
-    el.addEventListener('drop', e => {
-      if (!dragGroup || dragGroup === name) return;
-      e.preventDefault(); const {before} = axisOf(e); const moved = dragGroup; clearDrop();
-      moveGroup(moved, name, before);
+      if (dir) { e.preventDefault(); if (nudge(name, dir)) refocus(name, view); }
     });
   }
-  const clearDrop = () => $$('.drop-before, .drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after', 'dx', 'dy'));
   function refocus(name, view) {
     const sel = view === 'list' ? `#sheet tr.group[data-group="${CSS.escape(name)}"] .gdrag` : `.gcard[data-group="${CSS.escape(name)}"] .gdrag`;
     requestAnimationFrame(() => document.querySelector(sel)?.focus());
   }
-  // List view: drop on any row of a group counts as that group's header.
   $$('#sheet tr.group').forEach(g => {
-    const h = g.querySelector('.gdrag'); if (!h) { wireDropOnly(g); return; }
-    wireGroupDrag(g, g.dataset.group, h, e => { const r = g.getBoundingClientRect(); return {before: e.clientY < r.top + r.height / 2, axis: 'dy'}; });
+    g.addEventListener('pointerdown', e => startPress(e, g.dataset.group, 'list'));
+    const h = g.querySelector('.gdrag'); if (h) wireHandleKeys(h, g.dataset.group, 'list');
   });
-  function wireDropOnly(g) {  // Retired: can't be moved, but dropping on it means "last"
-    g.addEventListener('dragover', e => { if (dragGroup) { e.preventDefault(); clearDrop(); g.classList.add('drop-before'); } });
-    g.addEventListener('drop', e => { if (dragGroup) { e.preventDefault(); const m = dragGroup; clearDrop(); moveGroup(m, 'Retired', true); } });
-  }
-  // Cards view: cards are re-drawn often, so wire them after each draw.
+  // Cards are redrawn often, so they're wired after each draw.
   function wireCards() {
     $$('.gcard').forEach(card => {
-      const h = card.querySelector('.gdrag'), name = card.dataset.group;
-      if (!h) return;
-      wireGroupDrag(card, name, h, e => {
-        const r = card.getBoundingClientRect(), wide = r.width > $('cards').getBoundingClientRect().width * .75;
-        return wide ? {before: e.clientY < r.top + r.height / 2, axis: 'dy'} : {before: e.clientX < r.left + r.width / 2, axis: 'dx'};
-      });
+      const name = card.dataset.group, top = card.querySelector('.gc-top'), h = card.querySelector('.gdrag');
+      if (top) top.addEventListener('pointerdown', e => startPress(e, name, 'cards'));
+      if (h) wireHandleKeys(h, name, 'cards');
     });
   }
 
