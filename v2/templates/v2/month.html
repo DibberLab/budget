@@ -3,7 +3,7 @@
 {% block wrap_class %}wide{% endblock %}
 {% macro line(r, kind) -%}
 <tr class="{{ kind }}{% if not r.plan %} zero{% endif %}" data-cid="{{ r.cat.id }}" data-plan="{{ r.plan }}" data-next="{{ r.next }}" data-spent="{{ r.spent }}"
-    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}" data-everyday="{{ 1 if r.cat.id in charts.everyday else 0 }}" data-retired="{{ 1 if r.cat.hidden else 0 }}">
+    data-avg="{{ r.avg }}" data-gname="{{ r.cat.group_name }}" data-everyday="{{ 1 if r.cat.id in charts.everyday else 0 }}" data-evset="{{ '' if r.cat.everyday is none else (1 if r.cat.everyday else 0) }}" data-retired="{{ 1 if r.cat.hidden else 0 }}">
   <td class="what"><span class="nm">{{ r.cat.name }}</span>{% if not r.cat.hidden %}<button type="button" class="ren" title="Rename" aria-label="Rename {{ r.cat.name }}">✎</button>{% endif %}<button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="{{ r.avg_note }} · click for the months" data-avgd='{{ r.avg_detail|tojson }}'></button><span class="once" hidden></span></td>
   <td class="spent num"></td>
   <td class="amt"><label class="money"><input inputmode="decimal" class="num"{% if not editable %} readonly tabindex="-1"{% endif %} value="{{ '{:,.2f}'.format(r.plan / 100) }}" aria-label="{{ r.cat.name }} monthly amount"></label></td>
@@ -108,7 +108,13 @@
   .ev-tbl td { padding: 4px 0 4px 10px; text-align: right; font-variant-numeric: tabular-nums; height: auto; border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
   .ev-tbl td.over { color: var(--bad); }
   .ev-tbl tfoot td { font-weight: 650; border-bottom: 0; border-top: 1px solid var(--line); }
+  .ev-btn { font: inherit; font-size: 11.5px; border: 0; background: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 6px; white-space: nowrap; }
+  .ev-btn:hover { background: var(--track); color: var(--ink); }
+  .ev-btn.ev-undo { padding: 0 2px; color: var(--ink); text-decoration: underline dotted; text-underline-offset: 3px; }
+  .ev-you { color: var(--muted); font-size: 11.5px; }
+  .ev-add { margin-top: 8px; width: 100%; font-size: 13px; padding: 5px 8px; border-radius: 8px; background: var(--bg); }
   .ev-how { margin: 8px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+  .ev-extra .ev-how { margin-top: 6px; }
   .facts { margin: auto 0 0; padding-top: 16px; display: grid; gap: 0; }
   .facts div { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
   .facts dt { color: var(--muted); }
@@ -305,6 +311,31 @@
 
   .main { display: grid; gap: 14px; min-width: 0; }
 
+  /* ---------- reorder groups: drag handles (list + cards) and a dialog with arrows ---------- */
+  .gdrag { font: inherit; font-size: 14px; letter-spacing: -2px; line-height: 1; border: 0; background: none; color: var(--muted); cursor: grab;
+           padding: 4px 3px; border-radius: 6px; margin-right: -4px; }
+  .gdrag:hover, .gdrag:focus-visible { background: color-mix(in srgb, var(--ink) 12%, transparent); color: var(--ink); outline: none; }
+  .gdrag:active { cursor: grabbing; }
+  tr.group.dragging td, .gcard.dragging { opacity: .45; }
+  tr.group.drop-before td { box-shadow: inset 0 3px 0 var(--accent) !important; }
+  tr.group.drop-after td { box-shadow: inset 0 -3px 0 var(--accent) !important; }
+  .gcard.drop-before { box-shadow: -4px 0 0 var(--accent); } .gcard.drop-after { box-shadow: 4px 0 0 var(--accent); }
+  .gcard.drop-before.dy { box-shadow: 0 -4px 0 var(--accent); } .gcard.drop-after.dy { box-shadow: 0 4px 0 var(--accent); }
+  .gc-top .gdrag { margin: -4px 2px -4px -8px; }
+  dialog.reorder { border: 1px solid var(--line); border-radius: 16px; padding: 0; width: min(400px, calc(100vw - 32px)); background: var(--card); color: var(--ink); box-shadow: 0 20px 60px rgba(0,0,0,.25); }
+  dialog.reorder::backdrop { background: rgba(0,0,0,.3); }
+  .reorder h2 { margin: 0; padding: 16px 18px 4px; font-size: 17px; }
+  .reorder p { margin: 0; padding: 0 18px 8px; font-size: 13px; color: var(--muted); }
+  .reorder ol { list-style: none; margin: 0; padding: 4px 10px; max-height: 60vh; overflow: auto; }
+  .reorder li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; gap: 8px; align-items: center; padding: 6px 8px; border-radius: 10px; font-size: 14.5px; }
+  .reorder li:hover { background: var(--track); }
+  .reorder li .n { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .reorder li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .reorder li button { font: inherit; font-size: 14px; width: 34px; height: 30px; border: 0; border-radius: 8px; background: var(--track); color: var(--ink); cursor: pointer; }
+  .reorder li button:disabled { opacity: .3; cursor: default; }
+  .reorder li.moved { animation: saved 1.2s ease-out; }
+  .ro-f { display: flex; justify-content: space-between; gap: 8px; padding: 12px 18px 16px; border-top: 1px solid var(--line); margin-top: 6px; }
+
   /* ---------- Money in: its own card, lighter and green-edged, so it never reads as an expense ---------- */
   .income { background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 9%, var(--card)), var(--card) 70%);
             border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--line)); border-radius: 16px; overflow: hidden; }
@@ -443,6 +474,7 @@
   <h1>{{ month_label }}</h1>
   {% if is_future %}<button type="button" class="foldall" id="copy-prev" title="Use the budgets from {{ prev_label }} for {{ month_name }}">Copy from {{ prev_label }}</button>{% endif %}
   <button type="button" class="foldall" id="charts-btn" aria-expanded="false"{% if is_future %} hidden{% endif %}>Show charts</button>
+  <button type="button" class="foldall" id="reorder-btn" title="Change the order of spending groups">Reorder groups</button>
   <button type="button" class="foldall" id="foldall">Collapse all</button>
   <a class="arrow" href="{{ url_for('v2.progress', y=prev[0], m=prev[1]) }}" aria-label="Previous month">‹</a>
   {% if can_next %}<a class="arrow" href="{{ url_for('v2.progress', y=nxt[0], m=nxt[1]) }}" aria-label="Next month">›</a>{% endif %}
@@ -541,7 +573,7 @@
         {% if not loop.first %}<tr class="gap" aria-hidden="true"><td colspan="3"></td></tr>{% endif %}
         <tr class="gbar"><td colspan="3"><div class="gb" role="img" aria-label="{{ g }} spending by category"></div></td></tr>
         <tr class="group" data-group="{{ g }}" tabindex="0" role="button" aria-expanded="true">
-          <td><span class="gname"><span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span><button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="Sum of its categories' typical months ({{ avg_label }}) · click for the breakdown"></button></span></td>
+          <td><span class="gname">{% if g != 'Retired' %}<button type="button" class="gdrag" title="Drag to reorder groups (or focus and use ↑ ↓)" aria-label="Move group {{ g }}">⋮⋮</button>{% endif %}<span class="chev" aria-hidden="true">▼</span><span class="gtitle">{{ g }}</span>{% if g != 'Retired' %}<button type="button" class="ren" title="Rename group" aria-label="Rename group {{ g }}">✎</button>{% endif %}<span class="cnt">{{ rows|length }} item{{ 's' if rows|length != 1 }}</span><button type="button" class="avgnote num" aria-haspopup="dialog" aria-expanded="false" title="Sum of its categories' typical months ({{ avg_label }}) · click for the breakdown"></button></span></td>
           <td class="sub spent-sub"></td><td class="sub plan"></td>
         </tr>
         {% for r in rows %}{{ line(r, 'exp') }}{% endfor %}
@@ -579,6 +611,12 @@
     <button type="button" class="btn" id="copy-apply">Copy selected</button></div>
 </dialog>
 <dialog class="panel" id="panel" aria-labelledby="pn-title"></dialog>
+<dialog class="reorder" id="reorder" aria-labelledby="ro-h">
+  <h2 id="ro-h">Order of groups</h2>
+  <p>Saved as you go, for everyone and every device. Drag groups on the page too.</p>
+  <ol id="ro-list"></ol>
+  <div class="ro-f"><button type="button" class="btn ghost" id="ro-reset" title="Biggest budget first">Biggest budget first</button><button type="button" class="btn" id="ro-done">Done</button></div>
+</dialog>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 {% endblock %}
 {% block scripts %}
@@ -994,7 +1032,7 @@
     const exp = [], inc = [];
     $$('tr[data-cid]').forEach(tr => {
       const r = {tr, name: tr.querySelector('.nm').textContent, plan: +tr.dataset.plan, spent: +tr.dataset.spent,
-                 everyday: tr.dataset.everyday === '1', retired: tr.dataset.retired === '1'};
+                 everyday: tr.dataset.everyday === '1', evset: tr.dataset.evset, retired: tr.dataset.retired === '1', cid: +tr.dataset.cid};
       (tr.classList.contains('inc') ? inc : exp).push(r);
     });
     return {exp, inc};
@@ -1022,6 +1060,21 @@
     tip.style.left = x + 'px'; tip.style.top = y + 'px';
   }
   const hideTip = () => { tip.hidden = true; };
+
+  // ---- everyday vs bill: the household's own call (saved on the category) ----
+  function evBtn(label, cid, value, title) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'ev-btn'; b.textContent = label; b.title = title;
+    b.addEventListener('click', e => { e.preventDefault(); setEveryday(cid, value); });
+    return b;
+  }
+  async function setEveryday(cid, value) {
+    try {
+      await postJSON('{{ url_for("v2.manage_category_everyday") }}', {id: cid, everyday: value});
+      try { sessionStorage.setItem('v2-ev-open', '1'); } catch (e) {}
+      location.reload();  // the split feeds the charts, projections and late-bill checks, all worked out on the server
+    } catch (e) { toast('Couldn\'t save: ' + e.message, true); }
+  }
+  try { if (sessionStorage.getItem('v2-ev-open')) { sessionStorage.removeItem('v2-ev-open'); addEventListener('load', () => { const d = $('ev-what'); if (d) { d.open = true; d.scrollIntoView({block: 'center'}); } }); } } catch (e) {}
 
   // ---- 1. hero: what's left for everyday spending ----
   function paintHero(exp, inc) {
@@ -1052,15 +1105,37 @@
       const bb = document.createElement('b'); bb.textContent = names.slice(0, 3).join(', ') + (names.length > 3 ? ` +${names.length - 3} more` : ''); sum$.append(bb);
       const tbl = document.createElement('table'); tbl.className = 'ev-tbl';
       const row = (cells, tag = 'td') => { const tr = document.createElement('tr');
-        cells.forEach((c, i) => { const td = document.createElement(tag); td.textContent = c; if (tag === 'td' && i === 3 && c.startsWith('-')) td.className = 'over'; tr.append(td); }); return tr; };
-      const th = document.createElement('thead'); th.append(row(['Category', 'Budget', 'Spent', 'Left'], 'th'));
-      const tb = document.createElement('tbody'); evs.forEach(r => tb.append(row([r.name, whole(r.plan), whole(r.spent), whole(r.plan - r.spent)])));
-      const tf = document.createElement('tfoot'); tf.append(row(['Total', whole(evPlan), whole(evSpent), whole(left)]));
+        cells.forEach((c, i) => { const td = document.createElement(tag); if (c instanceof Node) td.append(c); else td.textContent = c; if (tag === 'td' && i === 3 && String(c).startsWith('-')) td.className = 'over'; tr.append(td); }); return tr; };
+      const th = document.createElement('thead'); th.append(row(['Category', 'Budget', 'Spent', 'Left', ''], 'th'));
+      const tb = document.createElement('tbody');
+      evs.forEach(r => {
+        const name = document.createElement('span'); name.textContent = r.name;
+        if (r.evset === '1') { const t = document.createElement('small'); t.className = 'ev-you'; t.textContent = ' · added by you'; name.append(t); }
+        tb.append(row([name, whole(r.plan), whole(r.spent), whole(r.plan - r.spent), evBtn(r.evset === '1' ? 'Undo' : 'Not everyday', r.cid, r.evset === '1' ? null : false,
+          r.evset === '1' ? `Go back to letting the app decide for ${r.name}` : `Count ${r.name} as a bill instead`)]));
+      });
+      const tf = document.createElement('tfoot'); tf.append(row(['Total', whole(evPlan), whole(evSpent), whole(left), '']));
       tbl.append(th, tb, tf);
       const how = document.createElement('p'); how.className = 'ev-how';
-      how.textContent = 'Everyday means categories with frequent, small charges: 3 or more a month, usually under $150 each, over the last three months. '
+      how.textContent = 'Everyday is guessed from the charges (3 or more a month, usually under $150 each, over the last three months) unless you say otherwise above. '
         + `Bills and big payments are left out (${whole(bills.reduce((a, r) => a + r.plan, 0))} budgeted this month). This isn't the same as "Extra $$", which is income minus every budget.`;
-      $('ev-list').replaceChildren(tbl, how);
+      // Categories the household moved out, with a way back; and a way to add one.
+      const out = bills.filter(r => r.evset === '0');
+      const extra = document.createElement('div'); extra.className = 'ev-extra';
+      if (out.length) {
+        const p = document.createElement('p'); p.className = 'ev-how'; p.append('Counted as bills by you: ');
+        out.forEach((r, i) => { if (i) p.append(', '); const b = evBtn(r.name + ' ↺', r.cid, null, `Let the app decide for ${r.name} again`); b.classList.add('ev-undo'); p.append(b); });
+        extra.append(p);
+      }
+      const addable = bills.filter(r => r.evset !== '0' && !r.retired).sort((a, b) => a.name.localeCompare(b.name));
+      if (addable.length) {
+        const sel = document.createElement('select'); sel.className = 'ev-add'; sel.setAttribute('aria-label', 'Add a category to everyday');
+        sel.append(new Option('+ Add a category to everyday…', ''));
+        addable.forEach(r => sel.append(new Option(r.name, r.cid)));
+        sel.addEventListener('change', () => { if (sel.value) setEveryday(+sel.value, true); });
+        extra.append(sel);
+      }
+      $('ev-list').replaceChildren(tbl, extra, how);
     }
     const m = $('hero-meter'), fill = m.querySelector('i'), mark = m.querySelector('b');
     const pct = evPlan ? Math.min(1, evSpent / evPlan) : 0;
@@ -1465,7 +1540,7 @@
       card.className = 'gcard st-' + st; card.dataset.group = name;
       const avg = rows.reduce((a, r) => a + r.avg, 0);
       card.innerHTML = `
-        <div class="gc-top"><h3>${esc(name)}</h3><span class="pill">${label}</span></div>
+        <div class="gc-top">${name === 'Retired' ? '' : `<button type="button" class="gdrag" title="Drag to reorder groups (or focus and use arrow keys)" aria-label="Move group ${esc(name)}">⋮⋮</button>`}<h3>${esc(name)}</h3><span class="pill">${label}</span></div>
         <div class="gc-big"><b>${lw.big}</b><span class="w">${lw.word}</span><span class="of">${lw.of}</span></div>
         ${IS_FUTURE ? '' : `<div class="bar" role="img" aria-label="${Math.round(pct)}% spent"><i style="width:${pct}%"></i>${IS_CURRENT ? `<span class="pace" style="left:${PACE}%" title="${PACE}% of the month gone"></span>` : ''}</div>`}
         <div class="gc-meta"><span>${IS_FUTURE ? '' : (plan ? Math.round(100 * spent / plan) + '% spent' : whole(spent) + ' spent')}</span><span>${avg ? 'usually ' + whole(avg) : ''}</span></div>
@@ -1494,6 +1569,7 @@
       }
       box.append(card);
     }
+    wireCards();
   }
   $('cards').addEventListener('click', e => {
     const b = e.target.closest('.cat'); if (b) openPanel(b.dataset.cid);
@@ -1604,6 +1680,124 @@
   function openPanel(cid) { panelCid = cid; renderPanel(); if (!panel.open) panel.showModal(); }
   panel.addEventListener('click', e => { if (e.target === panel) panel.close(); });  // click the backdrop
   panel.addEventListener('close', () => { panelCid = null; });
+
+  // ---- group order: one order for the list and the cards, saved on the server after each move ----
+  const groupOrder = () => $$('#sheet tr.group').map(g => g.dataset.group);
+  // Everything that belongs to a group in the list: its bar, header, rows and any open transaction lists.
+  function groupBlock(g) {
+    const out = [];
+    if (g.previousElementSibling && g.previousElementSibling.matches('.gbar')) out.push(g.previousElementSibling);
+    out.push(g);
+    for (let tr = g.nextElementSibling; tr && !tr.matches('.group, .gap, .gbar'); tr = tr.nextElementSibling) out.push(tr);
+    return out;
+  }
+  let saveT, savedOrder = groupOrder().join('\u0000');
+  function applyOrder(names, {save = true} = {}) {
+    names = [...names.filter(n => n !== 'Retired'), ...(groupOrder().includes('Retired') ? ['Retired'] : [])];  // Retired stays last
+    const tbody = document.querySelector('#sheet tbody');
+    const byName = new Map($$('#sheet tr.group').map(g => [g.dataset.group, groupBlock(g)]));
+    $$('#sheet tr.gap').forEach(tr => tr.remove());
+    names.forEach((n, i) => {
+      const block = byName.get(n); if (!block) return;
+      if (i) { const gap = document.createElement('tr'); gap.className = 'gap'; gap.setAttribute('aria-hidden', 'true'); gap.innerHTML = '<td colspan="3"></td>'; tbody.append(gap); }
+      block.forEach(tr => tbody.append(tr));
+    });
+    totals();  // repaints fills, group bars and the cards in the new order
+    if (!save) return;
+    const key = groupOrder().join('\u0000');
+    if (key === savedOrder) return;
+    clearTimeout(saveT);
+    saveT = setTimeout(async () => {
+      try { await postJSON('{{ url_for("v2.budgets_group_order") }}', {order: groupOrder()}); savedOrder = groupOrder().join('\u0000'); toast('Group order saved'); }
+      catch (e) { toast('Couldn\'t save the order: ' + e.message, true); }
+    }, 350);
+  }
+  function moveGroup(name, target, before) {
+    const o = groupOrder().filter(n => n !== name);
+    let i = o.indexOf(target); if (i < 0) return;
+    if (target === 'Retired') { i = o.length - 1; before = true; }  // nothing goes below Retired
+    o.splice(before ? i : i + 1, 0, name);
+    applyOrder(o);
+  }
+  function nudge(name, dir) {
+    const o = groupOrder().filter(n => n !== 'Retired'), i = o.indexOf(name), j = i + dir;
+    if (i < 0 || j < 0 || j >= o.length) return false;
+    [o[i], o[j]] = [o[j], o[i]]; applyOrder(o); return true;
+  }
+
+  // Drag and drop. A group is dragged by its handle; dropping on the top/left half puts it before.
+  let dragGroup = null;
+  function wireGroupDrag(el, name, handle, axisOf) {
+    handle.addEventListener('pointerdown', () => { el.draggable = true; });
+    handle.addEventListener('pointerup', () => { el.draggable = false; });  // a plain click, no drag
+    handle.addEventListener('click', e => e.stopPropagation());  // a click on the handle shouldn't fold the group
+    handle.addEventListener('keydown', e => {
+      e.stopPropagation();
+      const dir = ['ArrowUp', 'ArrowLeft'].includes(e.key) ? -1 : ['ArrowDown', 'ArrowRight'].includes(e.key) ? 1 : 0;
+      if (dir) { e.preventDefault(); if (nudge(name, dir)) refocus(name, el.matches('tr') ? 'list' : 'cards'); }
+    });
+    el.addEventListener('dragstart', e => { if (!el.draggable) return; dragGroup = name; el.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', name); });
+    el.addEventListener('dragend', () => { el.draggable = false; el.classList.remove('dragging'); clearDrop(); dragGroup = null; });
+    el.addEventListener('dragover', e => {
+      if (!dragGroup || dragGroup === name) return;
+      e.preventDefault(); clearDrop();
+      const {before, axis} = axisOf(e); el.classList.add(before ? 'drop-before' : 'drop-after', axis);
+    });
+    el.addEventListener('drop', e => {
+      if (!dragGroup || dragGroup === name) return;
+      e.preventDefault(); const {before} = axisOf(e); const moved = dragGroup; clearDrop();
+      moveGroup(moved, name, before);
+    });
+  }
+  const clearDrop = () => $$('.drop-before, .drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after', 'dx', 'dy'));
+  function refocus(name, view) {
+    const sel = view === 'list' ? `#sheet tr.group[data-group="${CSS.escape(name)}"] .gdrag` : `.gcard[data-group="${CSS.escape(name)}"] .gdrag`;
+    requestAnimationFrame(() => document.querySelector(sel)?.focus());
+  }
+  // List view: drop on any row of a group counts as that group's header.
+  $$('#sheet tr.group').forEach(g => {
+    const h = g.querySelector('.gdrag'); if (!h) { wireDropOnly(g); return; }
+    wireGroupDrag(g, g.dataset.group, h, e => { const r = g.getBoundingClientRect(); return {before: e.clientY < r.top + r.height / 2, axis: 'dy'}; });
+  });
+  function wireDropOnly(g) {  // Retired: can't be moved, but dropping on it means "last"
+    g.addEventListener('dragover', e => { if (dragGroup) { e.preventDefault(); clearDrop(); g.classList.add('drop-before'); } });
+    g.addEventListener('drop', e => { if (dragGroup) { e.preventDefault(); const m = dragGroup; clearDrop(); moveGroup(m, 'Retired', true); } });
+  }
+  // Cards view: cards are re-drawn often, so wire them after each draw.
+  function wireCards() {
+    $$('.gcard').forEach(card => {
+      const h = card.querySelector('.gdrag'), name = card.dataset.group;
+      if (!h) return;
+      wireGroupDrag(card, name, h, e => {
+        const r = card.getBoundingClientRect(), wide = r.width > $('cards').getBoundingClientRect().width * .75;
+        return wide ? {before: e.clientY < r.top + r.height / 2, axis: 'dy'} : {before: e.clientX < r.left + r.width / 2, axis: 'dx'};
+      });
+    });
+  }
+
+  // Reorder dialog: arrows, works on any device.
+  function drawReorder(focusName, focusDir) {
+    const ol = $('ro-list'); ol.replaceChildren();
+    const o = groupOrder().filter(n => n !== 'Retired');
+    o.forEach((n, i) => {
+      const li = document.createElement('li'); if (n === focusName) li.className = 'moved';
+      const num = document.createElement('span'); num.className = 'n'; num.textContent = i + 1;
+      const nm = document.createElement('span'); nm.textContent = n;
+      const up = document.createElement('button'); up.type = 'button'; up.textContent = '↑'; up.disabled = i === 0; up.setAttribute('aria-label', `Move ${n} up`);
+      const dn = document.createElement('button'); dn.type = 'button'; dn.textContent = '↓'; dn.disabled = i === o.length - 1; dn.setAttribute('aria-label', `Move ${n} down`);
+      up.addEventListener('click', () => { nudge(n, -1); drawReorder(n, -1); });
+      dn.addEventListener('click', () => { nudge(n, 1); drawReorder(n, 1); });
+      li.append(num, nm, up, dn); ol.append(li);
+      if (n === focusName) requestAnimationFrame(() => { const b = focusDir < 0 ? up : dn; (b.disabled ? (focusDir < 0 ? dn : up) : b).focus(); });
+    });
+    if (groupOrder().includes('Retired')) { const li = document.createElement('li'); li.innerHTML = '<span class="n"></span><span style="color:var(--muted)">Retired (always last)</span>'; ol.append(li); }
+  }
+  $('reorder-btn').addEventListener('click', () => { drawReorder(); $('reorder').showModal(); });
+  $('ro-done').addEventListener('click', () => $('reorder').close());
+  $('ro-reset').addEventListener('click', () => {
+    const size = n => itemRows($$('#sheet tr.group').find(g => g.dataset.group === n)).reduce((a, tr) => a + +tr.dataset.plan, 0);
+    applyOrder(groupOrder().filter(n => n !== 'Retired').sort((a, b) => size(b) - size(a) || a.localeCompare(b))); drawReorder();
+  });
 
   // ---- List / Cards switch (remembered on this device) ----
   function setView(v) {

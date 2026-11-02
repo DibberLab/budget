@@ -52,6 +52,14 @@ class PayeeRule(db.Model):
     category = db.relationship("Category")
 
 
+class GroupOrder(db.Model):
+    """The household's order for spending groups on Home (shared by everyone,
+    every device). Groups not listed follow, biggest budget first."""
+    __tablename__ = "group_order"
+    name = db.Column(db.String(120), primary_key=True)
+    position = db.Column(db.Integer, nullable=False)
+
+
 class IncomePlan(db.Model):
     """Planned monthly income per income category. Kept separate from
     BudgetMonth because v1 treats every BudgetMonth row as money assigned
@@ -275,8 +283,11 @@ def _chart_history(y: int, m: int, cats) -> dict:
         if mm:
             for cid, xs in mm["amounts"].items():
                 amounts[cid].extend(xs)
-    everyday = sorted(cid for cid, xs in amounts.items()
-                      if len(xs) / 3 >= 3 and sorted(xs)[len(xs) // 2] < 15000)
+    auto = {cid for cid, xs in amounts.items() if len(xs) / 3 >= 3 and sorted(xs)[len(xs) // 2] < 15000}
+    # The household's own choice wins over the guess (e.g. insurance billed in
+    # installments looks frequent and small, but it's a bill).
+    chosen = {c.id: c.everyday for c in cats if not c.is_income and c.everyday is not None}
+    everyday = sorted((auto | {cid for cid, v in chosen.items() if v}) - {cid for cid, v in chosen.items() if not v})
     return {"history": history, "usual": usual, "usual_months": len(curves),
             "last": last_cum, "last_label": date(py, pm, 1).strftime("%B"), "everyday": everyday}
 
@@ -493,8 +504,11 @@ def progress():
                                      "spent": s_, "avg": round(-avg3.get(c.id, 0)), "avg_note": avg_note.get(c.id, ""), "avg_detail": avg_detail.get(c.id)})
     for items in groups.values():
         items.sort(key=lambda r: (-r["plan"], -r["spent"], r["cat"].name.lower()))
-    # Biggest groups first; Retired (spending with no budget) last.
-    ordered = sorted(groups.items(), key=lambda kv: (kv[0] == "Retired", -sum(r["plan"] for r in kv[1]), kv[0].lower()))
+    # The household's own order first, then any other group biggest budget first;
+    # Retired (spending with no budget) always last.
+    pos = {g.name: g.position for g in GroupOrder.query}
+    ordered = sorted(groups.items(), key=lambda kv: (kv[0] == "Retired", kv[0] not in pos, pos.get(kv[0], 0),
+                                                     -sum(r["plan"] for r in kv[1]), kv[0].lower()))
 
     days_in_month = monthrange(y, m)[1]
     days_elapsed = today.day if is_current else (0 if is_future else days_in_month)
@@ -1269,6 +1283,24 @@ def manage_category():
     return jsonify({"ok": True, "id": cat.id})
 
 
+@v2_bp.route("/manage/category/everyday", methods=["POST"])
+@login_required
+def manage_category_everyday():
+    """Body: {"id": int, "everyday": true | false | null}. Counts a category as
+    everyday spending (true), as a bill (false), or goes back to the automatic
+    guess (null) on Home."""
+    data = request.get_json(silent=True) or {}
+    cat = db.session.get(Category, data.get("id") or 0)
+    if not cat or cat.is_income:
+        return jsonify({"error": "Pick a spending category."}), 400
+    v = data.get("everyday")
+    if v not in (True, False, None):
+        return jsonify({"error": "everyday must be true, false or null."}), 400
+    cat.everyday = v
+    db.session.commit()
+    return jsonify({"ok": True, "id": cat.id, "everyday": v})
+
+
 @v2_bp.route("/manage/group", methods=["POST"])
 @login_required
 def manage_group():
@@ -1284,8 +1316,32 @@ def manage_group():
         return jsonify({"error": f"{new} already has: {', '.join(dupes)}."}), 400
     for c in moving:
         c.group_name = new
+    # Keep its place in the household's group order (a merge keeps the target's place).
+    old_pos = db.session.get(GroupOrder, old)
+    if old_pos:
+        if not db.session.get(GroupOrder, new):
+            db.session.add(GroupOrder(name=new, position=old_pos.position))
+        db.session.delete(old_pos)
     db.session.commit()
     return jsonify({"ok": True, "moved": len(moving)})
+
+
+@v2_bp.route("/budgets/group-order", methods=["POST"])
+@login_required
+def budgets_group_order():
+    """Body: {"order": [group name, ...]}. Saves the order of spending groups on Home."""
+    order = (request.get_json(silent=True) or {}).get("order")
+    if not isinstance(order, list) or not all(isinstance(n, str) for n in order):
+        return jsonify({"error": "order must be a list of group names."}), 400
+    seen, clean = set(), []
+    for n in (x.strip() for x in order):
+        if n and n != "Retired" and n not in seen:
+            seen.add(n); clean.append(n[:120])
+    GroupOrder.query.delete()
+    for i, n in enumerate(clean):
+        db.session.add(GroupOrder(name=n, position=i))
+    db.session.commit()
+    return jsonify({"ok": True, "saved": len(clean)})
 
 
 @v2_bp.route("/manage/group/retire", methods=["POST"])

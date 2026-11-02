@@ -117,6 +117,9 @@ class Category(db.Model):
     is_income = db.Column(db.Boolean, nullable=False, default=False)
     hidden = db.Column(db.Boolean, nullable=False, default=False)
     sort_order = db.Column(db.Integer, default=0)
+    # Everyday spending vs bill on Home: None = decided from the charges (frequent
+    # and small), True / False = the household's own call, which always wins.
+    everyday = db.Column(db.Boolean, nullable=True)
 
     __table_args__ = (UniqueConstraint("name", "group_name", name="uq_cat_name_group"),)
 
